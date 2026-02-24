@@ -1,6 +1,7 @@
 /target
 /pkg
 /wasm/pkg
+/wasm/node.js
 /node_modules
 /.wasm-tools
 /.cargo-home

@@ -24,7 +24,9 @@ Fast Markdown-to-HTML parser written in Rust. Fully compliant with [CommonMark 0
 npm install ironmark
 ```
 
-### Usage
+### Usage (Node.js)
+
+WASM is embedded and loaded synchronously — no `init()` needed:
 
 ```ts
 import { parse } from "ironmark";
@@ -34,6 +36,20 @@ const html = parse("# Hello\n\nThis is **fast**.");
 const bytes = new TextEncoder().encode("# Hello from bytes");
 const html2 = parse(bytes);
 ```
+
+### Usage (Browser / Bundler)
+
+Call `init()` once before using `parse()`:
+
+```ts
+import { init, parse } from "ironmark";
+
+await init();
+
+const html = parse("# Hello\n\nThis is **fast**.");
+```
+
+`init()` is idempotent (safe to call multiple times) and can optionally take a custom URL to the `.wasm` file.
 
 ### Options
 

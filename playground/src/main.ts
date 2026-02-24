@@ -1,5 +1,8 @@
 import "./style.css";
-import { parse } from "../../wasm/pkg/ironmark.js";
+import { init, parse } from "ironmark";
+import wasmUrl from "../../wasm/pkg/ironmark_bg.wasm?url";
+
+await init(wasmUrl);
 
 const DEFAULT_MARKDOWN = `# Markdown Playground
 
@@ -142,7 +145,7 @@ editor.addEventListener("keydown", (e) => {
   }
 });
 
-// WASM initializes eagerly with vite-plugin-wasm, no init() needed
+// WASM initializes via top-level await in wasm-init.ts
 editor.disabled = false;
 editor.value = DEFAULT_MARKDOWN;
 editor.focus();

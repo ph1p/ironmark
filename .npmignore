@@ -8,6 +8,7 @@ target/
 .github/
 wasm/Cargo.toml
 wasm/src/
+wasm/build.mjs
 Cargo.toml
 Cargo.lock
 pnpm-lock.yaml

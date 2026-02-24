@@ -24,4 +24,21 @@ export interface ParseOptions {
  * @param options - Optional parsing options.
  * @returns HTML string.
  */
+/**
+ * Initialize the WASM module.
+ *
+ * - **Node.js**: This is a no-op — WASM is embedded and loaded synchronously at import time.
+ * - **Browser/Bundler**: Must be called (and awaited) before using `parse()`.
+ *   Optionally pass a URL or `WebAssembly.Module` to override the default WASM location.
+ *   Calling `init()` multiple times is safe (subsequent calls are no-ops).
+ */
+export declare function init(input?: string | URL | WebAssembly.Module): Promise<void>;
+
+/**
+ * Parse Markdown to HTML.
+ *
+ * @param markdown - Markdown source (string or binary).
+ * @param options - Optional parsing options.
+ * @returns HTML string.
+ */
 export declare function parse(markdown: MarkdownInput, options?: ParseOptions): string;

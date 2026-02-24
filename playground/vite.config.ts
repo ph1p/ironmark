@@ -1,8 +1,10 @@
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
-import wasm from "vite-plugin-wasm";
 
 export default defineConfig({
-  base: "/ironmark/",
-  plugins: [tailwindcss(), wasm()],
+  base: process.env.BASE_URL || "/",
+  plugins: [tailwindcss()],
+  build: {
+    target: "esnext",
+  },
 });

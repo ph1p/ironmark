@@ -19,21 +19,37 @@
   },
   "files": [
     "wasm/pkg",
-    "wasm/index.js",
+    "wasm/shared.js",
+    "wasm/web.js",
+    "wasm/node.js",
     "wasm/index.d.ts",
     "README.md"
   ],
   "type": "module",
   "sideEffects": false,
-  "main": "wasm/index.js",
+  "main": "wasm/node.js",
+  "module": "wasm/web.js",
   "types": "wasm/index.d.ts",
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./wasm/index.d.ts",
+        "default": "./wasm/node.js"
+      },
+      "default": {
+        "types": "./wasm/index.d.ts",
+        "default": "./wasm/web.js"
+      }
+    },
+    "./wasm/*": "./wasm/*"
+  },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "npm run build:wasm",
-    "build:dev": "PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" cargo build -p ironmark-wasm --target wasm32-unknown-unknown && PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/debug/ironmark.wasm",
+    "build": "npm run build:wasm && node wasm/build.mjs",
+    "build:dev": "PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" cargo build -p ironmark-wasm --target wasm32-unknown-unknown && PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/debug/ironmark.wasm && node wasm/build.mjs",
     "build:wasm": "PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" cargo build -p ironmark-wasm --release --target wasm32-unknown-unknown && PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/release/ironmark.wasm && wasm-opt --enable-bulk-memory -O3 wasm/pkg/ironmark_bg.wasm -o wasm/pkg/ironmark_bg.wasm",
     "check": "cargo fmt --check && cargo test --offline && oxlint && oxfmt --check .",
     "clean": "rm -rf wasm/pkg .wasm-tools",
