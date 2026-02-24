@@ -13,6 +13,7 @@ use crate::html::trim_cr;
 use crate::inline::{InlineBuffers, LinkRefMap};
 use crate::render::render_html;
 use crate::ParseOptions;
+use ahash::HashMapExt;
 use std::borrow::Cow;
 
 pub fn parse(markdown: &str, options: &ParseOptions) -> String {

@@ -2,7 +2,7 @@ use super::*;
 
 #[inline(always)]
 pub(super) fn memchr_newline(bytes: &[u8], start: usize) -> usize {
-    match bytes[start..].iter().position(|&b| b == b'\n') {
+    match memchr::memchr(b'\n', &bytes[start..]) {
         Some(offset) => start + offset,
         None => bytes.len(),
     }
@@ -236,7 +236,30 @@ pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = inner.strip_suffix('|').unwrap_or(inner);
 
-    // Split on unescaped pipes
+    // Fast path: check if there are any escaped pipes at all
+    let has_escaped_pipe = {
+        let bytes = inner.as_bytes();
+        let mut j = 0;
+        let mut found = false;
+        while j + 1 < bytes.len() {
+            if bytes[j] == b'\\' && bytes[j + 1] == b'|' {
+                found = true;
+                break;
+            }
+            j += 1;
+        }
+        found
+    };
+
+    if !has_escaped_pipe {
+        // No escaped pipes: split directly on '|' using slices
+        let mut cells: Vec<String> = inner.split('|').map(|s| s.trim().to_string()).collect();
+        cells.resize(num_cols, String::new());
+        cells.truncate(num_cols);
+        return cells;
+    }
+
+    // Slow path: handle escaped pipes
     let mut cells = Vec::new();
     let mut current = String::new();
     let bytes = inner.as_bytes();

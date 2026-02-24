@@ -88,6 +88,10 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
 /// Resolve HTML entity references and backslash escapes in a string
 pub(super) fn resolve_entities_and_escapes(s: &str) -> String {
     let bytes = s.as_bytes();
+    // Fast path: if no special chars, return directly
+    if memchr::memchr2(b'\\', b'&', bytes).is_none() {
+        return s.to_string();
+    }
     let mut out = String::with_capacity(s.len());
     let mut i = 0;
     while i < bytes.len() {

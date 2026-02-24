@@ -131,9 +131,14 @@ pub(crate) fn encode_url_escaped_into(out: &mut String, url: &str) {
         };
         for j in 0..ch_len {
             if i + j < len {
-                out.push('%');
-                out.push(HEX_CHARS[(bytes[i + j] >> 4) as usize] as char);
-                out.push(HEX_CHARS[(bytes[i + j] & 0xF) as usize] as char);
+                let b = bytes[i + j];
+                let enc: [u8; 3] = [
+                    b'%',
+                    HEX_CHARS[(b >> 4) as usize],
+                    HEX_CHARS[(b & 0xF) as usize],
+                ];
+                // SAFETY: HEX_CHARS only contains ASCII hex digits
+                out.push_str(unsafe { std::str::from_utf8_unchecked(&enc) });
             }
         }
         i += ch_len;

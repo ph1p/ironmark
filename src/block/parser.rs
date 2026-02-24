@@ -25,12 +25,11 @@ impl<'a> BlockParser<'a> {
                 if fi == 0 {
                     self.open[1].content.push_str(rem);
                 } else {
-                    let mut content_line = line.clone();
-                    let _ = content_line.skip_indent(fi);
-                    if content_line.partial_spaces == 0 {
-                        self.open[1].content.push_str(content_line.remainder());
+                    let _ = line.skip_indent(fi);
+                    if line.partial_spaces == 0 {
+                        self.open[1].content.push_str(line.remainder());
                     } else {
-                        let content = content_line.remainder_with_partial();
+                        let content = line.remainder_with_partial();
                         self.open[1].content.push_str(&content);
                     }
                 }
@@ -164,14 +163,11 @@ impl<'a> BlockParser<'a> {
                             // No indent to strip - fast path
                             self.open[tip_idx].content.push_str(rem);
                         } else {
-                            let mut content_line = line.clone();
-                            let _ = content_line.skip_indent(fi);
-                            if content_line.partial_spaces == 0 {
-                                self.open[tip_idx]
-                                    .content
-                                    .push_str(content_line.remainder());
+                            let _ = line.skip_indent(fi);
+                            if line.partial_spaces == 0 {
+                                self.open[tip_idx].content.push_str(line.remainder());
                             } else {
-                                let content = content_line.remainder_with_partial();
+                                let content = line.remainder_with_partial();
                                 self.open[tip_idx].content.push_str(&content);
                             }
                         }
@@ -181,9 +177,8 @@ impl<'a> BlockParser<'a> {
                     OpenBlockType::IndentedCode => {
                         if line.is_blank() {
                             // Preserve indent beyond 4 columns for blank lines too
-                            let mut bl = line.clone();
-                            let _ = bl.skip_indent(4);
-                            let rest = bl.remainder_with_partial();
+                            let _ = line.skip_indent(4);
+                            let rest = line.remainder_with_partial();
                             if !self.open[tip_idx].content.is_empty() {
                                 self.open[tip_idx].content.push('\n');
                             }
@@ -783,12 +778,15 @@ impl<'a> BlockParser<'a> {
                 rows,
             }),
             OpenBlockType::Paragraph => {
-                let trimmed = block.content.trim();
-                if trimmed.is_empty() {
+                if block
+                    .content
+                    .as_bytes()
+                    .iter()
+                    .all(|&b| matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
+                {
                     return None;
                 }
-                // Try to extract link reference definitions
-                // Optimize: avoid copy when no ref defs are extracted and content is already trimmed
+                // extract_ref_defs_owned handles trimming internally
                 let remaining = self.extract_ref_defs_owned(block.content);
                 if remaining.is_empty() {
                     return None;

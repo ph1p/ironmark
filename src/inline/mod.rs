@@ -5,8 +5,8 @@ mod scanner;
 use crate::entities;
 use crate::html::escape_html_into;
 use crate::ParseOptions;
+use ahash::HashMap;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LinkReference {
@@ -195,6 +195,7 @@ pub(crate) fn parse_inline_pass(
         p.process_emphasis(0);
     }
     p.render_to_html(out, opts);
+    bufs.shrink_if_needed();
 }
 
 fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
@@ -408,6 +409,19 @@ impl InlineBuffers {
             delims: Vec::new(),
             brackets: Vec::new(),
             links: Vec::new(),
+        }
+    }
+
+    /// Shrink buffers if they've grown excessively relative to usage.
+    pub(crate) fn shrink_if_needed(&mut self) {
+        const SHRINK_THRESHOLD: usize = 4;
+        let items_len = self.items.len();
+        if self.items.capacity() > 64 && self.items.capacity() > items_len * SHRINK_THRESHOLD {
+            self.items.shrink_to(items_len * 2);
+        }
+        let delims_len = self.delims.len();
+        if self.delims.capacity() > 64 && self.delims.capacity() > delims_len * SHRINK_THRESHOLD {
+            self.delims.shrink_to(delims_len * 2);
         }
     }
 }
