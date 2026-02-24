@@ -30,13 +30,15 @@ jobs:
         run: cargo install wasm-bindgen-cli --locked
 
       - name: Install binaryen
-        run: sudo apt-get install -y binaryen
+        run: |
+          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_126/binaryen-version_126-x86_64-linux.tar.gz | tar -xz
+          sudo cp binaryen-version_126/bin/* /usr/local/bin/
 
       - name: Build WASM
         run: |
           cargo build -p ironmark-wasm --release --target wasm32-unknown-unknown
           wasm-bindgen --target bundler --out-dir pkg --out-name ironmark target/wasm32-unknown-unknown/release/ironmark.wasm
-          wasm-opt --enable-bulk-memory -O3 pkg/ironmark_bg.wasm -o pkg/ironmark_bg.wasm
+          wasm-opt -O3 pkg/ironmark_bg.wasm -o pkg/ironmark_bg.wasm
 
       - uses: pnpm/action-setup@v4
 
