@@ -30,7 +30,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 memchr = "2"
-ahash = "0.8"
+ahash = { version = "0.8", default-features = false, features = ["std", "no-rng"] }
 
 [workspace]
 members = ["wasm"]
