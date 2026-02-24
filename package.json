@@ -41,7 +41,7 @@
         "default": "./wasm/web.js"
       }
     },
-    "./wasm/*": "./wasm/*"
+    "./ironmark.wasm": "./wasm/pkg/ironmark_bg.wasm"
   },
   "publishConfig": {
     "access": "public",

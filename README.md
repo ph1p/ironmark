@@ -1,5 +1,7 @@
 # ironmark
 
+[![CI](https://github.com/ph1p/ironmark/actions/workflows/ci.yml/badge.svg)](https://github.com/ph1p/ironmark/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/ironmark)](https://www.npmjs.com/package/ironmark) [![crates.io](https://img.shields.io/crates/v/ironmark)](https://crates.io/crates/ironmark)
+
 Fast Markdown-to-HTML parser written in Rust. Fully compliant with [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) (652/652 spec tests pass). Available as a Rust crate and as an npm package via WebAssembly.
 
 ## Features
@@ -50,6 +52,17 @@ const html = parse("# Hello\n\nThis is **fast**.");
 ```
 
 `init()` is idempotent (safe to call multiple times) and can optionally take a custom URL to the `.wasm` file.
+
+#### vite
+
+```ts
+import { init, parse } from "ironmark";
+import wasmUrl from "ironmark/ironmark.wasm?url";
+
+await init(wasmUrl);
+
+const html = parse("# Hello\n\nThis is **fast**.");
+```
 
 ### Options
 
