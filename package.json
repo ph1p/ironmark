@@ -12,25 +12,21 @@
   "bugs": {
     "url": "https://github.com/ph1p/ironmark/issues"
   },
-  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/ph1p/ironmark.git"
   },
+  "license": "MIT",
+  "sideEffects": false,
+  "type": "module",
+  "main": "wasm/index.js",
+  "types": "wasm/index.d.ts",
   "files": [
     "wasm/pkg",
     "wasm/index.js",
     "wasm/index.d.ts",
     "README.md"
   ],
-  "type": "module",
-  "sideEffects": false,
-  "main": "wasm/index.js",
-  "types": "wasm/index.d.ts",
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
   "scripts": {
     "build": "npm run build:wasm",
     "build:dev": "PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" cargo build -p ironmark-wasm --target wasm32-unknown-unknown && PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/debug/ironmark.wasm",
@@ -55,8 +51,13 @@
     "oxlint": "^1.50.0",
     "semantic-release": "^25.0.3"
   },
+  "packageManager": "pnpm@10.30.2",
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "prepack": "npm run build"
 }
