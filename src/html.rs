@@ -9,30 +9,20 @@ pub(crate) fn escape_html(input: &str) -> String {
 pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     let bytes = input.as_bytes();
     let len = bytes.len();
-
-    static NEEDS_ESCAPE: [bool; 256] = {
-        let mut t = [false; 256];
-        t[b'&' as usize] = true;
-        t[b'<' as usize] = true;
-        t[b'>' as usize] = true;
-        t[b'"' as usize] = true;
-        t
-    };
-
     let mut last = 0;
     let mut i = 0;
 
     while i < len {
-        if !NEEDS_ESCAPE[bytes[i] as usize] {
+        let b = bytes[i];
+        if b != b'&' && b != b'<' && b != b'>' && b != b'"' {
             i += 1;
             continue;
         }
-        let replacement = match bytes[i] {
+        let replacement = match b {
             b'&' => "&amp;",
             b'<' => "&lt;",
             b'>' => "&gt;",
-            b'"' => "&quot;",
-            _ => unreachable!(),
+            _ => "&quot;",
         };
         if last < i {
             out.push_str(unsafe { input.get_unchecked(last..i) });
@@ -49,7 +39,7 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
 
 static HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
 
-pub(crate) static URL_HTML_SAFE: [bool; 256] = {
+static URL_HTML_SAFE: [bool; 256] = {
     let mut t = [false; 256];
     let mut i = b'A';
     while i <= b'Z' {

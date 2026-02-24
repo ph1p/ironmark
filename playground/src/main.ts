@@ -2,6 +2,7 @@ import "./style.css";
 import { init, parse } from "ironmark";
 import wasmUrl from "ironmark/ironmark.wasm?url";
 import { createHighlighter } from "shiki";
+import { version } from "../../package.json";
 
 const [, highlighter] = await Promise.all([
   init(wasmUrl),
@@ -70,7 +71,7 @@ app.innerHTML = `
     <header class="flex items-center justify-between px-5 py-3 border-b border-zinc-800 shrink-0">
       <div class="flex items-center gap-3">
         <h1 class="text-base font-semibold tracking-tight">Markdown Playground</h1>
-        <span class="text-xs text-zinc-500 font-mono">ironmark</span>
+        <span class="text-xs text-zinc-500 font-mono">ironmark v${version}</span>
       </div>
       <div class="flex items-center gap-3">
         <div id="status" class="text-xs text-zinc-500 font-mono">loading wasm…</div>
@@ -133,7 +134,6 @@ const htmlPanel = document.querySelector<HTMLDivElement>("#html-panel")!;
 const tabPreview = document.querySelector<HTMLButtonElement>("#tab-preview")!;
 const tabHtml = document.querySelector<HTMLButtonElement>("#tab-html")!;
 
-// Tab switching
 function setTab(tab: "preview" | "html") {
   const isPreview = tab === "preview";
   previewPanel.classList.toggle("hidden", !isPreview);
@@ -151,13 +151,12 @@ function setTab(tab: "preview" | "html") {
 tabPreview.addEventListener("click", () => setTab("preview"));
 tabHtml.addEventListener("click", () => setTab("html"));
 
-// Highlight editor markdown with shiki
 function highlightEditor(md: string) {
   editorHighlight.innerHTML = highlighter.codeToHtml(md, {
     lang: "markdown",
     theme: "github-dark-default",
   });
-  // Sync scroll
+
   const pre = editorHighlight.querySelector("pre");
   if (pre) {
     pre.style.margin = "0";
@@ -168,7 +167,6 @@ function highlightEditor(md: string) {
   }
 }
 
-// Parse markdown using WASM
 function parseMarkdown(md: string) {
   const start = performance.now();
   const html = parse(md);
@@ -176,7 +174,6 @@ function parseMarkdown(md: string) {
   preview.innerHTML = html;
   status.textContent = `${elapsed}ms`;
 
-  // Highlight code blocks in preview with shiki
   preview.querySelectorAll("pre code").forEach((block) => {
     const lang =
       [...block.classList].find((c) => c.startsWith("language-"))?.replace("language-", "") ||
@@ -193,23 +190,19 @@ function parseMarkdown(md: string) {
     }
   });
 
-  // Highlight HTML source tab
   htmlSource.innerHTML = highlighter.codeToHtml(html, {
     lang: "html",
     theme: "github-dark-default",
   });
 
-  // Highlight editor
   highlightEditor(md);
 }
 
-// Sync scroll between textarea and highlight layer
 editor.addEventListener("scroll", () => {
   editorHighlight.scrollTop = editor.scrollTop;
   editorHighlight.scrollLeft = editor.scrollLeft;
 });
 
-// Debounced input
 let timer: ReturnType<typeof setTimeout>;
 
 editor.addEventListener("input", () => {
@@ -217,7 +210,6 @@ editor.addEventListener("input", () => {
   timer = setTimeout(() => parseMarkdown(editor.value), 50);
 });
 
-// Handle tab key in editor
 editor.addEventListener("keydown", (e) => {
   if (e.key === "Tab") {
     e.preventDefault();
@@ -229,7 +221,6 @@ editor.addEventListener("keydown", (e) => {
   }
 });
 
-// WASM initializes via top-level await in wasm-init.ts
 editor.disabled = false;
 editor.value = DEFAULT_MARKDOWN;
 editor.focus();

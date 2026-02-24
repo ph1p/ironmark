@@ -1,4 +1,4 @@
-use ironmark::{parse, ParseOptions};
+use ironmark::{ParseOptions, parse};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 

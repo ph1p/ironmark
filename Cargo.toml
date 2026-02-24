@@ -1,7 +1,7 @@
 [package]
 name = "ironmark"
 version = "1.1.3"
-edition = "2021"
+edition = "2024"
 description = "Fast Markdown to HTML parser written in Rust with WebAssembly bindings"
 license = "MIT"
 authors = ["ph1p"]
@@ -30,7 +30,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 memchr = "2"
-ahash = { version = "0.8", default-features = false, features = ["std", "no-rng"] }
+rustc-hash = "2"
 
 [workspace]
 members = ["wasm"]
@@ -45,3 +45,7 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[profile.release-wasm]
+inherits = "release"
+opt-level = "z"

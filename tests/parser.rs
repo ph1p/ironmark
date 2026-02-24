@@ -1,4 +1,4 @@
-use ironmark::{parse, ParseOptions};
+use ironmark::{ParseOptions, parse};
 
 fn assert_html(md: &str, expected: &str) {
     let opts = ParseOptions {

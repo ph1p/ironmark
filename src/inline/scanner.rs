@@ -6,11 +6,11 @@ impl<'a> InlineScanner<'a> {
 
         while self.pos < self.bytes.len() {
             let b = self.bytes[self.pos];
-            if !ANY_SPECIAL[b as usize] {
+            if SPECIAL[b as usize] == 0 {
                 self.pos += 1;
                 while self.pos < self.bytes.len() {
                     let b2 = self.bytes[self.pos];
-                    if ANY_SPECIAL[b2 as usize] {
+                    if SPECIAL[b2 as usize] != 0 {
                         break;
                     }
                     self.pos += 1;
@@ -188,8 +188,10 @@ impl<'a> InlineScanner<'a> {
         }
         let after_open = self.pos;
         loop {
-            while self.pos < self.bytes.len() && self.bytes[self.pos] != b'`' {
-                self.pos += 1;
+            if let Some(idx) = memchr::memchr(b'`', &self.bytes[self.pos..]) {
+                self.pos += idx;
+            } else {
+                self.pos = self.bytes.len();
             }
             if self.pos >= self.bytes.len() {
                 self.items.push(InlineItem::TextRange(start, after_open));
@@ -247,24 +249,7 @@ impl<'a> InlineScanner<'a> {
         } else {
             ' '
         };
-
-        let left_flanking = !after.is_whitespace()
-            && (!is_punctuation_char(after)
-                || before.is_whitespace()
-                || is_punctuation_char(before));
-        let right_flanking = !before.is_whitespace()
-            && (!is_punctuation_char(before)
-                || after.is_whitespace()
-                || is_punctuation_char(after));
-
-        let (can_open, can_close) = if marker == b'_' {
-            (
-                left_flanking && (!right_flanking || is_punctuation_char(before)),
-                right_flanking && (!left_flanking || is_punctuation_char(after)),
-            )
-        } else {
-            (left_flanking, right_flanking)
-        };
+        let (can_open, can_close) = flanking(marker, before, after);
 
         let idx = self.items.len();
         self.items.push(InlineItem::DelimRun {
@@ -562,12 +547,10 @@ impl<'a> InlineScanner<'a> {
             return false;
         }
 
-        let url = &self.input[scheme_start..end];
-
         self.flush_text_range(text_start, scheme_start);
 
         self.items
-            .push(InlineItem::RawHtmlOwned(build_autolink_html("", url)));
+            .push(InlineItem::Autolink(scheme_start as u32, end as u32, false));
 
         self.pos = end;
         true
@@ -656,14 +639,10 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        let email = &self.input[local_start..end];
-
         self.flush_text_range(text_start, local_start);
 
         self.items
-            .push(InlineItem::RawHtmlOwned(build_autolink_html(
-                "mailto:", email,
-            )));
+            .push(InlineItem::Autolink(local_start as u32, end as u32, true));
 
         self.pos = end;
         true

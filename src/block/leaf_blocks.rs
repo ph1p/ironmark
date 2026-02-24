@@ -43,16 +43,13 @@ pub(super) fn parse_atx_heading(line: &str) -> Option<(u8, &str)> {
     if level > 6 {
         return None;
     }
-    // Must be followed by space/tab or end of line
     if i < bytes.len() && bytes[i] != b' ' && bytes[i] != b'\t' {
         return None;
     }
-    // Get content: skip leading space, then trim closing #s
     let content = if i >= bytes.len() {
         ""
     } else {
         let raw_content = &line[i..].trim();
-        // Strip optional closing # sequence
         strip_closing_hashes(raw_content)
     };
     Some((level, content))
@@ -63,7 +60,6 @@ pub(super) fn strip_closing_hashes(s: &str) -> &str {
     if bytes.is_empty() {
         return s;
     }
-    // Find trailing # sequence preceded by space or at start
     let mut end = bytes.len();
     while end > 0 && bytes[end - 1] == b'#' {
         end -= 1;
@@ -75,12 +71,9 @@ pub(super) fn strip_closing_hashes(s: &str) -> &str {
         return ""; // all hashes
     }
     if bytes[end - 1] == b' ' || bytes[end - 1] == b'\t' {
-        // Valid closing hashes, strip them and trailing spaces
         let result = &s[..end];
         result.trim_end()
     } else {
-        // Hashes not preceded by space, keep them
-        // BUT: if the content is ONLY hashes (like "## "), return as-is
         s
     }
 }
@@ -120,7 +113,6 @@ pub(super) fn parse_fence_start(line: &str) -> Option<(u8, usize, &str)> {
         return None;
     }
     let info = line[i..].trim();
-    // Backtick fences cannot have backticks in info string
     if ch == b'`' && info.contains('`') {
         return None;
     }
@@ -132,20 +124,16 @@ pub(super) fn is_closing_fence(line: &str, fence_char: u8, fence_len: usize) -> 
     let bytes = line.as_bytes();
     let len = bytes.len();
     let mut i = 0;
-    // Up to 3 spaces indent
     while i < len && i < 3 && bytes[i] == b' ' {
         i += 1;
     }
-    // Check for tab in indent region
     if i < len && bytes[i] == b'\t' && i < 4 {
-        // Tab at position 0-2 gives indent >= 4 if tab_width pushes past 3
         let tab_width = 4 - (i % 4);
         if i + tab_width > 3 {
             return false;
         }
         i += 1;
     }
-    // First char after indent must be the fence char
     if i >= len || bytes[i] != fence_char {
         return false;
     }
@@ -173,7 +161,6 @@ pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
         return None;
     }
 
-    // Strip optional leading/trailing pipes
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = inner.strip_suffix('|').unwrap_or(inner);
 
@@ -215,12 +202,10 @@ pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
         alignments.push(alignment);
     }
 
-    // Must have at least one column
     if alignments.is_empty() {
         return None;
     }
 
-    // If original line had no pipes at all, it's not a table separator
     if !trimmed.contains('|') {
         return None;
     }
@@ -232,11 +217,8 @@ pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
 pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
     let trimmed = line.trim();
 
-    // Strip optional leading/trailing pipes
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = inner.strip_suffix('|').unwrap_or(inner);
-
-    // Fast path: check if there are any escaped pipes at all
     let has_escaped_pipe = {
         let bytes = inner.as_bytes();
         let mut j = 0;
@@ -252,14 +234,12 @@ pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
     };
 
     if !has_escaped_pipe {
-        // No escaped pipes: split directly on '|' using slices
         let mut cells: Vec<String> = inner.split('|').map(|s| s.trim().to_string()).collect();
         cells.resize(num_cols, String::new());
         cells.truncate(num_cols);
         return cells;
     }
 
-    // Slow path: handle escaped pipes
     let mut cells = Vec::new();
     let mut current = String::new();
     let bytes = inner.as_bytes();
@@ -280,7 +260,6 @@ pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
     }
     cells.push(current.trim().to_string());
 
-    // Pad with empty strings or truncate to num_cols
     cells.resize(num_cols, String::new());
     cells.truncate(num_cols);
     cells
@@ -303,13 +282,11 @@ pub(super) fn parse_list_marker(line: &str) -> Option<ListMarkerInfo> {
 
     let b0 = bytes[0];
 
-    // Bullet markers
     if b0 == b'-' || b0 == b'*' || b0 == b'+' {
         if bytes.len() == 1 || bytes[1] == b' ' || bytes[1] == b'\t' {
             let is_empty = if bytes.len() <= 1 {
                 true
             } else {
-                // Check if rest after marker is only whitespace
                 let mut j = 1;
                 loop {
                     if j >= bytes.len() {
@@ -331,7 +308,6 @@ pub(super) fn parse_list_marker(line: &str) -> Option<ListMarkerInfo> {
         return None;
     }
 
-    // Ordered markers: up to 9 digits followed by . or )
     if b0.is_ascii_digit() {
         let mut i = 1;
         while i < bytes.len() && i < 9 && bytes[i].is_ascii_digit() {
@@ -340,7 +316,6 @@ pub(super) fn parse_list_marker(line: &str) -> Option<ListMarkerInfo> {
         if i < bytes.len() && (bytes[i] == b'.' || bytes[i] == b')') {
             let delim = bytes[i];
             if i + 1 >= bytes.len() || bytes[i + 1] == b' ' || bytes[i + 1] == b'\t' {
-                // Parse number manually for small numbers (avoid parse overhead)
                 let num = if i <= 4 {
                     let mut n = 0u32;
                     for j in 0..i {
@@ -381,7 +356,6 @@ pub(super) fn parse_list_marker(line: &str) -> Option<ListMarkerInfo> {
 }
 
 pub(super) fn can_interrupt_paragraph(marker: &ListMarkerInfo) -> bool {
-    // An empty list item (marker alone, no content after it) cannot interrupt a paragraph
     if marker.is_empty_item {
         return false;
     }

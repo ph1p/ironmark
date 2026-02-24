@@ -2,10 +2,10 @@ mod links;
 mod render;
 mod scanner;
 
+use crate::ParseOptions;
 use crate::entities;
 use crate::html::escape_html_into;
-use crate::ParseOptions;
-use ahash::HashMap;
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -14,7 +14,7 @@ pub(crate) struct LinkReference {
     pub title: Option<String>,
 }
 
-pub(crate) type LinkRefMap = HashMap<String, LinkReference>;
+pub(crate) type LinkRefMap = FxHashMap<String, LinkReference>;
 
 pub(crate) fn normalize_reference_label(label: &str) -> Cow<'_, str> {
     let trimmed = label.trim();
@@ -110,41 +110,27 @@ static ASCII_CHAR_STRS: [&str; 128] = {
     make()
 };
 
-static ANY_SPECIAL: [bool; 256] = {
-    let mut t = [false; 256];
-    t[b'\\' as usize] = true;
-    t[b'`' as usize] = true;
-    t[b'*' as usize] = true;
-    t[b'_' as usize] = true;
-    t[b'!' as usize] = true;
-    t[b'[' as usize] = true;
-    t[b']' as usize] = true;
-    t[b'<' as usize] = true;
-    t[b'&' as usize] = true;
-    t[b'\n' as usize] = true;
-    t[b'~' as usize] = true;
-    t[b'=' as usize] = true;
-    t[b'+' as usize] = true;
-    t[b':' as usize] = true;
-    t[b'@' as usize] = true;
-    t
-};
+const SPECIAL_ANY: u8 = 1; // any special inline character
+const SPECIAL_COMPLEX: u8 = 2; // complex (not just emphasis)
 
-static COMPLEX: [bool; 256] = {
-    let mut t = [false; 256];
-    t[b'\\' as usize] = true;
-    t[b'`' as usize] = true;
-    t[b'!' as usize] = true;
-    t[b'[' as usize] = true;
-    t[b']' as usize] = true;
-    t[b'<' as usize] = true;
-    t[b'&' as usize] = true;
-    t[b'\n' as usize] = true;
-    t[b'~' as usize] = true;
-    t[b'=' as usize] = true;
-    t[b'+' as usize] = true;
-    t[b':' as usize] = true;
-    t[b'@' as usize] = true;
+static SPECIAL: [u8; 256] = {
+    let mut t = [0u8; 256];
+    t[b'*' as usize] = SPECIAL_ANY;
+    t[b'_' as usize] = SPECIAL_ANY;
+    let both = SPECIAL_ANY | SPECIAL_COMPLEX;
+    t[b'\\' as usize] = both;
+    t[b'`' as usize] = both;
+    t[b'!' as usize] = both;
+    t[b'[' as usize] = both;
+    t[b']' as usize] = both;
+    t[b'<' as usize] = both;
+    t[b'&' as usize] = both;
+    t[b'\n' as usize] = both;
+    t[b'~' as usize] = both;
+    t[b'=' as usize] = both;
+    t[b'+' as usize] = both;
+    t[b':' as usize] = both;
+    t[b'@' as usize] = both;
     t
 };
 
@@ -159,19 +145,22 @@ pub(crate) fn parse_inline_pass(
     let bytes = raw.as_bytes();
 
     let mut first_pos = usize::MAX;
-    let mut has_complex_after = false;
+    let mut complex_mask: u8 = 0; // bits: 1=has newline/backslash only, 2=has other complex
     for (i, &b) in bytes.iter().enumerate() {
+        let s = SPECIAL[b as usize];
+        if s == 0 {
+            continue;
+        }
         if first_pos == usize::MAX {
-            if ANY_SPECIAL[b as usize] {
-                first_pos = i;
-                if COMPLEX[b as usize] {
-                    has_complex_after = true;
-                    break;
-                }
+            first_pos = i;
+        }
+        if s & SPECIAL_COMPLEX != 0 {
+            if b == b'\n' || b == b'\\' {
+                complex_mask |= 1;
+            } else {
+                complex_mask = 3;
+                break;
             }
-        } else if COMPLEX[b as usize] {
-            has_complex_after = true;
-            break;
         }
     }
     if first_pos == usize::MAX {
@@ -180,8 +169,13 @@ pub(crate) fn parse_inline_pass(
     }
 
     let first_byte = bytes[first_pos];
-    if (first_byte == b'*' || first_byte == b'_') && !has_complex_after {
+    if (first_byte == b'*' || first_byte == b'_') && complex_mask == 0 {
         emit_emphasis_only(out, raw, bytes);
+        return;
+    }
+
+    if complex_mask == 1 {
+        emit_breaks_and_emphasis(out, raw, bytes, opts);
         return;
     }
 
@@ -195,106 +189,66 @@ pub(crate) fn parse_inline_pass(
         p.process_emphasis(0);
     }
     p.render_to_html(out, opts);
-    bufs.shrink_if_needed();
 }
 
-fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
-    struct Delim {
-        orig_start: u32,
-        orig_end: u32,
-        cur_start: u32,
-        cur_end: u32,
-        marker: u8,
-        can_open: bool,
-        can_close: bool,
-        open_em: [u8; 4],
-        open_em_len: u8,
-        close_em: [u8; 4],
-        close_em_len: u8,
-    }
+#[derive(Clone, Copy)]
+struct EmDelim {
+    orig_start: u32,
+    orig_end: u32,
+    cur_start: u32,
+    cur_end: u32,
+    marker: u8,
+    can_open: bool,
+    can_close: bool,
+    active: bool,
+    open_em: [u8; 4],
+    open_em_len: u8,
+    close_em: [u8; 4],
+    close_em_len: u8,
+}
 
-    let len = bytes.len();
-    let mut delims: Vec<Delim> = Vec::new();
+const EMPTY_DELIM: EmDelim = EmDelim {
+    orig_start: 0,
+    orig_end: 0,
+    cur_start: 0,
+    cur_end: 0,
+    marker: 0,
+    can_open: false,
+    can_close: false,
+    active: true,
+    open_em: [0; 4],
+    open_em_len: 0,
+    close_em: [0; 4],
+    close_em_len: 0,
+};
 
-    let mut i = 0;
-    while i < len {
-        let b = bytes[i];
-        if b != b'*' && b != b'_' {
-            i += 1;
+/// Shared emphasis processing: resolve opener/closer pairs in a slice of EmDelim.
+#[inline(never)]
+fn process_em_delims(delims: &mut [EmDelim]) {
+    let mut closer_idx = 0usize;
+    while closer_idx < delims.len() {
+        if !delims[closer_idx].active
+            || !delims[closer_idx].can_close
+            || delims[closer_idx].cur_end == delims[closer_idx].cur_start
+        {
+            closer_idx += 1;
             continue;
         }
-        let run_start = i;
-        while i < len && bytes[i] == b {
-            i += 1;
-        }
-
-        let before = if run_start > 0 {
-            char_before(raw, run_start)
-        } else {
-            ' '
-        };
-        let after = if i < len { char_at(raw, i) } else { ' ' };
-
-        let left_flanking = !after.is_whitespace()
-            && (!is_punctuation_char(after)
-                || before.is_whitespace()
-                || is_punctuation_char(before));
-        let right_flanking = !before.is_whitespace()
-            && (!is_punctuation_char(before)
-                || after.is_whitespace()
-                || is_punctuation_char(after));
-
-        let (can_open, can_close) = if b == b'*' {
-            (left_flanking, right_flanking)
-        } else {
-            (
-                left_flanking && (!right_flanking || is_punctuation_char(before)),
-                right_flanking && (!left_flanking || is_punctuation_char(after)),
-            )
-        };
-
-        delims.push(Delim {
-            orig_start: run_start as u32,
-            orig_end: i as u32,
-            cur_start: run_start as u32,
-            cur_end: i as u32,
-            marker: b,
-            can_open,
-            can_close,
-            open_em: [0; 4],
-            open_em_len: 0,
-            close_em: [0; 4],
-            close_em_len: 0,
-        });
-    }
-
-    if delims.is_empty() {
-        escape_html_into(out, raw);
-        return;
-    }
-
-    let num_delims = delims.len();
-    let mut active: Vec<usize> = (0..num_delims).collect();
-    let mut closer_ai = 0;
-    while closer_ai < active.len() {
-        let ci = active[closer_ai];
-        let ccount = (delims[ci].cur_end - delims[ci].cur_start) as u16;
-        if !delims[ci].can_close || ccount == 0 {
-            closer_ai += 1;
-            continue;
-        }
-        let cmarker = delims[ci].marker;
+        let cmarker = delims[closer_idx].marker;
+        let ccount = (delims[closer_idx].cur_end - delims[closer_idx].cur_start) as u16;
 
         let mut found = false;
-        let mut opener_ai = closer_ai;
-        while opener_ai > 0 {
-            opener_ai -= 1;
-            let oi = active[opener_ai];
-            let ocount = (delims[oi].cur_end - delims[oi].cur_start) as u16;
-            if delims[oi].marker != cmarker || !delims[oi].can_open || ocount == 0 {
+        let mut oi = closer_idx;
+        while oi > 0 {
+            oi -= 1;
+            if !delims[oi].active || delims[oi].marker != cmarker || !delims[oi].can_open {
                 continue;
             }
-            if (delims[oi].can_close || delims[ci].can_open)
+            let ocount = (delims[oi].cur_end - delims[oi].cur_start) as u16;
+            if ocount == 0 {
+                continue;
+            }
+            if (delims[oi].can_close || delims[closer_idx].can_open)
                 && (ocount + ccount) % 3 == 0
                 && (ocount % 3 != 0 || ccount % 3 != 0)
             {
@@ -303,96 +257,263 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
             let use_count: u16 = if ocount >= 2 && ccount >= 2 { 2 } else { 1 };
             let tag = use_count as u8;
 
-            {
-                let d = &mut delims[oi];
-                d.cur_end -= use_count as u32;
-                let idx = d.open_em_len as usize;
-                if idx < 4 {
-                    d.open_em[idx] = tag;
-                    d.open_em_len += 1;
-                }
-            }
-            {
-                let d = &mut delims[ci];
-                d.cur_start += use_count as u32;
-                let idx = d.close_em_len as usize;
-                if idx < 4 {
-                    d.close_em[idx] = tag;
-                    d.close_em_len += 1;
-                }
+            delims[oi].cur_end -= use_count as u32;
+            let idx = delims[oi].open_em_len as usize;
+            if idx < 4 {
+                delims[oi].open_em[idx] = tag;
+                delims[oi].open_em_len += 1;
             }
 
-            let remove_start = opener_ai + 1;
-            let remove_end = closer_ai;
-            if remove_start < remove_end {
-                active.drain(remove_start..remove_end);
-                closer_ai = remove_start;
+            delims[closer_idx].cur_start += use_count as u32;
+            let idx = delims[closer_idx].close_em_len as usize;
+            if idx < 4 {
+                delims[closer_idx].close_em[idx] = tag;
+                delims[closer_idx].close_em_len += 1;
             }
 
-            let new_ocount =
-                delims[active[opener_ai]].cur_end - delims[active[opener_ai]].cur_start;
-            if new_ocount == 0 {
-                active.remove(opener_ai);
-                closer_ai -= 1;
+            for k in (oi + 1)..closer_idx {
+                delims[k].active = false;
             }
 
-            let new_ccount =
-                delims[active[closer_ai]].cur_end - delims[active[closer_ai]].cur_start;
-            if new_ccount == 0 {
-                active.remove(closer_ai);
+            if delims[oi].cur_end == delims[oi].cur_start {
+                delims[oi].active = false;
+            }
+            if delims[closer_idx].cur_end == delims[closer_idx].cur_start {
+                delims[closer_idx].active = false;
             }
 
             found = true;
             break;
         }
-
         if !found {
-            closer_ai += 1;
+            closer_idx += 1;
         }
     }
+}
+
+/// Render emphasis tags for a delimiter.
+#[inline(always)]
+fn render_em_delim(out: &mut String, d: &EmDelim) {
+    for j in 0..d.close_em_len as usize {
+        if d.close_em[j] == 2 {
+            out.push_str("</strong>");
+        } else {
+            out.push_str("</em>");
+        }
+    }
+    if d.cur_start < d.cur_end {
+        let marker = d.marker as char;
+        for _ in 0..(d.cur_end - d.cur_start) {
+            out.push(marker);
+        }
+    }
+    for j in (0..d.open_em_len as usize).rev() {
+        if d.open_em[j] == 2 {
+            out.push_str("<strong>");
+        } else {
+            out.push_str("<em>");
+        }
+    }
+}
+
+struct EmDelimBuf {
+    stack: [EmDelim; 16],
+    heap: Vec<EmDelim>,
+    count: usize,
+}
+
+impl EmDelimBuf {
+    #[inline(always)]
+    fn new() -> Self {
+        Self {
+            stack: [EMPTY_DELIM; 16],
+            heap: Vec::new(),
+            count: 0,
+        }
+    }
+    #[inline(always)]
+    fn push(&mut self, d: EmDelim) {
+        if self.count < 16 {
+            self.stack[self.count] = d;
+        } else {
+            if self.heap.is_empty() {
+                self.heap.extend_from_slice(&self.stack);
+            }
+            self.heap.push(d);
+        }
+        self.count += 1;
+    }
+    #[inline(always)]
+    fn as_mut_slice(&mut self) -> &mut [EmDelim] {
+        if self.count == 0 {
+            &mut []
+        } else if self.count <= 16 {
+            &mut self.stack[..self.count]
+        } else {
+            &mut self.heap[..]
+        }
+    }
+}
+
+/// Scan emphasis delimiter runs, skipping backslash escapes.
+fn scan_em_delims(raw: &str, bytes: &[u8], skip_escapes: bool) -> EmDelimBuf {
+    let len = bytes.len();
+    let mut buf = EmDelimBuf::new();
+    let mut i = 0;
+    while i < len {
+        let b = bytes[i];
+        if skip_escapes && b == b'\\' && i + 1 < len && crate::is_ascii_punctuation(bytes[i + 1]) {
+            i += 2;
+            continue;
+        }
+        if b == b'*' || b == b'_' {
+            let run_start = i;
+            while i < len && bytes[i] == b {
+                i += 1;
+            }
+            let before = if run_start > 0 {
+                char_before(raw, run_start)
+            } else {
+                ' '
+            };
+            let after = if i < len { char_at(raw, i) } else { ' ' };
+            let (can_open, can_close) = flanking(b, before, after);
+            buf.push(EmDelim {
+                orig_start: run_start as u32,
+                orig_end: i as u32,
+                cur_start: run_start as u32,
+                cur_end: i as u32,
+                marker: b,
+                can_open,
+                can_close,
+                active: true,
+                open_em: [0; 4],
+                open_em_len: 0,
+                close_em: [0; 4],
+                close_em_len: 0,
+            });
+        } else {
+            i += 1;
+        }
+    }
+    buf
+}
+
+fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
+    let mut buf = scan_em_delims(raw, bytes, false);
+    if buf.count == 0 {
+        escape_html_into(out, raw);
+        return;
+    }
+    let delims = buf.as_mut_slice();
+    process_em_delims(delims);
 
     let mut text_pos = 0usize;
-    for d in &delims {
-        let orig_start = d.orig_start as usize;
-        let orig_end = d.orig_end as usize;
-        let cur_start = d.cur_start as usize;
-        let cur_end = d.cur_end as usize;
-
-        if text_pos < orig_start {
-            escape_html_into(out, &raw[text_pos..orig_start]);
+    for d in delims.iter() {
+        if text_pos < d.orig_start as usize {
+            escape_html_into(out, &raw[text_pos..d.orig_start as usize]);
         }
+        render_em_delim(out, d);
+        text_pos = d.orig_end as usize;
+    }
+    if text_pos < bytes.len() {
+        escape_html_into(out, &raw[text_pos..]);
+    }
+}
 
-        for j in 0..d.close_em_len as usize {
-            let tag = d.close_em[j];
-            if tag == 2 {
-                out.push_str("</strong>");
-            } else {
-                out.push_str("</em>");
-            }
-        }
-
-        if cur_start < cur_end {
-            let marker = d.marker as char;
-            for _ in 0..(cur_end - cur_start) {
-                out.push(marker);
-            }
-        }
-
-        for j in (0..d.open_em_len as usize).rev() {
-            let tag = d.open_em[j];
-            if tag == 2 {
-                out.push_str("<strong>");
-            } else {
-                out.push_str("<em>");
-            }
-        }
-
-        text_pos = orig_end;
+/// Fast path for content with only emphasis markers, newlines, and backslash escapes.
+fn emit_breaks_and_emphasis(out: &mut String, raw: &str, bytes: &[u8], opts: &ParseOptions) {
+    let mut buf = scan_em_delims(raw, bytes, true);
+    let delims = buf.as_mut_slice();
+    if !delims.is_empty() {
+        process_em_delims(delims);
     }
 
-    if text_pos < len {
-        escape_html_into(out, &raw[text_pos..len]);
+    let len = bytes.len();
+    let mut text_pos = 0usize;
+    let mut di = 0usize;
+
+    while text_pos < len {
+        let next_delim_pos = if di < delims.len() {
+            delims[di].orig_start as usize
+        } else {
+            len
+        };
+        emit_text_with_breaks(out, raw, bytes, &mut text_pos, next_delim_pos, opts);
+
+        if di < delims.len() && text_pos == delims[di].orig_start as usize {
+            render_em_delim(out, &delims[di]);
+            text_pos = delims[di].orig_end as usize;
+            di += 1;
+        }
     }
+}
+
+/// Emit text from bytes[text_pos..end], handling newlines and backslash escapes.
+#[inline]
+fn emit_text_with_breaks(
+    out: &mut String,
+    raw: &str,
+    bytes: &[u8],
+    text_pos: &mut usize,
+    end: usize,
+    opts: &ParseOptions,
+) {
+    let mut seg_start = *text_pos;
+    let mut i = *text_pos;
+    while i < end {
+        let b = bytes[i];
+        if b == b'\n' {
+            let mut text_end = i;
+            let is_hard = (i >= seg_start + 2 && bytes[i - 1] == b' ' && bytes[i - 2] == b' ')
+                || (i > seg_start && bytes[i - 1] == b'\\');
+            if is_hard && i > seg_start && bytes[i - 1] == b'\\' {
+                text_end = i - 1;
+            } else {
+                while text_end > seg_start && bytes[text_end - 1] == b' ' {
+                    text_end -= 1;
+                }
+            }
+            if seg_start < text_end {
+                escape_html_into(out, &raw[seg_start..text_end]);
+            }
+            if is_hard || opts.hard_breaks {
+                out.push_str("<br />\n");
+            } else {
+                out.push('\n');
+            }
+            i += 1;
+            seg_start = i;
+        } else if b == b'\\' && i + 1 < end {
+            let next = bytes[i + 1];
+            if next == b'\n' {
+                i += 1;
+                continue;
+            }
+            if crate::is_ascii_punctuation(next) {
+                if seg_start < i {
+                    escape_html_into(out, &raw[seg_start..i]);
+                }
+                match next {
+                    b'&' => out.push_str("&amp;"),
+                    b'<' => out.push_str("&lt;"),
+                    b'>' => out.push_str("&gt;"),
+                    b'"' => out.push_str("&quot;"),
+                    _ => out.push_str(&raw[i + 1..i + 2]),
+                }
+                i += 2;
+                seg_start = i;
+            } else {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    if seg_start < end {
+        escape_html_into(out, &raw[seg_start..end]);
+    }
+    *text_pos = end;
 }
 
 pub(crate) struct InlineBuffers {
@@ -409,19 +530,6 @@ impl InlineBuffers {
             delims: Vec::new(),
             brackets: Vec::new(),
             links: Vec::new(),
-        }
-    }
-
-    /// Shrink buffers if they've grown excessively relative to usage.
-    pub(crate) fn shrink_if_needed(&mut self) {
-        const SHRINK_THRESHOLD: usize = 4;
-        let items_len = self.items.len();
-        if self.items.capacity() > 64 && self.items.capacity() > items_len * SHRINK_THRESHOLD {
-            self.items.shrink_to(items_len * 2);
-        }
-        let delims_len = self.delims.len();
-        if self.delims.capacity() > 64 && self.delims.capacity() > delims_len * SHRINK_THRESHOLD {
-            self.delims.shrink_to(delims_len * 2);
         }
     }
 }
@@ -476,7 +584,8 @@ enum InlineItem {
         len: u8,
     },
     RawHtml(usize, usize),
-    RawHtmlOwned(String),
+    /// Autolink: (content_start, content_end, is_email)
+    Autolink(u32, u32, bool),
     Code(String),
     HardBreak,
     SoftBreak,
@@ -544,54 +653,36 @@ impl<'a> InlineScanner<'a> {
 pub(super) use crate::is_ascii_punctuation;
 pub(super) use crate::utf8_char_len;
 
-pub(super) fn build_autolink_html(prefix: &str, content: &str) -> String {
-    let mut s = String::with_capacity(content.len() * 2 + prefix.len() + 30);
-    s.push_str("<a href=\"");
-    s.push_str(prefix);
-    crate::html::encode_url_escaped_into(&mut s, content);
-    s.push_str("\">");
-    escape_html_into(&mut s, content);
-    s.push_str("</a>");
-    s
-}
-
 #[inline(always)]
 fn is_punctuation_char(c: char) -> bool {
     if c.is_ascii() {
-        is_ascii_punctuation(c as u8)
-    } else {
-        let cat = unicode_general_category(c);
-        matches!(cat, 'P' | 'S')
+        return is_ascii_punctuation(c as u8);
     }
+    matches!(c as u32,
+        0x00A0..=0x00BF | 0x2000..=0x206F | 0x2E00..=0x2E7F |
+        0x3000..=0x303F | 0xFE30..=0xFE6F | 0xFF01..=0xFF0F |
+        0xFF1A..=0xFF20 | 0xFF3B..=0xFF40 | 0xFF5B..=0xFF65 |
+        0x2100..=0x214F | 0x2190..=0x21FF | 0x2200..=0x22FF |
+        0x2300..=0x23FF | 0x2500..=0x257F | 0x25A0..=0x25FF |
+        0x2600..=0x26FF | 0x2700..=0x27BF | 0x20A0..=0x20CF
+    )
 }
 
-fn unicode_general_category(c: char) -> char {
-    if c.is_ascii() {
-        if is_ascii_punctuation(c as u8) {
-            return 'P';
-        }
-        return 'L';
-    }
-    match c as u32 {
-        0x00A0..=0x00BF => 'P',
-        0x2000..=0x206F => 'P',
-        0x2E00..=0x2E7F => 'P',
-        0x3000..=0x303F => 'P',
-        0xFE30..=0xFE6F => 'P',
-        0xFF01..=0xFF0F => 'P',
-        0xFF1A..=0xFF20 => 'P',
-        0xFF3B..=0xFF40 => 'P',
-        0xFF5B..=0xFF65 => 'P',
-        0x2100..=0x214F => 'S',
-        0x2190..=0x21FF => 'S',
-        0x2200..=0x22FF => 'S',
-        0x2300..=0x23FF => 'S',
-        0x2500..=0x257F => 'S',
-        0x25A0..=0x25FF => 'S',
-        0x2600..=0x26FF => 'S',
-        0x2700..=0x27BF => 'S',
-        0x20A0..=0x20CF => 'S',
-        _ => 'L',
+/// Compute flanking rules for a delimiter run.
+/// Returns (can_open, can_close).
+#[inline(always)]
+fn flanking(marker: u8, before: char, after: char) -> (bool, bool) {
+    let left_flanking = !after.is_whitespace()
+        && (!is_punctuation_char(after) || before.is_whitespace() || is_punctuation_char(before));
+    let right_flanking = !before.is_whitespace()
+        && (!is_punctuation_char(before) || after.is_whitespace() || is_punctuation_char(after));
+    if marker == b'_' {
+        (
+            left_flanking && (!right_flanking || is_punctuation_char(before)),
+            right_flanking && (!left_flanking || is_punctuation_char(after)),
+        )
+    } else {
+        (left_flanking, right_flanking)
     }
 }
 

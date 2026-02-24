@@ -171,7 +171,6 @@ pub(super) fn check_html_block_type6(line: &str) -> Option<()> {
         buf[i] = bytes[start + i].to_ascii_lowercase();
     }
     let lc_tag = &buf[..tag_len];
-    // Use binary search since the tag list is sorted
     if HTML_BLOCK_TYPE6_TAGS
         .binary_search_by(|t| t.as_bytes().cmp(lc_tag))
         .is_ok()
@@ -188,11 +187,9 @@ pub(super) fn is_html_block_type7(line: &str) -> bool {
         return false;
     }
 
-    // Check for complete open tag or closing tag
     let is_close = bytes[1] == b'/';
     let start = if is_close { 2 } else { 1 };
 
-    // Tag name
     let mut i = start;
     if i >= bytes.len() || !bytes[i].is_ascii_alphabetic() {
         return false;
@@ -202,7 +199,6 @@ pub(super) fn is_html_block_type7(line: &str) -> bool {
     }
 
     if is_close {
-        // Closing tag: must end with optional spaces + >
         while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
             i += 1;
         }
@@ -211,9 +207,7 @@ pub(super) fn is_html_block_type7(line: &str) -> bool {
         }
         i += 1;
     } else {
-        // Open tag: attributes, then optional / and >
         loop {
-            // Skip spaces
             let had_space = {
                 let before = i;
                 while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
@@ -239,7 +233,6 @@ pub(super) fn is_html_block_type7(line: &str) -> bool {
             if !had_space {
                 return false;
             }
-            // Attribute name
             if !bytes[i].is_ascii_alphabetic() && bytes[i] != b'_' && bytes[i] != b':' {
                 return false;
             }
@@ -271,7 +264,6 @@ pub(super) fn is_html_block_type7(line: &str) -> bool {
                     }
                     i += 1;
                 } else {
-                    // Unquoted value
                     while i < bytes.len()
                         && !matches!(
                             bytes[i],
@@ -285,7 +277,6 @@ pub(super) fn is_html_block_type7(line: &str) -> bool {
         }
     }
 
-    // Rest of line must be blank
     while i < bytes.len() {
         if bytes[i] != b' ' && bytes[i] != b'\t' {
             return false;

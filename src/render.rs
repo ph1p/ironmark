@@ -1,20 +1,9 @@
+use crate::ParseOptions;
 use crate::ast::{Block, ListKind, TableAlignment};
 use crate::html::escape_html_into;
-use crate::inline::{parse_inline_pass, InlineBuffers, LinkRefMap};
-use crate::ParseOptions;
+use crate::inline::{InlineBuffers, LinkRefMap, parse_inline_pass};
 
-pub(crate) fn render_html(
-    block: &Block,
-    refs: &LinkRefMap,
-    out: &mut String,
-    opts: &ParseOptions,
-    bufs: &mut InlineBuffers,
-) {
-    render_block(block, refs, out, opts, bufs);
-}
-
-#[inline]
-fn render_block(
+pub(crate) fn render_block(
     block: &Block,
     refs: &LinkRefMap,
     out: &mut String,
@@ -23,7 +12,9 @@ fn render_block(
 ) {
     match block {
         Block::Document { children } => {
-            render_children(children, refs, out, opts, bufs);
+            for child in children {
+                render_block(child, refs, out, opts, bufs);
+            }
         }
         Block::ThematicBreak => {
             out.push_str("<hr />\n");
@@ -64,7 +55,9 @@ fn render_block(
         }
         Block::BlockQuote { children } => {
             out.push_str("<blockquote>\n");
-            render_children(children, refs, out, opts, bufs);
+            for child in children {
+                render_block(child, refs, out, opts, bufs);
+            }
             out.push_str("</blockquote>\n");
         }
         Block::List {
@@ -95,9 +88,10 @@ fn render_block(
             }
         }
         Block::ListItem { children, .. } => {
-            // Should be rendered through render_list_item
             out.push_str("<li>");
-            render_children(children, refs, out, opts, bufs);
+            for child in children {
+                render_block(child, refs, out, opts, bufs);
+            }
             out.push_str("</li>\n");
         }
         Block::Table {
@@ -149,7 +143,6 @@ fn render_list_item(
         None => {}
     }
     if tight {
-        // Fast path: single paragraph child (most common case for tight list items)
         if children.len() == 1 {
             if let Block::Paragraph { raw } = &children[0] {
                 parse_inline_pass(out, raw, refs, opts, bufs);
@@ -157,7 +150,6 @@ fn render_list_item(
                 return;
             }
         }
-        // In tight lists, don't wrap paragraphs in <p> tags
         let mut prev_was_para = false;
         for (idx, child) in children.iter().enumerate() {
             match child {
@@ -174,10 +166,10 @@ fn render_list_item(
                 }
             }
         }
-    } else {
-        if !children.is_empty() {
-            out.push('\n');
-            render_children(children, refs, out, opts, bufs);
+    } else if !children.is_empty() {
+        out.push('\n');
+        for child in children {
+            render_block(child, refs, out, opts, bufs);
         }
     }
     out.push_str("</li>\n");
@@ -205,16 +197,4 @@ fn render_table_cell(
     out.push_str("</");
     out.push_str(tag);
     out.push_str(">\n");
-}
-
-fn render_children(
-    children: &[Block],
-    refs: &LinkRefMap,
-    out: &mut String,
-    opts: &ParseOptions,
-    bufs: &mut InlineBuffers,
-) {
-    for child in children {
-        render_block(child, refs, out, opts, bufs);
-    }
 }

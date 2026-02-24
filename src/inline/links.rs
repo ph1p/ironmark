@@ -285,17 +285,21 @@ impl<'a> InlineScanner<'a> {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'.' | b'-'))
             {
-                self.items
-                    .push(InlineItem::RawHtmlOwned(build_autolink_html("", content)));
+                self.items.push(InlineItem::Autolink(
+                    content_start as u32,
+                    self.pos as u32 - 1,
+                    false,
+                ));
                 return true;
             }
         }
 
         if is_email_autolink(content) {
-            self.items
-                .push(InlineItem::RawHtmlOwned(build_autolink_html(
-                    "mailto:", content,
-                )));
+            self.items.push(InlineItem::Autolink(
+                content_start as u32,
+                self.pos as u32 - 1,
+                true,
+            ));
             return true;
         }
 
@@ -476,201 +480,213 @@ impl<'a> InlineScanner<'a> {
         }
     }
 
-    pub(super) fn try_entity(&mut self) -> bool {
+    /// Parse an entity reference starting at `&` (self.pos).
+    /// On success, writes resolved UTF-8 bytes into `buf` and returns the length.
+    /// On failure, resets self.pos to start and returns None.
+    #[inline]
+    fn parse_entity_ref(&mut self, buf: &mut [u8; 8]) -> Option<u8> {
         let start = self.pos;
+        let bytes = self.bytes;
+        let len = bytes.len();
         self.pos += 1;
-        if self.pos >= self.bytes.len() {
+        if self.pos >= len {
             self.pos = start;
-            return false;
+            return None;
         }
 
-        let mut char_buf: [u8; 8] = [0; 8];
-        let mut char_len = 0usize;
-
-        let ok = if self.bytes[self.pos] == b'#' {
+        if bytes[self.pos] == b'#' {
             self.pos += 1;
-            let hex = self.pos < self.bytes.len() && matches!(self.bytes[self.pos], b'x' | b'X');
+            if self.pos >= len {
+                self.pos = start;
+                return None;
+            }
+            let hex = matches!(bytes[self.pos], b'x' | b'X');
             if hex {
                 self.pos += 1;
             }
             let ns = self.pos;
+            // Hand-rolled numeric parsing — avoids u32::from_str_radix / .parse overhead
+            let mut cp: u32 = 0;
             if hex {
-                while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_hexdigit() {
+                while self.pos < len {
+                    let b = bytes[self.pos];
+                    let digit = match b {
+                        b'0'..=b'9' => (b - b'0') as u32,
+                        b'a'..=b'f' => (b - b'a' + 10) as u32,
+                        b'A'..=b'F' => (b - b'A' + 10) as u32,
+                        _ => break,
+                    };
+                    cp = cp.wrapping_mul(16).wrapping_add(digit);
                     self.pos += 1;
                 }
             } else {
-                while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_digit() {
-                    self.pos += 1;
-                }
-            }
-            if self.pos == ns
-                || self.pos - ns > 7
-                || self.pos >= self.bytes.len()
-                || self.bytes[self.pos] != b';'
-            {
-                false
-            } else {
-                self.pos += 1;
-                let value = &self.input[ns..self.pos - 1];
-                let cp = if hex {
-                    u32::from_str_radix(value, 16).ok()
-                } else {
-                    value.parse::<u32>().ok()
-                };
-                if let Some(mut cp) = cp {
-                    if cp == 0 {
-                        cp = 0xFFFD;
+                while self.pos < len {
+                    let b = bytes[self.pos];
+                    if b < b'0' || b > b'9' {
+                        break;
                     }
-                    let c = char::from_u32(cp).unwrap_or('\u{FFFD}');
-                    char_len = c.encode_utf8(&mut char_buf).len();
-                    true
-                } else {
-                    false
+                    cp = cp.wrapping_mul(10).wrapping_add((b - b'0') as u32);
+                    self.pos += 1;
                 }
             }
+            let ndigits = self.pos - ns;
+            if ndigits == 0 || ndigits > 7 || self.pos >= len || bytes[self.pos] != b';' {
+                self.pos = start;
+                return None;
+            }
+            self.pos += 1;
+            if cp == 0 {
+                cp = 0xFFFD;
+            }
+            let c = char::from_u32(cp).unwrap_or('\u{FFFD}');
+            let n = c.encode_utf8(&mut buf[..]).len();
+            Some(n as u8)
         } else {
             let ns = self.pos;
-            while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_alphanumeric() {
+            let first = bytes[ns];
+            // Quick reject: first char must be ASCII alpha for named entities
+            if !first.is_ascii_alphabetic() {
+                self.pos = start;
+                return None;
+            }
+            // Use per-first-char max length to limit scan and reject long non-entities
+            let max_len = entities::MAX_ENTITY_LEN[first as usize] as usize;
+            if max_len == 0 {
+                self.pos = start;
+                return None;
+            }
+            let limit = if len - ns > max_len + 1 {
+                ns + max_len + 1
+            } else {
+                len
+            };
+            self.pos += 1; // skip first (already validated as alpha)
+            while self.pos < limit && bytes[self.pos].is_ascii_alphanumeric() {
                 self.pos += 1;
             }
-            if self.pos == ns || self.pos >= self.bytes.len() || self.bytes[self.pos] != b';' {
-                false
-            } else {
-                let name = &self.input[ns..self.pos];
-                self.pos += 1;
-                let found = entities::lookup_entity_codepoints(name);
-                if let Some(codepoints) = found {
-                    let mut off = 0usize;
-                    for &cp in codepoints {
-                        if let Some(c) = char::from_u32(cp) {
-                            let n = c.encode_utf8(&mut char_buf[off..]).len();
-                            off += n;
-                        }
-                    }
-                    char_len = off;
-                    true
-                } else {
-                    false
-                }
+            if self.pos >= len || bytes[self.pos] != b';' {
+                self.pos = start;
+                return None;
             }
-        };
-
-        if ok {
-            if char_len == 1 {
-                match char_buf[0] {
-                    b'&' => {
-                        self.items.push(InlineItem::TextStatic("&amp;"));
-                        return true;
-                    }
-                    b'<' => {
-                        self.items.push(InlineItem::TextStatic("&lt;"));
-                        return true;
-                    }
-                    b'>' => {
-                        self.items.push(InlineItem::TextStatic("&gt;"));
-                        return true;
-                    }
-                    b'"' => {
-                        self.items.push(InlineItem::TextStatic("&quot;"));
-                        return true;
-                    }
-                    _ => {
-                        self.items.push(InlineItem::TextStatic(
-                            ASCII_CHAR_STRS[char_buf[0] as usize],
-                        ));
-                        return true;
+            let name = unsafe { self.input.get_unchecked(ns..self.pos) };
+            self.pos += 1;
+            if let Some(codepoints) = entities::lookup_entity_codepoints(name) {
+                let mut off = 0usize;
+                for &cp in codepoints {
+                    if let Some(c) = char::from_u32(cp) {
+                        let n = c.encode_utf8(&mut buf[off..]).len();
+                        off += n;
                     }
                 }
-            }
-            let needs_escape = char_buf[..char_len]
-                .iter()
-                .any(|&b| matches!(b, b'&' | b'<' | b'>' | b'"'));
-            if needs_escape {
-                let resolved = unsafe { std::str::from_utf8_unchecked(&char_buf[..char_len]) };
-                let mut s = String::with_capacity(char_len + 8);
-                escape_html_into(&mut s, resolved);
-                self.items.push(InlineItem::TextOwned(s));
+                Some(off as u8)
             } else {
-                self.items.push(InlineItem::TextInline {
-                    buf: char_buf,
-                    len: char_len as u8,
-                });
+                self.pos = start;
+                None
             }
-            true
-        } else {
-            self.pos = start;
-            false
         }
     }
 
-    pub(super) fn resolve_entity_into(&mut self, dest: &mut String) -> bool {
+    #[inline]
+    pub(super) fn try_entity(&mut self) -> bool {
+        // Fast path: check common named entities inline without full parse_entity_ref
+        let bytes = self.bytes;
+        let len = bytes.len();
         let start = self.pos;
-        self.pos += 1;
-        if self.pos >= self.bytes.len() {
-            self.pos = start;
-            return false;
+        if start + 2 < len && bytes[start + 1] != b'#' {
+            let result = match bytes[start + 1] {
+                b'a' if start + 4 < len
+                    && bytes[start + 2] == b'm'
+                    && bytes[start + 3] == b'p'
+                    && bytes[start + 4] == b';' =>
+                {
+                    Some(("&amp;", 5))
+                }
+                b'l' if start + 3 < len && bytes[start + 2] == b't' && bytes[start + 3] == b';' => {
+                    Some(("&lt;", 4))
+                }
+                b'g' if start + 3 < len && bytes[start + 2] == b't' && bytes[start + 3] == b';' => {
+                    Some(("&gt;", 4))
+                }
+                b'n' if start + 5 < len
+                    && bytes[start + 2] == b'b'
+                    && bytes[start + 3] == b's'
+                    && bytes[start + 4] == b'p'
+                    && bytes[start + 5] == b';' =>
+                {
+                    Some(("\u{a0}", 6))
+                }
+                b'q' if start + 5 < len
+                    && bytes[start + 2] == b'u'
+                    && bytes[start + 3] == b'o'
+                    && bytes[start + 4] == b't'
+                    && bytes[start + 5] == b';' =>
+                {
+                    Some(("&quot;", 6))
+                }
+                _ => None,
+            };
+            if let Some((text, advance)) = result {
+                self.pos += advance;
+                self.items.push(InlineItem::TextStatic(text));
+                return true;
+            }
         }
 
-        if self.bytes[self.pos] == b'#' {
-            self.pos += 1;
-            let hex = self.pos < self.bytes.len() && matches!(self.bytes[self.pos], b'x' | b'X');
-            if hex {
-                self.pos += 1;
-            }
-            let ns = self.pos;
-            if hex {
-                while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_hexdigit() {
-                    self.pos += 1;
+        let mut char_buf = [0u8; 8];
+        let Some(char_len) = self.parse_entity_ref(&mut char_buf) else {
+            return false;
+        };
+        let char_len = char_len as usize;
+
+        if char_len == 1 {
+            match char_buf[0] {
+                b'&' => {
+                    self.items.push(InlineItem::TextStatic("&amp;"));
+                    return true;
                 }
-            } else {
-                while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_digit() {
-                    self.pos += 1;
+                b'<' => {
+                    self.items.push(InlineItem::TextStatic("&lt;"));
+                    return true;
                 }
-            }
-            if self.pos == ns
-                || self.pos - ns > 7
-                || self.pos >= self.bytes.len()
-                || self.bytes[self.pos] != b';'
-            {
-                self.pos = start;
-                return false;
-            }
-            self.pos += 1;
-            let value = &self.input[ns..self.pos - 1];
-            let cp = if hex {
-                u32::from_str_radix(value, 16).ok()
-            } else {
-                value.parse::<u32>().ok()
-            };
-            if let Some(mut cp) = cp {
-                if cp == 0 {
-                    cp = 0xFFFD;
+                b'>' => {
+                    self.items.push(InlineItem::TextStatic("&gt;"));
+                    return true;
                 }
-                let c = char::from_u32(cp).unwrap_or('\u{FFFD}');
-                let mut buf = [0u8; 4];
-                dest.push_str(c.encode_utf8(&mut buf));
-                true
-            } else {
-                self.pos = start;
-                false
-            }
-        } else {
-            let ns = self.pos;
-            while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_alphanumeric() {
-                self.pos += 1;
-            }
-            if self.pos == ns || self.pos >= self.bytes.len() || self.bytes[self.pos] != b';' {
-                self.pos = start;
-                return false;
-            }
-            let name = &self.input[ns..self.pos];
-            self.pos += 1;
-            if entities::lookup_entity_into(name, dest) {
-                true
-            } else {
-                self.pos = start;
-                false
+                b'"' => {
+                    self.items.push(InlineItem::TextStatic("&quot;"));
+                    return true;
+                }
+                _ => {
+                    self.items.push(InlineItem::TextStatic(
+                        ASCII_CHAR_STRS[char_buf[0] as usize],
+                    ));
+                    return true;
+                }
             }
         }
+        let needs_escape = char_buf[..char_len]
+            .iter()
+            .any(|&b| matches!(b, b'&' | b'<' | b'>' | b'"'));
+        if needs_escape {
+            let resolved = unsafe { std::str::from_utf8_unchecked(&char_buf[..char_len]) };
+            let mut s = String::with_capacity(char_len + 8);
+            escape_html_into(&mut s, resolved);
+            self.items.push(InlineItem::TextOwned(s));
+        } else {
+            self.items.push(InlineItem::TextInline {
+                buf: char_buf,
+                len: char_len as u8,
+            });
+        }
+        true
+    }
+
+    pub(super) fn resolve_entity_into(&mut self, dest: &mut String) -> bool {
+        let mut buf = [0u8; 8];
+        let Some(len) = self.parse_entity_ref(&mut buf) else {
+            return false;
+        };
+        dest.push_str(unsafe { std::str::from_utf8_unchecked(&buf[..len as usize]) });
+        true
     }
 }

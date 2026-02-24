@@ -85,7 +85,6 @@ impl<'a> BlockParser<'a> {
                 } => {
                     let content_col = *content_col;
                     let started_blank = *started_blank;
-                    // Single peek gives us indent and whether line is blank
                     let (ns_col, ns_off, ns_byte) = line.peek_nonspace_col();
                     let indent = ns_col - line.col_offset;
                     let is_blank = ns_byte == 0 && ns_off >= line.raw.len();
@@ -113,7 +112,6 @@ impl<'a> BlockParser<'a> {
                 | OpenBlockType::HtmlBlock { .. }
                 | OpenBlockType::Paragraph
                 | OpenBlockType::Table { .. } => {
-                    // Leaf blocks: don't match continuation here, handled later
                     matched = i;
                     all_matched = false;
                     break;
@@ -129,7 +127,6 @@ impl<'a> BlockParser<'a> {
             matched = num_open;
         }
 
-        // Check if the tip is a leaf block that accepts lines
         let tip_idx = num_open - 1;
         let tip_is_leaf = matches!(
             self.open[tip_idx].block_type,
@@ -140,7 +137,6 @@ impl<'a> BlockParser<'a> {
                 | OpenBlockType::Table { .. }
         );
 
-        // Handle leaf block continuation
         if matched == num_open || (matched == num_open - 1 && tip_is_leaf) {
             if tip_is_leaf && matched >= num_open - 1 {
                 match &self.open[tip_idx].block_type {
@@ -158,9 +154,7 @@ impl<'a> BlockParser<'a> {
                             self.close_top_block();
                             return;
                         }
-                        // Strip up to fence_indent spaces from content
                         if fi == 0 {
-                            // No indent to strip - fast path
                             self.open[tip_idx].content.push_str(rem);
                         } else {
                             let _ = line.skip_indent(fi);
@@ -176,7 +170,6 @@ impl<'a> BlockParser<'a> {
                     }
                     OpenBlockType::IndentedCode => {
                         if line.is_blank() {
-                            // Preserve indent beyond 4 columns for blank lines too
                             let _ = line.skip_indent(4);
                             let rest = line.remainder_with_partial();
                             if !self.open[tip_idx].content.is_empty() {
@@ -188,7 +181,6 @@ impl<'a> BlockParser<'a> {
                         }
                         let indent = line.indent();
                         if indent >= 4 {
-                            // Remove exactly 4 columns of indent (preserving excess)
                             let _ = line.skip_indent(4);
                             let rest = line.remainder_with_partial();
                             if !self.open[tip_idx].content.is_empty() {
@@ -197,15 +189,12 @@ impl<'a> BlockParser<'a> {
                             self.open[tip_idx].content.push_str(&rest);
                             return;
                         }
-                        // Not enough indent, close the code block
                         self.close_top_block();
-                        // Open new blocks with the already-consumed line
                         self.open_new_blocks(line);
                         return;
                     }
                     OpenBlockType::HtmlBlock { end_condition } => {
                         let end_condition = *end_condition;
-                        // Types 6/7 end at blank line
                         if end_condition == HtmlBlockEnd::BlankLine && line.is_blank() {
                             self.close_top_block();
                             return;
@@ -239,7 +228,6 @@ impl<'a> BlockParser<'a> {
                         return;
                     }
                     OpenBlockType::Paragraph => {
-                        // Compute indent and first-nonspace once for the whole paragraph branch
                         let (ns_col, ns_off, ns_byte) = line.peek_nonspace_col();
                         let indent = ns_col - line.col_offset;
                         let is_blank = ns_byte == 0 && ns_off >= line.raw.len();
@@ -298,7 +286,6 @@ impl<'a> BlockParser<'a> {
                             }
                             return;
                         }
-                        // Check for setext heading underline (up to 3 spaces indent)
                         if indent <= 3 {
                             if let Some(level) = parse_setext_underline(rest) {
                                 let content = std::mem::take(&mut self.open[tip_idx].content);
@@ -322,14 +309,12 @@ impl<'a> BlockParser<'a> {
                                 return;
                             }
                         }
-                        // Check for thematic break (which can interrupt a paragraph)
                         if indent <= 3 && is_thematic_break(rest) {
                             self.close_top_block();
                             let parent = self.open.last_mut().unwrap();
                             parent.children.push(Block::ThematicBreak);
                             return;
                         }
-                        // Check for ATX heading
                         if indent <= 3 {
                             if let Some((level, content)) = parse_atx_heading(rest) {
                                 self.close_top_block();
@@ -341,7 +326,6 @@ impl<'a> BlockParser<'a> {
                                 return;
                             }
                         }
-                        // Check for fenced code start
                         if indent <= 3 {
                             if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
                                 self.close_top_block();
@@ -389,9 +373,7 @@ impl<'a> BlockParser<'a> {
                                 }
                             }
                         }
-                        // Paragraph continuation (including lazy continuation)
                         self.open[tip_idx].content.push('\n');
-                        // Fast path: if no leading whitespace, skip advance_to_nonspace
                         if indent == 0 {
                             self.open[tip_idx].content.push_str(line.remainder());
                         } else {
@@ -405,14 +387,12 @@ impl<'a> BlockParser<'a> {
             }
         }
 
-        // Check for lazy continuation of a paragraph
         if !all_matched && !line.is_blank() {
             let tip_idx = self.open.len() - 1;
             if matches!(self.open[tip_idx].block_type, OpenBlockType::Paragraph) {
                 let rest = line.rest_of_line();
                 let indent = line.indent();
 
-                // Check if the line would start a new block at the matched level
                 let can_start_new = (indent <= 3 && line.first_nonspace_byte() == b'>')
                     || (indent <= 3 && is_thematic_break(rest))
                     || (indent <= 3 && parse_atx_heading(rest).is_some())
@@ -420,8 +400,6 @@ impl<'a> BlockParser<'a> {
                     || (indent <= 3 && parse_html_block_start(rest, false).is_some());
 
                 if !can_start_new {
-                    // Also check: if there's an unmatched list item, and the line
-                    // would be a list marker at the parent level, don't allow lazy
                     let has_unmatched_list = (matched..num_open).any(|idx| {
                         matches!(self.open[idx].block_type, OpenBlockType::ListItem { .. })
                     });
@@ -429,10 +407,7 @@ impl<'a> BlockParser<'a> {
                     let is_new_list_marker = indent <= 3 && parse_list_marker(rest).is_some();
 
                     if has_unmatched_list && is_new_list_marker {
-                        // Don't allow lazy continuation - this starts a new item
                     } else if !is_new_list_marker || !has_unmatched_list {
-                        // Allow lazy continuation (also if it's a list marker that
-                        // can interrupt paragraph and there's no unmatched list)
                         if !(indent <= 3
                             && parse_list_marker(rest)
                                 .map_or(false, |m| can_interrupt_paragraph(&m)))
@@ -447,26 +422,20 @@ impl<'a> BlockParser<'a> {
             }
         }
 
-        // Phase 2: Close unmatched blocks
         while self.open.len() > matched {
             self.close_top_block();
         }
 
-        // Phase 3: Try to open new container/leaf blocks
         self.open_new_blocks(line);
     }
 
     #[inline(never)]
     pub(super) fn open_new_blocks(&mut self, mut line: Line<'a>) {
-        // Keep trying to open new blocks
         loop {
-            // Single call to peek_nonspace_col gives us indent AND first byte
             let (ns_col, ns_off, first_byte) = line.peek_nonspace_col();
             let indent = ns_col - line.col_offset;
 
             if first_byte == 0 && ns_off >= line.raw.len() {
-                // Blank line
-                // Mark blank line on innermost enclosing list item (for loose detection)
                 let len = self.open.len();
                 let mut found_list_item = false;
                 for i in (1..len).rev() {
@@ -491,7 +460,6 @@ impl<'a> BlockParser<'a> {
                 return;
             }
 
-            // Blockquote
             if indent <= 3 && first_byte == b'>' {
                 line.advance_to_nonspace();
                 line.byte_offset += 1;
@@ -519,14 +487,12 @@ impl<'a> BlockParser<'a> {
             }
 
             if indent <= 3 {
-                // Compute rest once for all checks that need it
                 let rest = if ns_off >= line.raw.len() {
                     ""
                 } else {
                     &line.raw[ns_off..]
                 };
 
-                // ATX heading
                 if let Some((level, content)) = parse_atx_heading(rest) {
                     line.advance_to_nonspace();
                     let parent = self.open.last_mut().unwrap();
@@ -537,7 +503,6 @@ impl<'a> BlockParser<'a> {
                     return;
                 }
 
-                // Fenced code block
                 if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
                     self.open.push(OpenBlock::new(OpenBlockType::FencedCode {
                         fence_char,
@@ -548,7 +513,6 @@ impl<'a> BlockParser<'a> {
                     return;
                 }
 
-                // HTML block
                 if let Some(end_condition) = parse_html_block_start(rest, false) {
                     let mut block = OpenBlock::new(OpenBlockType::HtmlBlock {
                         end_condition: end_condition,
@@ -565,14 +529,12 @@ impl<'a> BlockParser<'a> {
                     return;
                 }
 
-                // Thematic break
                 if is_thematic_break(rest) {
                     let parent = self.open.last_mut().unwrap();
                     parent.children.push(Block::ThematicBreak);
                     return;
                 }
 
-                // List item
                 if let Some(marker) = parse_list_marker(rest) {
                     let marker_indent = indent;
                     line.advance_to_nonspace();
@@ -583,12 +545,8 @@ impl<'a> BlockParser<'a> {
                     continue;
                 }
             } else {
-                // indent >= 4: Indented code block
-                // Cannot start indented code in a list item if we're looking at the first content
-                // Check that tip is not a paragraph
                 let tip = self.open.last().unwrap();
                 if !matches!(tip.block_type, OpenBlockType::Paragraph) {
-                    // Remove exactly 4 columns of indent, preserving excess
                     let _ = line.skip_indent(4);
                     let content = line.remainder_with_partial();
                     let mut block = OpenBlock::new(OpenBlockType::IndentedCode);
@@ -637,7 +595,6 @@ impl<'a> BlockParser<'a> {
             let _ = line.skip_indent(spaces_after);
         }
 
-        // Detect task list checkbox: [ ] or [x] or [X] followed by a space
         let mut checked = None;
         if !rest_blank && self.enable_task_lists {
             let rem = line.remainder().as_bytes();
@@ -701,7 +658,6 @@ impl<'a> BlockParser<'a> {
                 // This handles the case where a blank line falls between a sublist
                 // and subsequent content in the parent item.
                 if had_blank && !blank_between_children {
-                    // Propagate to enclosing list item (the parent might be a ListItem)
                     if matches!(parent.block_type, OpenBlockType::ListItem { .. }) {
                         parent.had_blank_in_item = true;
                     }
@@ -715,12 +671,9 @@ impl<'a> BlockParser<'a> {
                 }) = parent.children.last_mut()
                 {
                     if *lk == kind {
-                        // A blank line between items (had_blank on previous item,
-                        // and now we're adding another) → loose
                         if parent.list_has_blank_between {
                             *tight = false;
                         }
-                        // Blank between children of this item → loose
                         if blank_between_children {
                             *tight = false;
                         }
@@ -732,7 +685,6 @@ impl<'a> BlockParser<'a> {
                     }
                 }
 
-                // New list
                 parent.list_has_blank_between = false;
                 if had_blank {
                     parent.list_has_blank_between = true;
@@ -786,7 +738,6 @@ impl<'a> BlockParser<'a> {
                 {
                     return None;
                 }
-                // extract_ref_defs_owned handles trimming internally
                 let remaining = self.extract_ref_defs_owned(block.content);
                 if remaining.is_empty() {
                     return None;
@@ -827,7 +778,6 @@ impl<'a> BlockParser<'a> {
 
     /// Like extract_ref_defs but takes an owned String and avoids copying when no ref defs found.
     pub(super) fn extract_ref_defs_owned(&mut self, mut content: String) -> String {
-        // Compute trim boundaries
         let bytes = content.as_bytes();
         let len = bytes.len();
         let mut start = 0;
@@ -842,9 +792,7 @@ impl<'a> BlockParser<'a> {
             end -= 1;
         }
 
-        // Quick check: if doesn't start with '[', no ref defs possible
         if bytes[start] != b'[' {
-            // Trim in-place if needed
             if start == 0 && end == len {
                 return content; // Already trimmed, return as-is — zero copy!
             }
@@ -854,7 +802,6 @@ impl<'a> BlockParser<'a> {
             }
             return content;
         }
-        // Has potential ref defs — use the full extraction
         self.extract_ref_defs(&content[start..end])
     }
 }

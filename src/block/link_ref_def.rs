@@ -7,7 +7,6 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
         return None;
     }
 
-    // Parse label - preserve backslashes (matching uses raw label text)
     let mut i = 1;
     let mut label = String::new();
     let mut found_close = false;
@@ -36,29 +35,23 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
         return None;
     }
 
-    // Must be followed by :
     if i >= bytes.len() || bytes[i] != b':' {
         return None;
     }
     i += 1;
 
-    // Skip optional whitespace (including up to one newline)
     i = skip_spaces_and_optional_newline(bytes, i);
 
-    // Parse destination
     let (dest, dest_end) = parse_link_destination(bytes, i)?;
     i = dest_end;
 
-    // Check for title
     let before_title = i;
-    // Skip spaces (and optional newline)
     let title_start = skip_spaces_and_optional_newline(bytes, i);
 
     let mut title = None;
 
     if title_start < bytes.len() && title_start > before_title {
         if let Some((t, t_end)) = parse_link_title(bytes, title_start) {
-            // After title, rest of line must be blank
             let after = skip_line_spaces(bytes, t_end);
             if after >= bytes.len() || bytes[after] == b'\n' {
                 title = Some(t);
@@ -72,7 +65,6 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
         }
     }
 
-    // No title - rest of line after dest must be blank
     let after_dest = skip_line_spaces(bytes, before_title);
     if after_dest < bytes.len() && bytes[after_dest] != b'\n' {
         return None;
@@ -88,7 +80,6 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
 /// Resolve HTML entity references and backslash escapes in a string
 pub(super) fn resolve_entities_and_escapes(s: &str) -> String {
     let bytes = s.as_bytes();
-    // Fast path: if no special chars, return directly
     if memchr::memchr2(b'\\', b'&', bytes).is_none() {
         return s.to_string();
     }
@@ -99,9 +90,7 @@ pub(super) fn resolve_entities_and_escapes(s: &str) -> String {
             out.push(bytes[i + 1] as char);
             i += 2;
         } else if bytes[i] == b'&' {
-            // Try to resolve entity
-            if let Some((resolved, end)) = try_resolve_entity_in_bytes(bytes, i) {
-                out.push_str(&resolved);
+            if let Some(end) = resolve_entity_in_bytes(bytes, i, &mut out) {
                 i = end;
             } else {
                 out.push('&');
@@ -116,8 +105,14 @@ pub(super) fn resolve_entities_and_escapes(s: &str) -> String {
     out
 }
 
-pub(super) fn try_resolve_entity_in_bytes(bytes: &[u8], start: usize) -> Option<(String, usize)> {
-    let mut i = start + 1; // skip &
+/// Resolve an entity reference starting at `&` in `bytes[start..]`.
+/// On success, appends the resolved characters to `out` and returns the byte offset past `;`.
+pub(super) fn resolve_entity_in_bytes(
+    bytes: &[u8],
+    start: usize,
+    out: &mut String,
+) -> Option<usize> {
+    let mut i = start + 1;
     if i >= bytes.len() {
         return None;
     }
@@ -142,8 +137,12 @@ pub(super) fn try_resolve_entity_in_bytes(bytes: &[u8], start: usize) -> Option<
             return None;
         }
         let value = std::str::from_utf8(&bytes[ns..i]).ok()?;
-        i += 1; // skip ;
-        entities::resolve_numeric_ref(value, hex).map(|r| (r, i))
+        i += 1;
+        if entities::resolve_numeric_ref_into(value, hex, out) {
+            Some(i)
+        } else {
+            None
+        }
     } else {
         let ns = i;
         while i < bytes.len() && bytes[i].is_ascii_alphanumeric() {
@@ -153,8 +152,12 @@ pub(super) fn try_resolve_entity_in_bytes(bytes: &[u8], start: usize) -> Option<
             return None;
         }
         let name = std::str::from_utf8(&bytes[ns..i]).ok()?;
-        i += 1; // skip ;
-        entities::lookup_entity(name).map(|r| (r, i))
+        i += 1;
+        if entities::lookup_entity_into(name, out) {
+            Some(i)
+        } else {
+            None
+        }
     }
 }
 
@@ -184,7 +187,6 @@ pub(super) fn parse_link_destination(bytes: &[u8], start: usize) -> Option<(Stri
     }
 
     if bytes[start] == b'<' {
-        // Angle-bracket destination
         let mut i = start + 1;
         let mut dest = String::new();
         while i < bytes.len() {
@@ -208,7 +210,6 @@ pub(super) fn parse_link_destination(bytes: &[u8], start: usize) -> Option<(Stri
         }
         None
     } else {
-        // Regular destination - balanced parentheses
         let mut i = start;
         let mut paren_depth = 0i32;
         let mut dest = String::new();
@@ -235,7 +236,6 @@ pub(super) fn parse_link_destination(bytes: &[u8], start: usize) -> Option<(Stri
                 dest.push(bytes[i + 1] as char);
                 i += 2;
             } else {
-                // Handle multi-byte UTF-8
                 let ch_start = i;
                 i += utf8_char_len(b);
                 dest.push_str(std::str::from_utf8(&bytes[ch_start..i]).unwrap_or("\u{FFFD}"));
@@ -245,7 +245,6 @@ pub(super) fn parse_link_destination(bytes: &[u8], start: usize) -> Option<(Stri
             return None;
         }
         if dest.is_empty() && start < bytes.len() && bytes[start] != b'<' {
-            // Empty destination without angle brackets is not valid
             return None;
         }
         Some((dest, i))

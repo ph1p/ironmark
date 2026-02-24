@@ -2,6 +2,64 @@ mod data;
 
 pub(crate) use data::ENTITIES;
 
+/// Maximum entity name length per first character. Allows early rejection of non-entities.
+pub(crate) static MAX_ENTITY_LEN: [u8; 128] = {
+    let mut t = [0u8; 128];
+    t[b'A' as usize] = 13;
+    t[b'B' as usize] = 10;
+    t[b'C' as usize] = 31;
+    t[b'D' as usize] = 24;
+    t[b'E' as usize] = 20;
+    t[b'F' as usize] = 21;
+    t[b'G' as usize] = 17;
+    t[b'H' as usize] = 14;
+    t[b'I' as usize] = 14;
+    t[b'J' as usize] = 6;
+    t[b'K' as usize] = 6;
+    t[b'L' as usize] = 19;
+    t[b'M' as usize] = 11;
+    t[b'N' as usize] = 23;
+    t[b'O' as usize] = 20;
+    t[b'P' as usize] = 18;
+    t[b'Q' as usize] = 4;
+    t[b'R' as usize] = 20;
+    t[b'S' as usize] = 19;
+    t[b'T' as usize] = 14;
+    t[b'U' as usize] = 16;
+    t[b'V' as usize] = 17;
+    t[b'W' as usize] = 5;
+    t[b'X' as usize] = 4;
+    t[b'Y' as usize] = 6;
+    t[b'Z' as usize] = 14;
+    t[b'a' as usize] = 8;
+    t[b'b' as usize] = 18;
+    t[b'c' as usize] = 16;
+    t[b'd' as usize] = 16;
+    t[b'e' as usize] = 12;
+    t[b'f' as usize] = 13;
+    t[b'g' as usize] = 10;
+    t[b'h' as usize] = 14;
+    t[b'i' as usize] = 8;
+    t[b'j' as usize] = 6;
+    t[b'k' as usize] = 6;
+    t[b'l' as usize] = 19;
+    t[b'm' as usize] = 13;
+    t[b'n' as usize] = 16;
+    t[b'o' as usize] = 8;
+    t[b'p' as usize] = 11;
+    t[b'q' as usize] = 11;
+    t[b'r' as usize] = 17;
+    t[b's' as usize] = 15;
+    t[b't' as usize] = 17;
+    t[b'u' as usize] = 14;
+    t[b'v' as usize] = 16;
+    t[b'w' as usize] = 6;
+    t[b'x' as usize] = 6;
+    t[b'y' as usize] = 6;
+    t[b'z' as usize] = 7;
+    t
+};
+
 /// First-character dispatch table: maps ASCII byte to (start, end) range in ENTITIES.
 /// Reduces binary search from ~11 comparisons to ~8 for the largest bucket.
 static ENTITY_FIRST_CHAR: [(u16, u16); 128] = {
@@ -64,7 +122,18 @@ static ENTITY_FIRST_CHAR: [(u16, u16); 128] = {
 /// Look up an HTML5 named entity and return its codepoints slice.
 #[inline]
 pub(crate) fn lookup_entity_codepoints(name: &str) -> Option<&'static [u32]> {
-    let first = name.as_bytes()[0];
+    let bytes = name.as_bytes();
+    let first = bytes[0];
+
+    match (first, bytes.len()) {
+        (b'a', 3) if bytes[1] == b'm' && bytes[2] == b'p' => return Some(&[0x26]),
+        (b'l', 2) if bytes[1] == b't' => return Some(&[0x3C]),
+        (b'g', 2) if bytes[1] == b't' => return Some(&[0x3E]),
+        (b'q', 4) if bytes == b"quot" => return Some(&[0x22]),
+        (b'n', 4) if bytes == b"nbsp" => return Some(&[0xA0]),
+        (b'c', 4) if bytes == b"copy" => return Some(&[0xA9]),
+        _ => {}
+    }
     if first >= 128 {
         return None;
     }
@@ -105,16 +174,6 @@ pub(crate) fn lookup_entity_into(name: &str, out: &mut String) -> bool {
     true
 }
 
-/// Look up an HTML5 named entity reference and return the replacement string.
-pub(crate) fn lookup_entity(name: &str) -> Option<String> {
-    let mut s = String::with_capacity(4);
-    if lookup_entity_into(name, &mut s) {
-        Some(s)
-    } else {
-        None
-    }
-}
-
 /// Resolve a numeric character reference and write to output. Returns true if valid.
 pub(crate) fn resolve_numeric_ref_into(value: &str, hex: bool, out: &mut String) -> bool {
     let cp = if hex {
@@ -133,15 +192,4 @@ pub(crate) fn resolve_numeric_ref_into(value: &str, hex: bool, out: &mut String)
     let c = char::from_u32(cp).unwrap_or('\u{FFFD}');
     out.push(c);
     true
-}
-
-/// Resolve a numeric character reference (decimal or hex).
-/// Input is just the digits (no leading `#` or `#x`).
-pub(crate) fn resolve_numeric_ref(value: &str, hex: bool) -> Option<String> {
-    let mut s = String::with_capacity(4);
-    if resolve_numeric_ref_into(value, hex, &mut s) {
-        Some(s)
-    } else {
-        None
-    }
 }

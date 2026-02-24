@@ -24,8 +24,16 @@ impl<'a> InlineScanner<'a> {
                 InlineItem::RawHtml(start, end) => {
                     out.push_str(&self.input[*start..*end]);
                 }
-                InlineItem::RawHtmlOwned(h) => {
-                    out.push_str(h);
+                InlineItem::Autolink(start, end, is_email) => {
+                    let content = &self.input[*start as usize..*end as usize];
+                    out.push_str("<a href=\"");
+                    if *is_email {
+                        out.push_str("mailto:");
+                    }
+                    crate::html::encode_url_escaped_into(out, content);
+                    out.push_str("\">");
+                    escape_html_into(out, content);
+                    out.push_str("</a>");
                 }
                 InlineItem::Code(c) => {
                     out.push_str("<code>");
@@ -168,7 +176,7 @@ impl<'a> InlineScanner<'a> {
                         s.push(*kind as char);
                     }
                 }
-                InlineItem::RawHtml(_, _) | InlineItem::RawHtmlOwned(_) => {}
+                InlineItem::RawHtml(_, _) | InlineItem::Autolink(..) => {}
                 InlineItem::HardBreak | InlineItem::SoftBreak => {}
                 InlineItem::LinkStart(_) => {}
                 InlineItem::LinkEnd => {}
@@ -191,17 +199,12 @@ pub(super) fn write_link_dest(out: &mut String, dest: &LinkDest, input: &str) {
         LinkDest::Range(s, e) => {
             let s = *s as usize;
             let e = *e as usize;
-            if s == e {
-                return;
+            if s < e {
+                crate::html::encode_url_escaped_into(out, &input[s..e]);
             }
-            write_url(out, &input[s..e]);
         }
         LinkDest::Owned(d) => {
-            write_url(out, d);
+            crate::html::encode_url_escaped_into(out, d);
         }
     }
-}
-
-pub(super) fn write_url(out: &mut String, dest: &str) {
-    crate::html::encode_url_escaped_into(out, dest);
 }

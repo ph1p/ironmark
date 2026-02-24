@@ -7,13 +7,12 @@ use html_block::*;
 use leaf_blocks::*;
 use link_ref_def::*;
 
+use crate::ParseOptions;
 use crate::ast::{Block, ListKind, TableAlignment};
 use crate::entities;
 use crate::html::trim_cr;
 use crate::inline::{InlineBuffers, LinkRefMap};
-use crate::render::render_html;
-use crate::ParseOptions;
-use ahash::HashMapExt;
+use crate::render::render_block;
 use std::borrow::Cow;
 
 pub fn parse(markdown: &str, options: &ParseOptions) -> String {
@@ -22,7 +21,7 @@ pub fn parse(markdown: &str, options: &ParseOptions) -> String {
     let refs = parser.ref_defs;
     let mut out = String::with_capacity(markdown.len() + markdown.len() / 4);
     let mut bufs = InlineBuffers::new();
-    render_html(&doc, &refs, &mut out, options, &mut bufs);
+    render_block(&doc, &refs, &mut out, options, &mut bufs);
     out
 }
 
@@ -31,11 +30,8 @@ pub fn parse(markdown: &str, options: &ParseOptions) -> String {
 #[derive(Clone, Debug)]
 struct Line<'a> {
     raw: &'a str,
-    // column offset already consumed by container markers
     col_offset: usize,
-    // byte offset already consumed by container markers
     byte_offset: usize,
-    // remaining virtual spaces from a partially consumed tab
     partial_spaces: usize,
 }
 
@@ -78,7 +74,6 @@ impl<'a> Line<'a> {
     fn skip_indent(&mut self, max: usize) -> usize {
         let bytes = self.raw.as_bytes();
         let mut cols = 0;
-        // First consume any remaining partial tab spaces
         if self.partial_spaces > 0 {
             let consume = self.partial_spaces.min(max);
             cols += consume;
@@ -88,30 +83,25 @@ impl<'a> Line<'a> {
                 return cols;
             }
         }
-        // Fast path: if remaining needed is all spaces (no tabs), batch advance
         let remaining = max - cols;
         let end = (self.byte_offset + remaining).min(bytes.len());
         if end > self.byte_offset {
-            // Check if we have enough consecutive spaces
             let mut fast_end = self.byte_offset;
             while fast_end < end && bytes[fast_end] == b' ' {
                 fast_end += 1;
             }
             let fast_count = fast_end - self.byte_offset;
             if fast_count >= remaining {
-                // All spaces, fast advance
                 self.byte_offset += remaining;
                 self.col_offset += remaining;
                 return max;
             }
-            // Advance past the spaces we found, then handle rest
             if fast_count > 0 {
                 cols += fast_count;
                 self.byte_offset += fast_count;
                 self.col_offset += fast_count;
             }
         }
-        // Slow path for tabs/mixed
         while self.byte_offset < bytes.len() && cols < max {
             match bytes[self.byte_offset] {
                 b' ' => {
@@ -281,19 +271,12 @@ enum HtmlBlockEnd {
 #[derive(Clone, Debug)]
 struct OpenBlock {
     block_type: OpenBlockType,
-    /// Content accumulator for leaf blocks
     content: String,
-    /// Children for container blocks
     children: Vec<Block>,
-    /// Whether this list item has seen a blank line
     had_blank_in_item: bool,
-    /// For list containers (stored on the ListItem's parent): has any blank between items
     list_has_blank_between: bool,
-    /// Task list checkbox state for list items
     checked: Option<bool>,
-    /// Start number for ordered lists
     list_start: u32,
-    /// List kind
     list_kind: Option<ListKind>,
 }
 
@@ -331,7 +314,7 @@ impl<'a> BlockParser<'a> {
         open.push(doc);
         Self {
             input,
-            ref_defs: LinkRefMap::new(),
+            ref_defs: LinkRefMap::default(),
             open,
             enable_tables,
             enable_task_lists,
@@ -344,7 +327,6 @@ impl<'a> BlockParser<'a> {
         let len = bytes.len();
         let mut start = 0;
         while start < len {
-            // Find next newline
             let end = memchr_newline(bytes, start);
             let raw_line = &input[start..end];
             let raw_line = trim_cr(raw_line);
@@ -352,11 +334,9 @@ impl<'a> BlockParser<'a> {
             self.process_line(line);
             start = end + 1;
         }
-        // Close all remaining open blocks
         while self.open.len() > 1 {
             self.close_top_block();
         }
-        // Return the document
         let doc = self.open.pop().unwrap();
         Block::Document {
             children: doc.children,
@@ -364,7 +344,6 @@ impl<'a> BlockParser<'a> {
     }
 
     fn has_open_leaf_after(&self, idx: usize) -> bool {
-        // Check if there's an open leaf block after index idx
         for i in (idx + 1)..self.open.len() {
             match &self.open[i].block_type {
                 OpenBlockType::Paragraph

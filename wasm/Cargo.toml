@@ -1,8 +1,11 @@
 [package]
 name = "ironmark-wasm"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
 
 [lib]
 name = "ironmark"

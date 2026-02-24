@@ -1,4 +1,4 @@
-use ironmark::{parse as ironmark_parse, ParseOptions};
+use ironmark::{ParseOptions, parse as ironmark_parse};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
