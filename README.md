@@ -2,31 +2,31 @@
 
 [![CI](https://github.com/ph1p/ironmark/actions/workflows/ci.yml/badge.svg)](https://github.com/ph1p/ironmark/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/ironmark)](https://www.npmjs.com/package/ironmark) [![crates.io](https://img.shields.io/crates/v/ironmark)](https://crates.io/crates/ironmark)
 
-Fast Markdown-to-HTML parser written in Rust. Fully compliant with [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) (652/652 spec tests pass). Available as a Rust crate and as an npm package via WebAssembly.
+Fast Markdown-to-HTML parser written in Rust with **zero third-party** parsing dependencies. Fully compliant with [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) (652/652 spec tests pass). Available as a Rust crate and as an npm package via WebAssembly.
 
-## Features
+## Options
 
-- Zero third-party parsing dependencies
-- Headings (`#` through `######`) and setext headings
-- Paragraphs, emphasis, strong emphasis, inline code
-- ~~strikethrough~~, ==highlight==, ++underline++
-- Links, reference links, autolinks (angle-bracket and bare URL/email), images
-- Ordered and unordered lists with nesting, task lists (checkboxes)
-- Blockquotes, horizontal rules
-- Fenced and indented code blocks
-- Tables with alignment
-- Raw HTML passthrough
-- Backslash escapes and HTML entities
+All options default to `true`.
+
+| Option        | JS (`camelCase`)      | Rust (`snake_case`)    | Description                    |
+| ------------- | --------------------- | ---------------------- | ------------------------------ |
+| Hard breaks   | `hardBreaks`          | `hard_breaks`          | Every newline becomes `<br />` |
+| Highlight     | `enableHighlight`     | `enable_highlight`     | `==text==` → `<mark>`          |
+| Strikethrough | `enableStrikethrough` | `enable_strikethrough` | `~~text~~` → `<del>`           |
+| Underline     | `enableUnderline`     | `enable_underline`     | `++text++` → `<u>`             |
+| Tables        | `enableTables`        | `enable_tables`        | Pipe table syntax              |
+| Autolink      | `enableAutolink`      | `enable_autolink`      | Bare URLs & emails → `<a>`     |
+| Task lists    | `enableTaskLists`     | `enable_task_lists`    | `- [ ]` / `- [x]` checkboxes   |
 
 ## JavaScript / TypeScript
 
-### Install
-
 ```bash
 npm install ironmark
+# or
+pnpm add ironmark
 ```
 
-### Usage (Node.js)
+### Node.js
 
 WASM is embedded and loaded synchronously — no `init()` needed:
 
@@ -34,14 +34,11 @@ WASM is embedded and loaded synchronously — no `init()` needed:
 import { parse } from "ironmark";
 
 const html = parse("# Hello\n\nThis is **fast**.");
-
-const bytes = new TextEncoder().encode("# Hello from bytes");
-const html2 = parse(bytes);
 ```
 
-### Usage (Browser / Bundler)
+### Browser / Bundler
 
-Call `init()` once before using `parse()`:
+Call `init()` once before using `parse()`. It's idempotent and optionally accepts a custom `.wasm` URL.
 
 ```ts
 import { init, parse } from "ironmark";
@@ -51,9 +48,7 @@ await init();
 const html = parse("# Hello\n\nThis is **fast**.");
 ```
 
-`init()` is idempotent (safe to call multiple times) and can optionally take a custom URL to the `.wasm` file.
-
-#### vite
+#### Vite
 
 ```ts
 import { init, parse } from "ironmark";
@@ -64,88 +59,48 @@ await init(wasmUrl);
 const html = parse("# Hello\n\nThis is **fast**.");
 ```
 
-### Options
-
-```ts
-import { parse } from "ironmark";
-
-const html = parse("line one\nline two", {
-  hardBreaks: false, // every newline becomes <br /> (default: true)
-  enableHighlight: true, // ==highlight== → <mark> (default: true)
-  enableStrikethrough: true, // ~~strike~~ → <del> (default: true)
-  enableUnderline: true, // ++underline++ → <u> (default: true)
-  enableTables: true, // pipe tables (default: true)
-  enableAutolink: true, // bare URLs & emails → <a> (default: true)
-  enableTaskLists: true, // - [ ] / - [x] checkboxes (default: true)
-});
-```
-
-### Build from source
-
-```bash
-npm run setup:wasm
-npm run build
-```
-
-| Command              | Description            |
-| -------------------- | ---------------------- |
-| `npm run setup:wasm` | Install prerequisites  |
-| `npm run build`      | Release WASM build     |
-| `npm run build:dev`  | Debug WASM build       |
-| `npm run test`       | Run Rust tests         |
-| `npm run check`      | Format check + tests   |
-| `npm run clean`      | Remove build artifacts |
-
 ## Rust
-
-### Add to your project
 
 ```bash
 cargo add ironmark
 ```
 
-### Usage
-
 ```rust
 use ironmark::{parse, ParseOptions};
 
 fn main() {
+    // with defaults
     let html = parse("# Hello\n\nThis is **fast**.", &ParseOptions::default());
-    println!("{html}");
-}
-```
 
-### With options
-
-```rust
-use ironmark::{parse, ParseOptions};
-
-fn main() {
-    let options = ParseOptions {
-        hard_breaks: true,
-        enable_strikethrough: false, // disable ~~strikethrough~~
-        enable_autolink: true,      // bare URLs & emails → <a>
-        enable_task_lists: true,    // - [ ] / - [x] checkboxes
+    // with custom options
+    let html = parse("line one\nline two", &ParseOptions {
+        hard_breaks: false,
+        enable_strikethrough: false,
         ..Default::default()
-    };
-
-    let html = parse("line one\nline two", &options);
-    println!("{html}");
+    });
 }
 ```
 
-## Troubleshooting
+## Development
 
-### `wasm32-unknown-unknown target not found` with Homebrew Rust
+This project uses [pnpm](https://pnpm.io/) for package management.
 
-The build scripts prepend `$HOME/.cargo/bin` to `PATH` so that rustup-managed binaries take priority. If the error persists:
-
-```bash
-npm run setup:wasm
-```
-
-### `wasm-bindgen` not found
+### Build from source
 
 ```bash
-npm run setup:wasm
+pnpm setup:wasm
+pnpm build
 ```
+
+| Command           | Description            |
+| ----------------- | ---------------------- |
+| `pnpm setup:wasm` | Install prerequisites  |
+| `pnpm build`      | Release WASM build     |
+| `pnpm build:dev`  | Debug WASM build       |
+| `pnpm test`       | Run Rust tests         |
+| `pnpm check`      | Format check           |
+| `pnpm clean`      | Remove build artifacts |
+
+### Troubleshooting
+
+**`wasm32-unknown-unknown target not found`** or **`wasm-bindgen not found`** — run `pnpm setup:wasm` to install all prerequisites.
