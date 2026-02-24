@@ -1,8 +1,39 @@
 module.exports = {
   branches: ["main"],
   plugins: [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        preset: "conventionalcommits",
+        releaseRules: [
+          { type: "feat", release: "minor" },
+          { type: "fix", release: "patch" },
+          { type: "perf", release: "patch" },
+          { type: "revert", release: "patch" },
+          { breaking: true, release: "major" },
+        ],
+      },
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        preset: "conventionalcommits",
+        presetConfig: {
+          types: [
+            { type: "feat", section: "Features" },
+            { type: "fix", section: "Bug Fixes" },
+            { type: "perf", section: "Performance" },
+            { type: "revert", section: "Reverts" },
+            { type: "refactor", section: "Refactoring", hidden: true },
+            { type: "chore", hidden: true },
+            { type: "docs", hidden: true },
+            { type: "style", hidden: true },
+            { type: "test", hidden: true },
+            { type: "ci", hidden: true },
+          ],
+        },
+      },
+    ],
     [
       "@semantic-release/exec",
       {

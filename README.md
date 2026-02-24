@@ -105,14 +105,6 @@ fn main() {
 }
 ```
 
-## Benchmarks
-
-```bash
-cd benchmark
-npm install
-node bench.mjs
-```
-
 ## Troubleshooting
 
 ### `wasm32-unknown-unknown target not found` with Homebrew Rust
