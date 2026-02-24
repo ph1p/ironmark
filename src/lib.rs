@@ -7,6 +7,24 @@ mod render;
 
 pub use block::parse;
 
+#[inline(always)]
+pub(crate) fn is_ascii_punctuation(b: u8) -> bool {
+    matches!(b, b'!'..=b'/' | b':'..=b'@' | b'['..=b'`' | b'{'..=b'~')
+}
+
+#[inline(always)]
+pub(crate) fn utf8_char_len(first: u8) -> usize {
+    if first < 0x80 {
+        1
+    } else if first < 0xE0 {
+        2
+    } else if first < 0xF0 {
+        3
+    } else {
+        4
+    }
+}
+
 /// Options for customizing Markdown parsing behavior.
 pub struct ParseOptions {
     /// When `true`, every newline inside a paragraph becomes a hard line break (`<br />`),

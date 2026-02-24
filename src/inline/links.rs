@@ -71,9 +71,7 @@ impl<'a> InlineScanner<'a> {
                 dest.push(self.bytes[self.pos + 1] as char);
                 self.pos += 2;
             } else if b == b'&' {
-                if let Some(resolved) = self.resolve_entity_at() {
-                    dest.push_str(&resolved);
-                } else {
+                if !self.resolve_entity_into(&mut dest) {
                     dest.push('&');
                     self.pos += 1;
                 }
@@ -87,7 +85,6 @@ impl<'a> InlineScanner<'a> {
     }
 
     pub(super) fn scan_bare_dest(&mut self) -> Option<LinkDest> {
-        // Fast path: scan ahead to see if there are any special chars
         let start = self.pos;
         let mut has_special = false;
         let mut end = self.pos;
@@ -103,13 +100,11 @@ impl<'a> InlineScanner<'a> {
             end += 1;
         }
         if !has_special {
-            // No parens, backslashes, or entities — zero-copy range
             self.pos = end;
             return Some(LinkDest::Range(start as u32, end as u32));
         }
 
         let mut dest = String::with_capacity(end - start + 8);
-        // Copy what we already scanned
         if end > start {
             dest.push_str(&self.input[start..end]);
             self.pos = end;
@@ -141,9 +136,7 @@ impl<'a> InlineScanner<'a> {
                 dest.push(self.bytes[self.pos + 1] as char);
                 self.pos += 2;
             } else if b == b'&' {
-                if let Some(resolved) = self.resolve_entity_at() {
-                    dest.push_str(&resolved);
-                } else {
+                if !self.resolve_entity_into(&mut dest) {
                     dest.push('&');
                     self.pos += 1;
                 }
@@ -189,9 +182,7 @@ impl<'a> InlineScanner<'a> {
                 title.push(self.bytes[self.pos + 1] as char);
                 self.pos += 2;
             } else if b == b'&' {
-                if let Some(resolved) = self.resolve_entity_at() {
-                    title.push_str(&resolved);
-                } else {
+                if !self.resolve_entity_into(&mut title) {
                     title.push('&');
                     self.pos += 1;
                 }
@@ -212,7 +203,6 @@ impl<'a> InlineScanner<'a> {
         let saved = self.pos;
         let raw_label = &self.input[text_pos..close_pos];
 
-        // Full reference: [text][label]
         if self.pos < self.bytes.len() && self.bytes[self.pos] == b'[' {
             self.pos += 1;
             let label_start = self.pos;
@@ -235,7 +225,7 @@ impl<'a> InlineScanner<'a> {
                             label
                         };
                         let key = normalize_reference_label(lookup);
-                        if let Some(r) = self.refs.get(&key) {
+                        if let Some(r) = self.refs.get(&*key) {
                             return Some((LinkDest::Owned(r.href.clone()), r.title.clone()));
                         }
                         self.pos = saved;
@@ -248,14 +238,11 @@ impl<'a> InlineScanner<'a> {
             self.pos = saved;
         }
 
-        // Collapsed [] or Shortcut (both normalize the same raw_label)
-        // Quick check: if refs is empty, skip the normalization entirely
         if self.refs.is_empty() {
             return None;
         }
         let key = normalize_reference_label(raw_label);
-        if let Some(r) = self.refs.get(&key) {
-            // If collapsed syntax present, consume it
+        if let Some(r) = self.refs.get(&*key) {
             if self.pos + 1 < self.bytes.len()
                 && self.bytes[self.pos] == b'['
                 && self.bytes[self.pos + 1] == b']'
@@ -289,7 +276,6 @@ impl<'a> InlineScanner<'a> {
         let content = &self.input[content_start..self.pos];
         self.pos += 1;
 
-        // URI autolink
         if let Some(colon) = content.find(':') {
             let scheme = &content[..colon];
             if scheme.len() >= 2
@@ -299,30 +285,17 @@ impl<'a> InlineScanner<'a> {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'.' | b'-'))
             {
-                let mut s = String::with_capacity(content.len() * 3 + 30);
-                s.push_str("<a href=\"");
-                let mut encoded = String::with_capacity(content.len());
-                encode_url(&mut encoded, content);
-                escape_html_into(&mut s, &encoded);
-                s.push_str("\">");
-                escape_html_into(&mut s, content);
-                s.push_str("</a>");
-                self.items.push(InlineItem::RawHtmlOwned(s));
+                self.items
+                    .push(InlineItem::RawHtmlOwned(build_autolink_html("", content)));
                 return true;
             }
         }
 
-        // Email
         if is_email_autolink(content) {
-            let mut s = String::with_capacity(content.len() * 3 + 40);
-            s.push_str("<a href=\"mailto:");
-            let mut encoded = String::with_capacity(content.len());
-            encode_url(&mut encoded, content);
-            escape_html_into(&mut s, &encoded);
-            s.push_str("\">");
-            escape_html_into(&mut s, content);
-            s.push_str("</a>");
-            self.items.push(InlineItem::RawHtmlOwned(s));
+            self.items
+                .push(InlineItem::RawHtmlOwned(build_autolink_html(
+                    "mailto:", content,
+                )));
             return true;
         }
 
@@ -334,7 +307,6 @@ impl<'a> InlineScanner<'a> {
         let rest = &self.input[self.pos..];
         let rest_start = self.pos;
 
-        // HTML comment
         if rest.starts_with("<!--") {
             if rest.starts_with("<!-->") {
                 self.items
@@ -357,7 +329,6 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        // Processing instruction
         if rest.starts_with("<?") {
             if let Some(end) = rest[2..].find("?>") {
                 let tag_len = end + 4;
@@ -368,7 +339,6 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        // CDATA
         if rest.starts_with("<![CDATA[") {
             if let Some(end) = rest[9..].find("]]>") {
                 let tag_len = end + 12;
@@ -379,7 +349,6 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        // Declaration
         let bytes = rest.as_bytes();
         if bytes.len() > 2
             && bytes[1] == b'!'
@@ -394,7 +363,6 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        // Open or closing tag
         if bytes.len() < 3 {
             return false;
         }
@@ -423,7 +391,6 @@ impl<'a> InlineScanner<'a> {
             return false;
         }
 
-        // Open tag with attributes
         loop {
             let had_space = {
                 let before = i;
@@ -465,7 +432,6 @@ impl<'a> InlineScanner<'a> {
             {
                 i += 1;
             }
-            // Optional value
             let si = i;
             while i < bytes.len() && matches!(bytes[i], b' ' | b'\t' | b'\n') {
                 i += 1;
@@ -518,7 +484,6 @@ impl<'a> InlineScanner<'a> {
             return false;
         }
 
-        // Use a small stack buffer to resolve the entity, avoiding heap allocation.
         let mut char_buf: [u8; 8] = [0; 8];
         let mut char_len = 0usize;
 
@@ -591,8 +556,6 @@ impl<'a> InlineScanner<'a> {
         };
 
         if ok {
-            // Fast path: for single-byte resolved entities, use static strings
-            // to avoid any heap allocation at all.
             if char_len == 1 {
                 match char_buf[0] {
                     b'&' => {
@@ -612,7 +575,6 @@ impl<'a> InlineScanner<'a> {
                         return true;
                     }
                     _ => {
-                        // Single non-special ASCII byte: use static str to avoid allocation
                         self.items.push(InlineItem::TextStatic(
                             ASCII_CHAR_STRS[char_buf[0] as usize],
                         ));
@@ -620,7 +582,6 @@ impl<'a> InlineScanner<'a> {
                     }
                 }
             }
-            // Multi-byte: check if any bytes need escaping
             let needs_escape = char_buf[..char_len]
                 .iter()
                 .any(|&b| matches!(b, b'&' | b'<' | b'>' | b'"'));
@@ -630,7 +591,6 @@ impl<'a> InlineScanner<'a> {
                 escape_html_into(&mut s, resolved);
                 self.items.push(InlineItem::TextOwned(s));
             } else {
-                // No escaping needed - use inline buffer (no heap allocation)
                 self.items.push(InlineItem::TextInline {
                     buf: char_buf,
                     len: char_len as u8,
@@ -643,13 +603,12 @@ impl<'a> InlineScanner<'a> {
         }
     }
 
-    /// Used for entity resolution in link destinations/titles (not for inline text)
-    pub(super) fn resolve_entity_at(&mut self) -> Option<String> {
+    pub(super) fn resolve_entity_into(&mut self, dest: &mut String) -> bool {
         let start = self.pos;
         self.pos += 1;
         if self.pos >= self.bytes.len() {
             self.pos = start;
-            return None;
+            return false;
         }
 
         if self.bytes[self.pos] == b'#' {
@@ -674,15 +633,26 @@ impl<'a> InlineScanner<'a> {
                 || self.bytes[self.pos] != b';'
             {
                 self.pos = start;
-                return None;
+                return false;
             }
             self.pos += 1;
-            let mut out = String::new();
-            if entities::resolve_numeric_ref_into(&self.input[ns..self.pos - 1], hex, &mut out) {
-                Some(out)
+            let value = &self.input[ns..self.pos - 1];
+            let cp = if hex {
+                u32::from_str_radix(value, 16).ok()
+            } else {
+                value.parse::<u32>().ok()
+            };
+            if let Some(mut cp) = cp {
+                if cp == 0 {
+                    cp = 0xFFFD;
+                }
+                let c = char::from_u32(cp).unwrap_or('\u{FFFD}');
+                let mut buf = [0u8; 4];
+                dest.push_str(c.encode_utf8(&mut buf));
+                true
             } else {
                 self.pos = start;
-                None
+                false
             }
         } else {
             let ns = self.pos;
@@ -691,16 +661,15 @@ impl<'a> InlineScanner<'a> {
             }
             if self.pos == ns || self.pos >= self.bytes.len() || self.bytes[self.pos] != b';' {
                 self.pos = start;
-                return None;
+                return false;
             }
             let name = &self.input[ns..self.pos];
             self.pos += 1;
-            let mut out = String::new();
-            if entities::lookup_entity_into(name, &mut out) {
-                Some(out)
+            if entities::lookup_entity_into(name, dest) {
+                true
             } else {
                 self.pos = start;
-                None
+                false
             }
         }
     }

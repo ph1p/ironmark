@@ -4,36 +4,13 @@ impl<'a> InlineScanner<'a> {
     pub(super) fn scan_all(&mut self) {
         let mut text_start = self.pos;
 
-        // Fast skip: use a lookup table to quickly scan past plain text bytes
-        static SPECIAL: [bool; 256] = {
-            let mut t = [false; 256];
-            t[b'\\' as usize] = true;
-            t[b'`' as usize] = true;
-            t[b'*' as usize] = true;
-            t[b'_' as usize] = true;
-            t[b'!' as usize] = true;
-            t[b'[' as usize] = true;
-            t[b']' as usize] = true;
-            t[b'<' as usize] = true;
-            t[b'&' as usize] = true;
-            t[b'\n' as usize] = true;
-            t[b'~' as usize] = true;
-            t[b'=' as usize] = true;
-            t[b'+' as usize] = true;
-            t[b':' as usize] = true;
-            t[b'@' as usize] = true;
-            t
-        };
-
         while self.pos < self.bytes.len() {
-            // Fast-skip plain text bytes
             let b = self.bytes[self.pos];
-            if !SPECIAL[b as usize] {
-                // Fast inner loop: skip plain ASCII bytes without calling utf8_char_len
+            if !ANY_SPECIAL[b as usize] {
                 self.pos += 1;
                 while self.pos < self.bytes.len() {
                     let b2 = self.bytes[self.pos];
-                    if SPECIAL[b2 as usize] {
+                    if ANY_SPECIAL[b2 as usize] {
                         break;
                     }
                     self.pos += 1;
@@ -54,14 +31,12 @@ impl<'a> InlineScanner<'a> {
                         }
                         if is_ascii_punctuation(next) {
                             self.flush_text_range(text_start, self.pos);
-                            // For common HTML-special chars, use static strings
                             let escaped: &'static str = match next {
                                 b'&' => "&amp;",
                                 b'<' => "&lt;",
                                 b'>' => "&gt;",
                                 b'"' => "&quot;",
                                 _ => {
-                                    // Non-HTML-special punctuation: output as a 1-byte text range
                                     self.items
                                         .push(InlineItem::TextRange(self.pos + 1, self.pos + 2));
                                     self.pos += 2;
@@ -161,11 +136,9 @@ impl<'a> InlineScanner<'a> {
                     }
                 }
                 b'\n' => {
-                    // Check for hard break: at least 2 trailing spaces before \n
                     let is_hard = self.pos >= text_start + 2
                         && self.bytes[self.pos - 1] == b' '
                         && self.bytes[self.pos - 2] == b' ';
-                    // Strip trailing spaces before newline (both hard and soft breaks)
                     let mut text_end = self.pos;
                     while text_end > text_start && self.bytes[text_end - 1] == b' ' {
                         text_end -= 1;
@@ -219,7 +192,6 @@ impl<'a> InlineScanner<'a> {
                 self.pos += 1;
             }
             if self.pos >= self.bytes.len() {
-                // No match - emit opening backticks as text range
                 self.items.push(InlineItem::TextRange(start, after_open));
                 self.pos = after_open;
                 return;
@@ -232,7 +204,6 @@ impl<'a> InlineScanner<'a> {
             }
             if close_count == open_count {
                 let raw = &self.input[after_open..close_start];
-                // Avoid allocation if no newlines
                 let has_newline = raw.as_bytes().contains(&b'\n');
                 let content;
                 let content_ref = if has_newline {
@@ -287,13 +258,11 @@ impl<'a> InlineScanner<'a> {
                 || is_punctuation_char(after));
 
         let (can_open, can_close) = if marker == b'_' {
-            // Underscore uses stricter rules per CommonMark spec
             (
                 left_flanking && (!right_flanking || is_punctuation_char(before)),
                 right_flanking && (!left_flanking || is_punctuation_char(after)),
             )
         } else {
-            // *, ~, =, + all use symmetric flanking rules
             (left_flanking, right_flanking)
         };
 
@@ -328,44 +297,12 @@ impl<'a> InlineScanner<'a> {
         let close_pos = self.pos - 1;
 
         if let Some((dest, title)) = self.try_inline_link() {
-            if !is_image {
-                for j in 0..bi {
-                    if !self.brackets[j].is_image {
-                        self.brackets[j].active = false;
-                    }
-                }
-            }
-            self.brackets.truncate(bi);
-            self.process_emphasis(delim_bottom);
-            let link_idx = self.links.len() as u16;
-            self.links.push(LinkInfo {
-                dest,
-                title,
-                is_image,
-            });
-            self.items[opener_item] = InlineItem::LinkStart(link_idx);
-            self.items.push(InlineItem::LinkEnd);
+            self.resolve_link(bi, is_image, delim_bottom, opener_item, dest, title);
             return;
         }
 
         if let Some((dest, title)) = self.try_reference_link(text_pos, close_pos) {
-            if !is_image {
-                for j in 0..bi {
-                    if !self.brackets[j].is_image {
-                        self.brackets[j].active = false;
-                    }
-                }
-            }
-            self.brackets.truncate(bi);
-            self.process_emphasis(delim_bottom);
-            let link_idx = self.links.len() as u16;
-            self.links.push(LinkInfo {
-                dest,
-                title,
-                is_image,
-            });
-            self.items[opener_item] = InlineItem::LinkStart(link_idx);
-            self.items.push(InlineItem::LinkEnd);
+            self.resolve_link(bi, is_image, delim_bottom, opener_item, dest, title);
             return;
         }
 
@@ -373,13 +310,39 @@ impl<'a> InlineScanner<'a> {
         self.items.push(InlineItem::TextStatic("]"));
     }
 
+    fn resolve_link(
+        &mut self,
+        bi: usize,
+        is_image: bool,
+        delim_bottom: usize,
+        opener_item: usize,
+        dest: LinkDest,
+        title: Option<String>,
+    ) {
+        if !is_image {
+            for j in 0..bi {
+                if !self.brackets[j].is_image {
+                    self.brackets[j].active = false;
+                }
+            }
+        }
+        self.brackets.truncate(bi);
+        self.process_emphasis(delim_bottom);
+        let link_idx = self.links.len() as u16;
+        self.links.push(LinkInfo {
+            dest,
+            title,
+            is_image,
+        });
+        self.items[opener_item] = InlineItem::LinkStart(link_idx);
+        self.items.push(InlineItem::LinkEnd);
+    }
+
     pub(super) fn skip_ws(&mut self) {
         while self.pos < self.bytes.len() && matches!(self.bytes[self.pos], b' ' | b'\t' | b'\n') {
             self.pos += 1;
         }
     }
-
-    // ── Emphasis processing ──────────────────────────────────────────
 
     pub(super) fn process_emphasis(&mut self, stack_bottom: usize) {
         let mut closer_di = stack_bottom;
@@ -421,7 +384,6 @@ impl<'a> InlineScanner<'a> {
                 if okind != ckind || !ocan_open || ocount == 0 {
                     continue;
                 }
-                // Rule of Three only applies to * and _
                 if matches!(ckind, b'*' | b'_') {
                     if (ocan_close || ccan_open) && (ocount + ccount) % 3 == 0 {
                         if ocount % 3 != 0 || ccount % 3 != 0 {
@@ -429,7 +391,6 @@ impl<'a> InlineScanner<'a> {
                         }
                     }
                 }
-                // Extension delimiters require at least 2 on each side
                 if matches!(ckind, b'~' | b'=' | b'+') && (ocount < 2 || ccount < 2) {
                     continue;
                 }
@@ -506,21 +467,16 @@ impl<'a> InlineScanner<'a> {
         self.delims.truncate(stack_bottom);
     }
 
-    /// Try to detect a bare URL at the current position (which is at `:`).
-    /// Expects `://` at pos and a valid scheme (`http` or `https`) before it.
     fn try_bare_url(&mut self, text_start: usize) -> bool {
         let bytes = self.bytes;
         let len = bytes.len();
 
-        // Need at least `://x`
         if self.pos + 3 >= len || bytes[self.pos + 1] != b'/' || bytes[self.pos + 2] != b'/' {
             return false;
         }
 
-        // Backtrack to find scheme: must be `http` or `https` (case-insensitive)
         let colon_pos = self.pos;
         let (scheme_start, _scheme_len) = {
-            // Check for "https" (5 chars) then "http" (4 chars)
             if colon_pos >= 5 {
                 let candidate = &self.input[colon_pos - 5..colon_pos];
                 if candidate.eq_ignore_ascii_case("https") {
@@ -547,7 +503,6 @@ impl<'a> InlineScanner<'a> {
             }
         };
 
-        // Scheme must start at a word boundary
         if scheme_start > 0 {
             let prev = bytes[scheme_start - 1];
             if prev.is_ascii_alphanumeric() || prev == b'_' {
@@ -555,13 +510,11 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        // Scan forward from `://` to find URL end
-        let url_body_start = colon_pos + 3; // after `://`
+        let url_body_start = colon_pos + 3;
         if url_body_start >= len {
             return false;
         }
 
-        // Must have at least one valid char after `://`
         let first_body = bytes[url_body_start];
         if first_body <= b' ' || first_body == b'<' {
             return false;
@@ -585,7 +538,6 @@ impl<'a> InlineScanner<'a> {
             end += 1;
         }
 
-        // Strip trailing punctuation (GFM rules)
         while end > url_body_start {
             let last = bytes[end - 1];
             if matches!(
@@ -593,7 +545,6 @@ impl<'a> InlineScanner<'a> {
                 b'.' | b',' | b':' | b';' | b'!' | b'?' | b'"' | b'\'' | b')' | b']'
             ) {
                 if last == b')' {
-                    // Only strip if unbalanced
                     let url_slice = &bytes[scheme_start..end];
                     let opens = url_slice.iter().filter(|&&b| b == b'(').count();
                     let closes = url_slice.iter().filter(|&&b| b == b')').count();
@@ -607,43 +558,30 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        // Must have content after `://`
         if end <= url_body_start {
             return false;
         }
 
         let url = &self.input[scheme_start..end];
 
-        // Flush text before the URL (up to scheme_start, not colon_pos)
         self.flush_text_range(text_start, scheme_start);
 
-        // Build <a> tag
-        let mut s = String::with_capacity(url.len() * 2 + 30);
-        s.push_str("<a href=\"");
-        let mut encoded = String::with_capacity(url.len());
-        encode_url(&mut encoded, url);
-        escape_html_into(&mut s, &encoded);
-        s.push_str("\">");
-        escape_html_into(&mut s, url);
-        s.push_str("</a>");
-        self.items.push(InlineItem::RawHtmlOwned(s));
+        self.items
+            .push(InlineItem::RawHtmlOwned(build_autolink_html("", url)));
 
         self.pos = end;
         true
     }
 
-    /// Try to detect a bare email at the current position (which is at `@`).
     fn try_bare_email(&mut self, text_start: usize) -> bool {
         let bytes = self.bytes;
         let len = bytes.len();
         let at_pos = self.pos;
 
-        // Must have chars before and after @
         if at_pos == 0 || at_pos + 1 >= len {
             return false;
         }
 
-        // Backtrack to find local part start
         let mut local_start = at_pos;
         while local_start > 0 {
             let b = bytes[local_start - 1];
@@ -677,12 +615,10 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        // Must have at least one char in local part
         if local_start == at_pos {
             return false;
         }
 
-        // Local part must start at word boundary
         if local_start > 0 {
             let prev = bytes[local_start - 1];
             if prev.is_ascii_alphanumeric() || prev == b'_' {
@@ -690,7 +626,6 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        // Scan domain part
         let domain_start = at_pos + 1;
         let mut end = domain_start;
         while end < len {
@@ -702,17 +637,14 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        // Domain must not be empty
         if end == domain_start {
             return false;
         }
 
-        // Domain must not end with `-` or `.`
         if matches!(bytes[end - 1], b'-' | b'.') {
             return false;
         }
 
-        // Domain must contain at least one `.` with chars after it
         let domain = &self.input[domain_start..end];
         let last_dot = domain.rfind('.');
         match last_dot {
@@ -726,19 +658,12 @@ impl<'a> InlineScanner<'a> {
 
         let email = &self.input[local_start..end];
 
-        // Flush text before the email
         self.flush_text_range(text_start, local_start);
 
-        // Build <a href="mailto:..."> tag
-        let mut s = String::with_capacity(email.len() * 2 + 40);
-        s.push_str("<a href=\"mailto:");
-        let mut encoded = String::with_capacity(email.len());
-        encode_url(&mut encoded, email);
-        escape_html_into(&mut s, &encoded);
-        s.push_str("\">");
-        escape_html_into(&mut s, email);
-        s.push_str("</a>");
-        self.items.push(InlineItem::RawHtmlOwned(s));
+        self.items
+            .push(InlineItem::RawHtmlOwned(build_autolink_html(
+                "mailto:", email,
+            )));
 
         self.pos = end;
         true

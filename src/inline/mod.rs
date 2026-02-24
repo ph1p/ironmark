@@ -3,8 +3,9 @@ mod render;
 mod scanner;
 
 use crate::entities;
-use crate::html::{encode_url, escape_html_into};
+use crate::html::escape_html_into;
 use crate::ParseOptions;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -15,12 +16,10 @@ pub(crate) struct LinkReference {
 
 pub(crate) type LinkRefMap = HashMap<String, LinkReference>;
 
-pub(crate) fn normalize_reference_label(label: &str) -> String {
+pub(crate) fn normalize_reference_label(label: &str) -> Cow<'_, str> {
     let trimmed = label.trim();
     let bytes = trimmed.as_bytes();
 
-    // Super-fast path: if all ASCII lowercase/digits/single-spaces, return as-is
-    // This covers most real-world reference labels like "1", "foo", "my-link"
     {
         let mut simple = true;
         let mut prev_space = false;
@@ -43,7 +42,7 @@ pub(crate) fn normalize_reference_label(label: &str) -> String {
             }
         }
         if simple {
-            return trimmed.to_string();
+            return Cow::Borrowed(trimmed);
         }
     }
 
@@ -69,7 +68,6 @@ pub(crate) fn normalize_reference_label(label: &str) -> String {
                 i += 1;
             }
         } else {
-            // Non-ASCII: decode char
             let ch = &trimmed[i..];
             let c = ch.chars().next().unwrap();
             let clen = c.len_utf8();
@@ -92,15 +90,11 @@ pub(crate) fn normalize_reference_label(label: &str) -> String {
             i += clen;
         }
     }
-    out
+    Cow::Owned(out)
 }
 
-/// Static lookup table: maps each ASCII byte to a &'static str containing that single character.
-/// Avoids heap allocation when resolving entities to single ASCII chars.
 static ASCII_CHAR_STRS: [&str; 128] = {
     const fn make() -> [&'static str; 128] {
-        // We build this with a macro-like approach, but since we can't iterate in const,
-        // we use a pre-built table.
         [
             "\x00", "\x01", "\x02", "\x03", "\x04", "\x05", "\x06", "\x07", "\x08", "\x09", "\x0A",
             "\x0B", "\x0C", "\x0D", "\x0E", "\x0F", "\x10", "\x11", "\x12", "\x13", "\x14", "\x15",
@@ -116,7 +110,44 @@ static ASCII_CHAR_STRS: [&str; 128] = {
     make()
 };
 
-/// Parse inline content and write HTML to `out`.
+static ANY_SPECIAL: [bool; 256] = {
+    let mut t = [false; 256];
+    t[b'\\' as usize] = true;
+    t[b'`' as usize] = true;
+    t[b'*' as usize] = true;
+    t[b'_' as usize] = true;
+    t[b'!' as usize] = true;
+    t[b'[' as usize] = true;
+    t[b']' as usize] = true;
+    t[b'<' as usize] = true;
+    t[b'&' as usize] = true;
+    t[b'\n' as usize] = true;
+    t[b'~' as usize] = true;
+    t[b'=' as usize] = true;
+    t[b'+' as usize] = true;
+    t[b':' as usize] = true;
+    t[b'@' as usize] = true;
+    t
+};
+
+static COMPLEX: [bool; 256] = {
+    let mut t = [false; 256];
+    t[b'\\' as usize] = true;
+    t[b'`' as usize] = true;
+    t[b'!' as usize] = true;
+    t[b'[' as usize] = true;
+    t[b']' as usize] = true;
+    t[b'<' as usize] = true;
+    t[b'&' as usize] = true;
+    t[b'\n' as usize] = true;
+    t[b'~' as usize] = true;
+    t[b'=' as usize] = true;
+    t[b'+' as usize] = true;
+    t[b':' as usize] = true;
+    t[b'@' as usize] = true;
+    t
+};
+
 #[inline]
 pub(crate) fn parse_inline_pass(
     out: &mut String,
@@ -127,63 +158,34 @@ pub(crate) fn parse_inline_pass(
 ) {
     let bytes = raw.as_bytes();
 
-    // Lookup tables for fast character classification.
-    static ANY_SPECIAL: [bool; 256] = {
-        let mut t = [false; 256];
-        t[b'\\' as usize] = true;
-        t[b'`' as usize] = true;
-        t[b'*' as usize] = true;
-        t[b'_' as usize] = true;
-        t[b'!' as usize] = true;
-        t[b'[' as usize] = true;
-        t[b']' as usize] = true;
-        t[b'<' as usize] = true;
-        t[b'&' as usize] = true;
-        t[b'\n' as usize] = true;
-        t[b'~' as usize] = true;
-        t[b'=' as usize] = true;
-        t[b'+' as usize] = true;
-        t[b':' as usize] = true;
-        t[b'@' as usize] = true;
-        t
-    };
-    static COMPLEX: [bool; 256] = {
-        let mut t = [false; 256];
-        t[b'\\' as usize] = true;
-        t[b'`' as usize] = true;
-        t[b'!' as usize] = true;
-        t[b'[' as usize] = true;
-        t[b']' as usize] = true;
-        t[b'<' as usize] = true;
-        t[b'&' as usize] = true;
-        t[b'\n' as usize] = true;
-        t[b'~' as usize] = true;
-        t[b'=' as usize] = true;
-        t[b'+' as usize] = true;
-        t[b':' as usize] = true;
-        t[b'@' as usize] = true;
-        t
-    };
-
-    // Fast path: find the first special char. Short-circuits for plain text.
-    let first_special = bytes.iter().position(|b| ANY_SPECIAL[*b as usize]);
-    if first_special.is_none() {
+    let mut first_pos = usize::MAX;
+    let mut has_complex_after = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if first_pos == usize::MAX {
+            if ANY_SPECIAL[b as usize] {
+                first_pos = i;
+                if COMPLEX[b as usize] {
+                    has_complex_after = true;
+                    break;
+                }
+            }
+        } else if COMPLEX[b as usize] {
+            has_complex_after = true;
+            break;
+        }
+    }
+    if first_pos == usize::MAX {
         escape_html_into(out, raw);
         return;
     }
 
-    // Classify: emphasis-only or complex?
-    let first_pos = first_special.unwrap();
     let first_byte = bytes[first_pos];
-    if first_byte == b'*' || first_byte == b'_' {
-        let has_complex = bytes[first_pos + 1..].iter().any(|b| COMPLEX[*b as usize]);
-        if !has_complex {
-            emit_emphasis_only(out, raw, bytes);
-            return;
-        }
+    if (first_byte == b'*' || first_byte == b'_') && !has_complex_after {
+        emit_emphasis_only(out, raw, bytes);
+        return;
     }
 
-    // Ensure items vec has reasonable capacity on first use
+    out.reserve(raw.len());
     if bufs.items.capacity() == 0 {
         bufs.items.reserve(raw.len() / 20 + 4);
     }
@@ -195,24 +197,15 @@ pub(crate) fn parse_inline_pass(
     p.render_to_html(out, opts);
 }
 
-/// Fast single-pass emphasis-only renderer.
-/// Handles text containing only * and _ emphasis markers (no links, entities, code spans, etc.).
-/// Emits HTML directly without building an InlineItem Vec.
 fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
-    // We reuse the full InlineScanner machinery but with emphasis-only items,
-    // avoiding alloc overhead for links/entities/etc. Actually, the real cost
-    // is the Vec allocations themselves. Let's use a compact representation.
-
-    // Each delimiter run: original byte range, marker, flags, and open/close tag lists
     struct Delim {
-        orig_start: u32, // original run start in bytes
-        orig_end: u32,   // original run end in bytes
-        cur_start: u32,  // current start (after close_em consumption)
-        cur_end: u32,    // current end (after open_em consumption)
+        orig_start: u32,
+        orig_end: u32,
+        cur_start: u32,
+        cur_end: u32,
         marker: u8,
         can_open: bool,
         can_close: bool,
-        // Open/close emphasis tags stored as SmallEmVec-like
         open_em: [u8; 4],
         open_em_len: u8,
         close_em: [u8; 4],
@@ -222,7 +215,6 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
     let len = bytes.len();
     let mut delims: Vec<Delim> = Vec::new();
 
-    // Pass 1: find all delimiter runs
     let mut i = 0;
     while i < len {
         let b = bytes[i];
@@ -280,13 +272,9 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
         return;
     }
 
-    // Pass 2: match emphasis (same algorithm as process_emphasis)
     let num_delims = delims.len();
-    // Track which delimiter indices are still "active" (not fully consumed)
-    // We use a simple index list like the main parser
     let mut active: Vec<usize> = (0..num_delims).collect();
-
-    let mut closer_ai = 0; // index into active[]
+    let mut closer_ai = 0;
     while closer_ai < active.len() {
         let ci = active[closer_ai];
         let ccount = (delims[ci].cur_end - delims[ci].cur_start) as u16;
@@ -296,7 +284,6 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
         }
         let cmarker = delims[ci].marker;
 
-        // Search backward for opener
         let mut found = false;
         let mut opener_ai = closer_ai;
         while opener_ai > 0 {
@@ -306,18 +293,15 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
             if delims[oi].marker != cmarker || !delims[oi].can_open || ocount == 0 {
                 continue;
             }
-            // Rule of three
             if (delims[oi].can_close || delims[ci].can_open)
                 && (ocount + ccount) % 3 == 0
                 && (ocount % 3 != 0 || ccount % 3 != 0)
             {
                 continue;
             }
-            // Match found
             let use_count: u16 = if ocount >= 2 && ccount >= 2 { 2 } else { 1 };
             let tag = use_count as u8;
 
-            // Record tags
             {
                 let d = &mut delims[oi];
                 d.cur_end -= use_count as u32;
@@ -337,7 +321,6 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
                 }
             }
 
-            // Remove fully consumed delimiters between opener and closer
             let remove_start = opener_ai + 1;
             let remove_end = closer_ai;
             if remove_start < remove_end {
@@ -345,7 +328,6 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
                 closer_ai = remove_start;
             }
 
-            // Remove opener if fully consumed
             let new_ocount =
                 delims[active[opener_ai]].cur_end - delims[active[opener_ai]].cur_start;
             if new_ocount == 0 {
@@ -353,7 +335,6 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
                 closer_ai -= 1;
             }
 
-            // Check if closer is fully consumed
             let new_ccount =
                 delims[active[closer_ai]].cur_end - delims[active[closer_ai]].cur_start;
             if new_ccount == 0 {
@@ -369,7 +350,6 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
         }
     }
 
-    // Pass 3: emit HTML — iterate delims in original order
     let mut text_pos = 0usize;
     for d in &delims {
         let orig_start = d.orig_start as usize;
@@ -377,12 +357,10 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
         let cur_start = d.cur_start as usize;
         let cur_end = d.cur_end as usize;
 
-        // Text before this delimiter's original position
         if text_pos < orig_start {
             escape_html_into(out, &raw[text_pos..orig_start]);
         }
 
-        // Close tags (from close_em)
         for j in 0..d.close_em_len as usize {
             let tag = d.close_em[j];
             if tag == 2 {
@@ -392,7 +370,6 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
             }
         }
 
-        // Remaining literal delimiters
         if cur_start < cur_end {
             let marker = d.marker as char;
             for _ in 0..(cur_end - cur_start) {
@@ -400,7 +377,6 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
             }
         }
 
-        // Open tags (in reverse order, innermost first)
         for j in (0..d.open_em_len as usize).rev() {
             let tag = d.open_em[j];
             if tag == 2 {
@@ -413,13 +389,10 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
         text_pos = orig_end;
     }
 
-    // Remaining text after last delimiter
     if text_pos < len {
         escape_html_into(out, &raw[text_pos..len]);
     }
 }
-
-// ── Inline items (flat list, no intermediate AST) ────────────────────
 
 pub(crate) struct InlineBuffers {
     items: Vec<InlineItem>,
@@ -439,8 +412,6 @@ impl InlineBuffers {
     }
 }
 
-/// Small inline array for emphasis open/close markers (avoids Vec heap allocation).
-/// Emphasis processing pushes at most a few 1/2 values per delimiter run.
 #[derive(Clone, Debug)]
 struct SmallEmVec {
     data: [u8; 4],
@@ -468,12 +439,9 @@ impl SmallEmVec {
     }
 }
 
-/// Compact link destination that avoids heap allocation when dest is a simple input slice.
 #[derive(Clone, Debug)]
 enum LinkDest {
-    /// Byte range into the input (no escapes, entities, or special chars)
     Range(u32, u32),
-    /// Owned string (resolved escapes, entities, etc.)
     Owned(String),
 }
 
@@ -486,25 +454,18 @@ struct LinkInfo {
 
 #[derive(Clone, Debug)]
 enum InlineItem {
-    /// Range into input that needs HTML escaping when rendered
     TextRange(usize, usize),
-    /// Pre-built text (already escaped or special content) - heap allocated
     TextOwned(String),
-    /// Static text (like "&lt;", "&amp;", "]") - no allocation
     TextStatic(&'static str),
-    /// Small inline text (up to 8 bytes) - no heap allocation
     TextInline {
         buf: [u8; 8],
         len: u8,
     },
-    /// Raw HTML pass-through (no escaping)
-    RawHtml(usize, usize), // range into input
-    RawHtmlOwned(String), // owned (for constructed HTML like autolinks)
-    /// Code span (content is HTML-escaped)
+    RawHtml(usize, usize),
+    RawHtmlOwned(String),
     Code(String),
     HardBreak,
     SoftBreak,
-    /// A delimiter run for emphasis
     DelimRun {
         kind: u8,
         count: u16,
@@ -513,13 +474,10 @@ enum InlineItem {
         open_em: SmallEmVec,
         close_em: SmallEmVec,
     },
-    /// Opening [ or ![
     BracketOpen {
         is_image: bool,
     },
-    /// Resolved link/image start marker (index into links vec)
     LinkStart(u16),
-    /// Closing marker for a resolved link
     LinkEnd,
 }
 
@@ -569,11 +527,18 @@ impl<'a> InlineScanner<'a> {
     }
 }
 
-// ── Helper functions ─────────────────────────────────────────────────
+pub(super) use crate::is_ascii_punctuation;
+pub(super) use crate::utf8_char_len;
 
-#[inline(always)]
-fn is_ascii_punctuation(b: u8) -> bool {
-    matches!(b, b'!'..=b'/' | b':'..=b'@' | b'['..=b'`' | b'{'..=b'~')
+pub(super) fn build_autolink_html(prefix: &str, content: &str) -> String {
+    let mut s = String::with_capacity(content.len() * 2 + prefix.len() + 30);
+    s.push_str("<a href=\"");
+    s.push_str(prefix);
+    crate::html::encode_url_escaped_into(&mut s, content);
+    s.push_str("\">");
+    escape_html_into(&mut s, content);
+    s.push_str("</a>");
+    s
 }
 
 #[inline(always)]
@@ -622,7 +587,6 @@ fn char_before(s: &str, byte_pos: usize) -> char {
         return ' ';
     }
     let bytes = s.as_bytes();
-    // Fast path: ASCII (most common case in markdown)
     let prev = bytes[byte_pos - 1];
     if prev < 0x80 {
         return prev as char;
@@ -640,7 +604,6 @@ fn char_at(s: &str, byte_pos: usize) -> char {
         return ' ';
     }
     let b = s.as_bytes()[byte_pos];
-    // Fast path: ASCII (most common case in markdown)
     if b < 0x80 {
         return b as char;
     }
@@ -692,17 +655,4 @@ fn is_email_autolink(s: &str) -> bool {
         }
     }
     true
-}
-
-#[inline(always)]
-fn utf8_char_len(first: u8) -> usize {
-    if first < 0x80 {
-        1
-    } else if first < 0xE0 {
-        2
-    } else if first < 0xF0 {
-        3
-    } else {
-        4
-    }
 }

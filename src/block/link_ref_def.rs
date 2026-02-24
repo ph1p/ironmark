@@ -1,4 +1,5 @@
 use super::*;
+use crate::{is_ascii_punctuation, utf8_char_len};
 
 pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<String>, usize)> {
     let bytes = input.as_bytes();
@@ -283,24 +284,6 @@ pub(super) fn parse_link_title(bytes: &[u8], start: usize) -> Option<(String, us
         }
     }
     None
-}
-
-#[inline(always)]
-pub(super) fn is_ascii_punctuation(b: u8) -> bool {
-    matches!(b, b'!'..=b'/' | b':'..=b'@' | b'['..=b'`' | b'{'..=b'~')
-}
-
-#[inline(always)]
-pub(super) fn utf8_char_len(first: u8) -> usize {
-    if first < 0x80 {
-        1
-    } else if first < 0xE0 {
-        2
-    } else if first < 0xF0 {
-        3
-    } else {
-        4
-    }
 }
 
 #[cfg(test)]

@@ -807,11 +807,11 @@ impl<'a> BlockParser<'a> {
             }
             if let Some((label, href, title, consumed)) = parse_link_ref_def(trimmed) {
                 let key = crate::inline::normalize_reference_label(&label);
-                if !self.ref_defs.contains_key(&key) {
+                if !self.ref_defs.contains_key(&*key) {
                     let resolved_href = resolve_entities_and_escapes(&href);
                     let resolved_title = title.map(|t| resolve_entities_and_escapes(&t));
                     self.ref_defs.insert(
-                        key,
+                        key.into_owned(),
                         crate::inline::LinkReference {
                             href: resolved_href,
                             title: resolved_title,

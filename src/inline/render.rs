@@ -2,12 +2,7 @@ use super::*;
 use crate::ParseOptions;
 
 impl<'a> InlineScanner<'a> {
-    // ── Render directly to HTML (replaces build_tree + render_inline_nodes) ──
-
     pub(super) fn render_to_html(&self, out: &mut String, opts: &ParseOptions) {
-        // Use a small inline tag stack to track emphasis/link nesting
-        // 1 = em, 2 = strong, 0 = link
-        // 16 entries handles deeply nested emphasis; overflow is extremely unlikely
         let mut tag_buf: [u8; 16] = [0; 16];
         let mut tag_len: usize = 0;
         let mut i = 0;
@@ -52,7 +47,6 @@ impl<'a> InlineScanner<'a> {
                     close_em,
                     ..
                 } => {
-                    // Close emphasis tags
                     for &size in close_em.as_slice() {
                         if tag_len > 0 && tag_buf[tag_len - 1] == size {
                             tag_len -= 1;
@@ -66,14 +60,12 @@ impl<'a> InlineScanner<'a> {
                         }
                     }
 
-                    // Remaining literal delimiters
                     if *count > 0 {
                         for _ in 0..*count {
                             out.push(*kind as char);
                         }
                     }
 
-                    // Open emphasis tags
                     for &size in open_em.as_slice().iter().rev() {
                         if tag_len < 16 {
                             tag_buf[tag_len] = size;
@@ -102,7 +94,6 @@ impl<'a> InlineScanner<'a> {
                         is_image,
                     } = &self.links[*link_idx as usize];
                     if *is_image {
-                        // Collect alt text and skip to LinkEnd
                         let alt_start = i + 1;
                         let mut alt_end = alt_start;
                         let mut depth = 1;
@@ -194,8 +185,6 @@ impl<'a> InlineScanner<'a> {
     }
 }
 
-// ── Helper: write URL ────────────────────────────────────────────────
-
 #[inline]
 pub(super) fn write_link_dest(out: &mut String, dest: &LinkDest, input: &str) {
     match dest {
@@ -203,7 +192,7 @@ pub(super) fn write_link_dest(out: &mut String, dest: &LinkDest, input: &str) {
             let s = *s as usize;
             let e = *e as usize;
             if s == e {
-                return; // empty dest
+                return;
             }
             write_url(out, &input[s..e]);
         }
@@ -214,56 +203,5 @@ pub(super) fn write_link_dest(out: &mut String, dest: &LinkDest, input: &str) {
 }
 
 pub(super) fn write_url(out: &mut String, dest: &str) {
-    // Fast path: if all bytes are URL-safe and HTML-safe, push directly.
-    // URL-safe means: alphanumeric or in the set -_.~!*'();/?:@&=+$,#
-    // HTML-safe means: not & < > "
-    // We check that every byte is ASCII, not needing encoding.
-    static URL_AND_HTML_SAFE: [bool; 256] = {
-        let mut t = [false; 256];
-        let mut i = b'A';
-        while i <= b'Z' {
-            t[i as usize] = true;
-            i += 1;
-        }
-        let mut i = b'a';
-        while i <= b'z' {
-            t[i as usize] = true;
-            i += 1;
-        }
-        let mut i = b'0';
-        while i <= b'9' {
-            t[i as usize] = true;
-            i += 1;
-        }
-        t[b'-' as usize] = true;
-        t[b'_' as usize] = true;
-        t[b'.' as usize] = true;
-        t[b'~' as usize] = true;
-        t[b'!' as usize] = true;
-        t[b'*' as usize] = true;
-        t[b'\'' as usize] = true;
-        t[b'(' as usize] = true;
-        t[b')' as usize] = true;
-        t[b';' as usize] = true;
-        t[b'/' as usize] = true;
-        t[b'?' as usize] = true;
-        t[b':' as usize] = true;
-        t[b'@' as usize] = true;
-        // b'&' is NOT safe (needs HTML escaping)
-        t[b'=' as usize] = true;
-        t[b'+' as usize] = true;
-        t[b'$' as usize] = true;
-        t[b',' as usize] = true;
-        t[b'#' as usize] = true;
-        // b'%' is special: only safe if followed by hex digits, skip for simplicity
-        t
-    };
-    let all_safe = dest.bytes().all(|b| URL_AND_HTML_SAFE[b as usize]);
-    if all_safe {
-        out.push_str(dest);
-    } else {
-        let mut encoded = String::with_capacity(dest.len());
-        encode_url(&mut encoded, dest);
-        escape_html_into(out, &encoded);
-    }
+    crate::html::encode_url_escaped_into(out, dest);
 }

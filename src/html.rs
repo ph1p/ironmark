@@ -5,14 +5,11 @@ pub(crate) fn escape_html(input: &str) -> String {
     out
 }
 
-/// Fast HTML escaping that scans bytes and flushes plain segments in bulk.
-/// Only 4 chars need escaping per CommonMark: & < > "
 #[inline]
 pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     let bytes = input.as_bytes();
     let len = bytes.len();
 
-    // Use a lookup table for O(1) per-byte check
     static NEEDS_ESCAPE: [bool; 256] = {
         let mut t = [false; 256];
         t[b'&' as usize] = true;
@@ -37,8 +34,6 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
             b'"' => "&quot;",
             _ => unreachable!(),
         };
-        // SAFETY: `last` and `i` are always at valid UTF-8 boundaries because
-        // we only split on ASCII bytes (< 0x80), which are never continuation bytes.
         if last < i {
             out.push_str(unsafe { input.get_unchecked(last..i) });
         }
@@ -52,50 +47,48 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     }
 }
 
-/// Percent-encode a URL for use in href/src attributes.
-/// Preserves already-encoded %XX sequences, and encodes characters that need it.
-pub(crate) fn encode_url(out: &mut String, url: &str) {
-    // Lookup table: true means the byte is safe and can pass through
-    static SAFE: [bool; 256] = {
-        let mut t = [false; 256];
-        let mut i = b'A';
-        while i <= b'Z' {
-            t[i as usize] = true;
-            i += 1;
-        }
-        let mut i = b'a';
-        while i <= b'z' {
-            t[i as usize] = true;
-            i += 1;
-        }
-        let mut i = b'0';
-        while i <= b'9' {
-            t[i as usize] = true;
-            i += 1;
-        }
-        t[b'-' as usize] = true;
-        t[b'_' as usize] = true;
-        t[b'.' as usize] = true;
-        t[b'~' as usize] = true;
-        t[b'!' as usize] = true;
-        t[b'*' as usize] = true;
-        t[b'\'' as usize] = true;
-        t[b'(' as usize] = true;
-        t[b')' as usize] = true;
-        t[b';' as usize] = true;
-        t[b'/' as usize] = true;
-        t[b'?' as usize] = true;
-        t[b':' as usize] = true;
-        t[b'@' as usize] = true;
-        t[b'&' as usize] = true;
-        t[b'=' as usize] = true;
-        t[b'+' as usize] = true;
-        t[b'$' as usize] = true;
-        t[b',' as usize] = true;
-        t[b'#' as usize] = true;
-        t
-    };
+static HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
 
+pub(crate) static URL_HTML_SAFE: [bool; 256] = {
+    let mut t = [false; 256];
+    let mut i = b'A';
+    while i <= b'Z' {
+        t[i as usize] = true;
+        i += 1;
+    }
+    let mut i = b'a';
+    while i <= b'z' {
+        t[i as usize] = true;
+        i += 1;
+    }
+    let mut i = b'0';
+    while i <= b'9' {
+        t[i as usize] = true;
+        i += 1;
+    }
+    t[b'-' as usize] = true;
+    t[b'_' as usize] = true;
+    t[b'.' as usize] = true;
+    t[b'~' as usize] = true;
+    t[b'!' as usize] = true;
+    t[b'*' as usize] = true;
+    t[b'\'' as usize] = true;
+    t[b'(' as usize] = true;
+    t[b')' as usize] = true;
+    t[b';' as usize] = true;
+    t[b'/' as usize] = true;
+    t[b'?' as usize] = true;
+    t[b':' as usize] = true;
+    t[b'@' as usize] = true;
+    t[b'=' as usize] = true;
+    t[b'+' as usize] = true;
+    t[b'$' as usize] = true;
+    t[b',' as usize] = true;
+    t[b'#' as usize] = true;
+    t
+};
+
+pub(crate) fn encode_url_escaped_into(out: &mut String, url: &str) {
     let bytes = url.as_bytes();
     let len = bytes.len();
     let mut last = 0;
@@ -103,11 +96,10 @@ pub(crate) fn encode_url(out: &mut String, url: &str) {
 
     while i < len {
         let b = bytes[i];
-        if SAFE[b as usize] {
+        if URL_HTML_SAFE[b as usize] {
             i += 1;
             continue;
         }
-        // Already percent-encoded sequence
         if b == b'%'
             && i + 2 < len
             && bytes[i + 1].is_ascii_hexdigit()
@@ -116,11 +108,18 @@ pub(crate) fn encode_url(out: &mut String, url: &str) {
             i += 3;
             continue;
         }
-        // Flush safe segment
+        if b == b'&' {
+            if last < i {
+                out.push_str(&url[last..i]);
+            }
+            out.push_str("&amp;");
+            i += 1;
+            last = i;
+            continue;
+        }
         if last < i {
             out.push_str(&url[last..i]);
         }
-        // Encode this byte (or multi-byte sequence)
         let ch_len = if b < 0x80 {
             1
         } else if b < 0xE0 {
@@ -145,8 +144,6 @@ pub(crate) fn encode_url(out: &mut String, url: &str) {
         out.push_str(&url[last..len]);
     }
 }
-
-static HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
 
 #[inline(always)]
 pub(crate) fn trim_cr(line: &str) -> &str {
