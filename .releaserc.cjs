@@ -39,6 +39,8 @@ module.exports = {
       {
         prepareCmd:
           'sed -i \'s/^version = ".*"/version = "${nextRelease.version}"/\' Cargo.toml && cargo generate-lockfile',
+        successCmd:
+          'echo "new_release_published=true" >> $GITHUB_OUTPUT && echo "new_release_version=${nextRelease.version}" >> $GITHUB_OUTPUT',
       },
     ],
     ["@semantic-release/npm", { provenance: true }],
