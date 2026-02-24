@@ -1,0 +1,45 @@
+[package]
+name = "ironmark"
+version = "0.1.0"
+edition = "2021"
+description = "Fast Markdown to HTML parser written in Rust with WebAssembly bindings"
+license = "MIT"
+authors = ["ph1p"]
+repository = "https://github.com/ph1p/ironmark"
+homepage = "https://github.com/ph1p/ironmark"
+documentation = "https://docs.rs/ironmark"
+keywords = ["markdown", "parser", "html", "commonmark", "wasm"]
+categories = ["parsing", "text-processing", "wasm"]
+exclude = [
+  "playground/*",
+  "benchmark/*",
+  "tests/*",
+  "wasm/*",
+  "package.json",
+  "pnpm-lock.yaml",
+  ".releaserc.cjs",
+  ".npmignore",
+  "
+*",
+  ".github/*",
+  "node_modules/*",
+]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+
+[workspace]
+members = ["wasm"]
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

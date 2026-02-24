@@ -1,0 +1,5 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "rules": {},
+  "ignorePatterns": ["node_modules", "wasm/pkg", "target", "playground/node_modules"]
+}

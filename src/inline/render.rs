@@ -1,0 +1,269 @@
+use super::*;
+use crate::ParseOptions;
+
+impl<'a> InlineScanner<'a> {
+    // ── Render directly to HTML (replaces build_tree + render_inline_nodes) ──
+
+    pub(super) fn render_to_html(&self, out: &mut String, opts: &ParseOptions) {
+        // Use a small inline tag stack to track emphasis/link nesting
+        // 1 = em, 2 = strong, 0 = link
+        // 16 entries handles deeply nested emphasis; overflow is extremely unlikely
+        let mut tag_buf: [u8; 16] = [0; 16];
+        let mut tag_len: usize = 0;
+        let mut i = 0;
+
+        while i < self.items.len() {
+            match &self.items[i] {
+                InlineItem::TextRange(start, end) => {
+                    escape_html_into(out, &self.input[*start..*end]);
+                }
+                InlineItem::TextOwned(t) => {
+                    out.push_str(t);
+                }
+                InlineItem::TextStatic(t) => {
+                    out.push_str(t);
+                }
+                InlineItem::TextInline { buf, len } => {
+                    out.push_str(unsafe { std::str::from_utf8_unchecked(&buf[..*len as usize]) });
+                }
+                InlineItem::RawHtml(start, end) => {
+                    out.push_str(&self.input[*start..*end]);
+                }
+                InlineItem::RawHtmlOwned(h) => {
+                    out.push_str(h);
+                }
+                InlineItem::Code(c) => {
+                    out.push_str("<code>");
+                    out.push_str(c);
+                    out.push_str("</code>");
+                }
+                InlineItem::HardBreak => out.push_str("<br />\n"),
+                InlineItem::SoftBreak => {
+                    if opts.hard_breaks {
+                        out.push_str("<br />\n");
+                    } else {
+                        out.push('\n');
+                    }
+                }
+                InlineItem::DelimRun {
+                    kind,
+                    count,
+                    open_em,
+                    close_em,
+                    ..
+                } => {
+                    // Close emphasis tags
+                    for &size in close_em.as_slice() {
+                        if tag_len > 0 && tag_buf[tag_len - 1] == size {
+                            tag_len -= 1;
+                            match size {
+                                2 => out.push_str("</strong>"),
+                                3 => out.push_str("</del>"),
+                                4 => out.push_str("</mark>"),
+                                5 => out.push_str("</u>"),
+                                _ => out.push_str("</em>"),
+                            }
+                        }
+                    }
+
+                    // Remaining literal delimiters
+                    if *count > 0 {
+                        for _ in 0..*count {
+                            out.push(*kind as char);
+                        }
+                    }
+
+                    // Open emphasis tags
+                    for &size in open_em.as_slice().iter().rev() {
+                        if tag_len < 16 {
+                            tag_buf[tag_len] = size;
+                            tag_len += 1;
+                        }
+                        match size {
+                            2 => out.push_str("<strong>"),
+                            3 => out.push_str("<del>"),
+                            4 => out.push_str("<mark>"),
+                            5 => out.push_str("<u>"),
+                            _ => out.push_str("<em>"),
+                        }
+                    }
+                }
+                InlineItem::BracketOpen { is_image, .. } => {
+                    if *is_image {
+                        out.push_str("![");
+                    } else {
+                        out.push('[');
+                    }
+                }
+                InlineItem::LinkStart(link_idx) => {
+                    let LinkInfo {
+                        dest,
+                        title,
+                        is_image,
+                    } = &self.links[*link_idx as usize];
+                    if *is_image {
+                        // Collect alt text and skip to LinkEnd
+                        let alt_start = i + 1;
+                        let mut alt_end = alt_start;
+                        let mut depth = 1;
+                        while alt_end < self.items.len() {
+                            match &self.items[alt_end] {
+                                InlineItem::LinkStart(..) => depth += 1,
+                                InlineItem::LinkEnd => {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
+                            alt_end += 1;
+                        }
+                        let alt = self.collect_alt_text(alt_start, alt_end);
+                        out.push_str("<img src=\"");
+                        write_link_dest(out, dest, self.input);
+                        out.push_str("\" alt=\"");
+                        out.push_str(&alt);
+                        out.push('"');
+                        if let Some(t) = title {
+                            out.push_str(" title=\"");
+                            escape_html_into(out, t);
+                            out.push('"');
+                        }
+                        out.push_str(" />");
+                        i = alt_end;
+                    } else {
+                        out.push_str("<a href=\"");
+                        write_link_dest(out, dest, self.input);
+                        out.push('"');
+                        if let Some(t) = title {
+                            out.push_str(" title=\"");
+                            escape_html_into(out, t);
+                            out.push('"');
+                        }
+                        out.push('>');
+                        if tag_len < 16 {
+                            tag_buf[tag_len] = 0;
+                            tag_len += 1;
+                        }
+                    }
+                }
+                InlineItem::LinkEnd => {
+                    if tag_len > 0 && tag_buf[tag_len - 1] == 0 {
+                        tag_len -= 1;
+                        out.push_str("</a>");
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+
+    pub(super) fn collect_alt_text(&self, start: usize, end: usize) -> String {
+        let mut s = String::new();
+        for idx in start..end {
+            match &self.items[idx] {
+                InlineItem::TextRange(a, b) => {
+                    s.push_str(&self.input[*a..*b]);
+                }
+                InlineItem::TextOwned(t) => s.push_str(t),
+                InlineItem::TextStatic(t) => s.push_str(t),
+                InlineItem::TextInline { buf, len } => {
+                    s.push_str(unsafe { std::str::from_utf8_unchecked(&buf[..*len as usize]) });
+                }
+                InlineItem::Code(c) => s.push_str(c),
+                InlineItem::DelimRun { kind, count, .. } => {
+                    for _ in 0..*count {
+                        s.push(*kind as char);
+                    }
+                }
+                InlineItem::RawHtml(_, _) | InlineItem::RawHtmlOwned(_) => {}
+                InlineItem::HardBreak | InlineItem::SoftBreak => {}
+                InlineItem::LinkStart(_) => {}
+                InlineItem::LinkEnd => {}
+                InlineItem::BracketOpen { is_image, .. } => {
+                    if *is_image {
+                        s.push_str("![");
+                    } else {
+                        s.push('[');
+                    }
+                }
+            }
+        }
+        s
+    }
+}
+
+// ── Helper: write URL ────────────────────────────────────────────────
+
+#[inline]
+pub(super) fn write_link_dest(out: &mut String, dest: &LinkDest, input: &str) {
+    match dest {
+        LinkDest::Range(s, e) => {
+            let s = *s as usize;
+            let e = *e as usize;
+            if s == e {
+                return; // empty dest
+            }
+            write_url(out, &input[s..e]);
+        }
+        LinkDest::Owned(d) => {
+            write_url(out, d);
+        }
+    }
+}
+
+pub(super) fn write_url(out: &mut String, dest: &str) {
+    // Fast path: if all bytes are URL-safe and HTML-safe, push directly.
+    // URL-safe means: alphanumeric or in the set -_.~!*'();/?:@&=+$,#
+    // HTML-safe means: not & < > "
+    // We check that every byte is ASCII, not needing encoding.
+    static URL_AND_HTML_SAFE: [bool; 256] = {
+        let mut t = [false; 256];
+        let mut i = b'A';
+        while i <= b'Z' {
+            t[i as usize] = true;
+            i += 1;
+        }
+        let mut i = b'a';
+        while i <= b'z' {
+            t[i as usize] = true;
+            i += 1;
+        }
+        let mut i = b'0';
+        while i <= b'9' {
+            t[i as usize] = true;
+            i += 1;
+        }
+        t[b'-' as usize] = true;
+        t[b'_' as usize] = true;
+        t[b'.' as usize] = true;
+        t[b'~' as usize] = true;
+        t[b'!' as usize] = true;
+        t[b'*' as usize] = true;
+        t[b'\'' as usize] = true;
+        t[b'(' as usize] = true;
+        t[b')' as usize] = true;
+        t[b';' as usize] = true;
+        t[b'/' as usize] = true;
+        t[b'?' as usize] = true;
+        t[b':' as usize] = true;
+        t[b'@' as usize] = true;
+        // b'&' is NOT safe (needs HTML escaping)
+        t[b'=' as usize] = true;
+        t[b'+' as usize] = true;
+        t[b'$' as usize] = true;
+        t[b',' as usize] = true;
+        t[b'#' as usize] = true;
+        // b'%' is special: only safe if followed by hex digits, skip for simplicity
+        t
+    };
+    let all_safe = dest.bytes().all(|b| URL_AND_HTML_SAFE[b as usize]);
+    if all_safe {
+        out.push_str(dest);
+    } else {
+        let mut encoded = String::with_capacity(dest.len());
+        encode_url(&mut encoded, dest);
+        escape_html_into(out, &encoded);
+    }
+}

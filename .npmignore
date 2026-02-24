@@ -1,0 +1,17 @@
+src/
+tests/
+spec/
+benchmark/
+playground/
+target/
+.wasm-tools/
+.github/
+wasm/Cargo.toml
+wasm/src/
+Cargo.toml
+Cargo.lock
+pnpm-lock.yaml
+rust-toolchain.toml
+*.rs
+.releaserc.cjs
+.gitignore

@@ -1,0 +1,11 @@
+/target
+/pkg
+/wasm/pkg
+/node_modules
+/.wasm-tools
+/.cargo-home
+.DS_Store
+/benchmark/results/bench.csv
+/benchmark/results/rust-markdown-bench-*.csv
+/benchmark/results/compare-bench-*.csv
+/placground/

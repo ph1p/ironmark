@@ -1,0 +1,62 @@
+{
+  "name": "ironmark",
+  "version": "0.1.0",
+  "description": "Very fast markdown parser in Rust, consumable from JavaScript/TypeScript via WebAssembly",
+  "keywords": [
+    "markdown",
+    "parser",
+    "rust",
+    "wasm"
+  ],
+  "homepage": "https://github.com/ph1p/ironmark",
+  "bugs": {
+    "url": "https://github.com/ph1p/ironmark/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ph1p/ironmark.git"
+  },
+  "files": [
+    "wasm/pkg",
+    "wasm/index.js",
+    "wasm/index.d.ts",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "wasm/index.js",
+  "types": "wasm/index.d.ts",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "npm run build:wasm",
+    "build:dev": "PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" cargo build -p ironmark-wasm --target wasm32-unknown-unknown && PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/debug/ironmark.wasm",
+    "build:wasm": "PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" cargo build -p ironmark-wasm --release --target wasm32-unknown-unknown && PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/release/ironmark.wasm && wasm-opt --enable-bulk-memory -O3 wasm/pkg/ironmark_bg.wasm -o wasm/pkg/ironmark_bg.wasm",
+    "check": "cargo fmt --check && cargo test --offline && oxlint && oxfmt --check .",
+    "clean": "rm -rf wasm/pkg .wasm-tools",
+    "fmt": "cargo fmt && oxfmt --write .",
+    "lint": "oxlint",
+    "release": "semantic-release",
+    "release:dry": "semantic-release --dry-run",
+    "setup:wasm": "PATH=\"$HOME/.cargo/bin:$PATH\" rustup target add wasm32-unknown-unknown && TMPDIR=/tmp PATH=\"$HOME/.cargo/bin:$PATH\" cargo install wasm-bindgen-cli --locked --root .wasm-tools",
+    "test": "cargo test --offline"
+  },
+  "devDependencies": {
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^12.0.6",
+    "@semantic-release/npm": "^13.1.4",
+    "@semantic-release/release-notes-generator": "^14.1.0",
+    "oxfmt": "^0.35.0",
+    "oxlint": "^1.50.0",
+    "semantic-release": "^25.0.3"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "prepack": "npm run build"
+}
