@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@100..800&display=swap");
 @import "tailwindcss";
 
 @theme {
@@ -7,9 +8,7 @@
 
 /* Prose styles for rendered markdown */
 .prose {
-  color: #e4e4e7;
-  line-height: 1.7;
-  font-size: 0.9375rem;
+  @apply text-zinc-200 leading-relaxed text-[0.9375rem];
 }
 .prose h1,
 .prose h2,
@@ -17,120 +16,104 @@
 .prose h4,
 .prose h5,
 .prose h6 {
-  color: #fafafa;
-  font-weight: 600;
-  line-height: 1.3;
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
+  @apply text-zinc-50 font-semibold leading-tight mt-[1.5em] mb-[0.5em];
 }
 .prose h1 {
-  font-size: 1.75em;
+  @apply text-[1.75em];
 }
 .prose h2 {
-  font-size: 1.375em;
-  border-bottom: 1px solid #27272a;
-  padding-bottom: 0.3em;
+  @apply text-[1.375em] border-b border-zinc-800 pb-[0.3em];
 }
 .prose h3 {
-  font-size: 1.125em;
+  @apply text-[1.125em];
 }
 .prose h1:first-child,
 .prose h2:first-child,
 .prose h3:first-child {
-  margin-top: 0;
+  @apply mt-0;
 }
 .prose p {
-  margin: 0.75em 0;
+  @apply my-[0.75em];
 }
 .prose a {
-  color: #60a5fa;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  @apply text-blue-400 underline underline-offset-2;
 }
 .prose a:hover {
-  color: #93bbfd;
+  @apply text-blue-300;
 }
 .prose strong {
-  color: #fafafa;
-  font-weight: 600;
+  @apply text-zinc-50 font-semibold;
 }
 .prose em {
-  font-style: italic;
+  @apply italic;
 }
 .prose code {
-  background: #27272a;
-  color: #f0abfc;
-  padding: 0.15em 0.35em;
-  border-radius: 4px;
-  font-size: 0.875em;
-  font-family: var(--font-mono);
+  @apply bg-zinc-800 text-fuchsia-300 px-[0.35em] py-[0.15em] rounded-[4px] text-[0.875em] font-mono;
 }
 .prose pre {
-  background: #18181b;
-  border: 1px solid #27272a;
-  border-radius: 6px;
-  padding: 0.875em 1em;
-  overflow-x: auto;
-  margin: 1em 0;
+  @apply bg-zinc-900 border border-zinc-800 rounded-md px-[1em] py-[0.875em] overflow-x-auto my-[1em];
 }
 .prose pre code {
-  background: none;
-  color: #d4d4d8;
-  padding: 0;
-  border-radius: 0;
-  font-size: 0.8125em;
-  line-height: 1.6;
+  @apply bg-transparent text-zinc-300 p-0 rounded-none text-[0.8125em] leading-relaxed;
+}
+.prose .shiki {
+  @apply bg-zinc-900! border border-zinc-800 rounded-md px-[1em] py-[0.875em] overflow-x-auto my-[1em];
+}
+.prose .shiki code {
+  @apply bg-transparent p-0 rounded-none text-[0.8125em] leading-relaxed font-mono;
 }
 .prose blockquote {
-  border-left: 3px solid #3f3f46;
-  padding-left: 1em;
-  margin: 1em 0;
-  color: #a1a1aa;
+  @apply border-l-[3px] border-zinc-700 pl-[1em] my-[1em] text-zinc-400;
 }
 .prose ul,
 .prose ol {
-  padding-left: 1.5em;
-  margin: 0.75em 0;
+  @apply pl-[1.5em] my-[0.75em];
 }
 .prose ul {
-  list-style: disc;
+  @apply list-disc;
 }
 .prose ol {
-  list-style: decimal;
+  @apply list-decimal;
 }
 .prose li {
-  margin: 0.25em 0;
+  @apply my-[0.25em];
 }
 .prose li > ul,
 .prose li > ol {
-  margin: 0.25em 0;
+  @apply my-[0.25em];
 }
 .prose hr {
-  border: none;
-  border-top: 1px solid #27272a;
-  margin: 1.5em 0;
+  @apply border-none border-t border-zinc-800 my-[1.5em];
 }
 .prose img {
-  max-width: 100%;
-  border-radius: 6px;
-  margin: 1em 0;
+  @apply max-w-full rounded-md my-[1em] inline-block;
 }
 .prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 0.875em;
+  @apply w-full border-collapse my-[1em] text-sm;
 }
 .prose th,
 .prose td {
-  border: 1px solid #3f3f46;
-  padding: 0.5em 0.75em;
+  @apply border border-zinc-700 px-[0.75em] py-[0.5em];
 }
 .prose th {
-  background: #27272a;
-  font-weight: 600;
-  color: #fafafa;
+  @apply bg-zinc-800 font-semibold text-zinc-50;
 }
 .prose tbody tr:hover {
-  background: #27272a40;
+  @apply bg-zinc-800/25;
+}
+
+/* Editor highlight overlay */
+#editor-highlight .shiki {
+  @apply bg-transparent! m-0 p-0;
+}
+#editor-highlight .shiki code {
+  @apply text-sm font-mono leading-relaxed;
+}
+
+/* HTML source panel */
+#html-source .shiki {
+  @apply bg-transparent! m-0 p-0;
+}
+#html-source .shiki code {
+  @apply whitespace-pre-wrap break-words;
 }

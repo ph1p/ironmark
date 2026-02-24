@@ -1,8 +1,27 @@
 import "./style.css";
 import { init, parse } from "ironmark";
 import wasmUrl from "ironmark/ironmark.wasm?url";
+import { createHighlighter } from "shiki";
 
-await init(wasmUrl);
+const [, highlighter] = await Promise.all([
+  init(wasmUrl),
+  createHighlighter({
+    themes: ["github-dark-default"],
+    langs: [
+      "javascript",
+      "typescript",
+      "rust",
+      "html",
+      "css",
+      "json",
+      "bash",
+      "python",
+      "markdown",
+      "yaml",
+      "toml",
+    ],
+  }),
+]);
 
 const DEFAULT_MARKDOWN = `# Markdown Playground
 
@@ -73,13 +92,16 @@ app.innerHTML = `
         <div class="px-4 py-2 text-xs font-medium text-zinc-400 uppercase tracking-wider border-b border-zinc-800 bg-zinc-900/50">
           Markdown
         </div>
-        <textarea
-          id="editor"
-          class="flex-1 w-full p-4 bg-transparent text-sm font-mono text-zinc-200 resize-none outline-none placeholder:text-zinc-600 leading-relaxed"
-          spellcheck="false"
-          placeholder="Type markdown here..."
-          disabled
-        ></textarea>
+        <div class="flex-1 relative min-h-0">
+          <div id="editor-highlight" class="absolute inset-0 p-4 overflow-auto pointer-events-none text-sm font-mono leading-relaxed whitespace-pre-wrap break-words" aria-hidden="true"></div>
+          <textarea
+            id="editor"
+            class="absolute inset-0 w-full h-full p-4 bg-transparent text-sm font-mono text-transparent caret-zinc-200 resize-none outline-none placeholder:text-zinc-600 leading-relaxed whitespace-pre-wrap break-words"
+            spellcheck="false"
+            placeholder="Type markdown here..."
+            disabled
+          ></textarea>
+        </div>
       </div>
       <div class="flex-1 flex flex-col">
         <div class="flex border-b border-zinc-800 bg-zinc-900/50">
@@ -94,7 +116,7 @@ app.innerHTML = `
           <div id="preview" class="prose"></div>
         </div>
         <div id="html-panel" class="flex-1 overflow-auto p-4 hidden">
-          <pre id="html-source" class="text-sm font-mono text-zinc-300 whitespace-pre-wrap break-words leading-relaxed"></pre>
+          <div id="html-source" class="text-sm font-mono leading-relaxed"></div>
         </div>
       </div>
     </div>
@@ -102,8 +124,9 @@ app.innerHTML = `
 `;
 
 const editor = document.querySelector<HTMLTextAreaElement>("#editor")!;
+const editorHighlight = document.querySelector<HTMLDivElement>("#editor-highlight")!;
 const preview = document.querySelector<HTMLDivElement>("#preview")!;
-const htmlSource = document.querySelector<HTMLPreElement>("#html-source")!;
+const htmlSource = document.querySelector<HTMLDivElement>("#html-source")!;
 const status = document.querySelector<HTMLDivElement>("#status")!;
 const previewPanel = document.querySelector<HTMLDivElement>("#preview-panel")!;
 const htmlPanel = document.querySelector<HTMLDivElement>("#html-panel")!;
@@ -128,15 +151,63 @@ function setTab(tab: "preview" | "html") {
 tabPreview.addEventListener("click", () => setTab("preview"));
 tabHtml.addEventListener("click", () => setTab("html"));
 
+// Highlight editor markdown with shiki
+function highlightEditor(md: string) {
+  editorHighlight.innerHTML = highlighter.codeToHtml(md, {
+    lang: "markdown",
+    theme: "github-dark-default",
+  });
+  // Sync scroll
+  const pre = editorHighlight.querySelector("pre");
+  if (pre) {
+    pre.style.margin = "0";
+    pre.style.padding = "0";
+    pre.style.background = "transparent";
+    pre.style.whiteSpace = "pre-wrap";
+    pre.style.wordBreak = "break-word";
+  }
+}
+
 // Parse markdown using WASM
 function parseMarkdown(md: string) {
   const start = performance.now();
   const html = parse(md);
   const elapsed = (performance.now() - start).toFixed(2);
   preview.innerHTML = html;
-  htmlSource.textContent = html;
   status.textContent = `${elapsed}ms`;
+
+  // Highlight code blocks in preview with shiki
+  preview.querySelectorAll("pre code").forEach((block) => {
+    const lang =
+      [...block.classList].find((c) => c.startsWith("language-"))?.replace("language-", "") ||
+      "text";
+    const code = block.textContent || "";
+    try {
+      const highlighted = highlighter.codeToHtml(code, {
+        lang,
+        theme: "github-dark-default",
+      });
+      block.parentElement!.outerHTML = highlighted;
+    } catch {
+      // Language not loaded — leave as-is
+    }
+  });
+
+  // Highlight HTML source tab
+  htmlSource.innerHTML = highlighter.codeToHtml(html, {
+    lang: "html",
+    theme: "github-dark-default",
+  });
+
+  // Highlight editor
+  highlightEditor(md);
 }
+
+// Sync scroll between textarea and highlight layer
+editor.addEventListener("scroll", () => {
+  editorHighlight.scrollTop = editor.scrollTop;
+  editorHighlight.scrollLeft = editor.scrollLeft;
+});
 
 // Debounced input
 let timer: ReturnType<typeof setTimeout>;

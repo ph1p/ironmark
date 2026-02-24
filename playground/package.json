@@ -9,7 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "ironmark": "link:.."
+    "ironmark": "link:..",
+    "shiki": "^3.22.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
