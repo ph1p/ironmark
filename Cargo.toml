@@ -48,4 +48,4 @@ strip = true
 
 [profile.release-wasm]
 inherits = "release"
-opt-level = "z"
+opt-level = 3
