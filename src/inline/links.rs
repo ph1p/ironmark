@@ -480,9 +480,6 @@ impl<'a> InlineScanner<'a> {
         }
     }
 
-    /// Parse an entity reference starting at `&` (self.pos).
-    /// On success, writes resolved UTF-8 bytes into `buf` and returns the length.
-    /// On failure, resets self.pos to start and returns None.
     #[inline]
     fn parse_entity_ref(&mut self, buf: &mut [u8; 8]) -> Option<u8> {
         let start = self.pos;
@@ -505,7 +502,6 @@ impl<'a> InlineScanner<'a> {
                 self.pos += 1;
             }
             let ns = self.pos;
-            // Hand-rolled numeric parsing — avoids u32::from_str_radix / .parse overhead
             let mut cp: u32 = 0;
             if hex {
                 while self.pos < len {
@@ -544,12 +540,10 @@ impl<'a> InlineScanner<'a> {
         } else {
             let ns = self.pos;
             let first = bytes[ns];
-            // Quick reject: first char must be ASCII alpha for named entities
             if !first.is_ascii_alphabetic() {
                 self.pos = start;
                 return None;
             }
-            // Use per-first-char max length to limit scan and reject long non-entities
             let max_len = entities::MAX_ENTITY_LEN[first as usize] as usize;
             if max_len == 0 {
                 self.pos = start;
@@ -588,7 +582,6 @@ impl<'a> InlineScanner<'a> {
 
     #[inline]
     pub(super) fn try_entity(&mut self) -> bool {
-        // Fast path: check common named entities inline without full parse_entity_ref
         let bytes = self.bytes;
         let len = bytes.len();
         let start = self.pos;

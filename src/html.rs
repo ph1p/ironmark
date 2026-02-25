@@ -10,30 +10,65 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     let bytes = input.as_bytes();
     let len = bytes.len();
     let mut last = 0;
-    let mut i = 0;
 
-    while i < len {
-        let b = bytes[i];
-        if b != b'&' && b != b'<' && b != b'>' && b != b'"' {
-            i += 1;
-            continue;
+    if memchr::memchr3(b'&', b'<', b'>', bytes).is_none() {
+        while last < len {
+            match memchr::memchr(b'"', &bytes[last..]) {
+                Some(offset) => {
+                    let q = last + offset;
+                    if last < q {
+                        out.push_str(unsafe { input.get_unchecked(last..q) });
+                    }
+                    out.push_str("&quot;");
+                    last = q + 1;
+                }
+                None => {
+                    out.push_str(unsafe { input.get_unchecked(last..len) });
+                    return;
+                }
+            }
         }
-        let replacement = match b {
-            b'&' => "&amp;",
-            b'<' => "&lt;",
-            b'>' => "&gt;",
-            _ => "&quot;",
-        };
-        if last < i {
-            out.push_str(unsafe { input.get_unchecked(last..i) });
-        }
-        out.push_str(replacement);
-        i += 1;
-        last = i;
+        return;
     }
 
-    if last < len {
-        out.push_str(unsafe { input.get_unchecked(last..len) });
+    while last < len {
+        match memchr::memchr3(b'&', b'<', b'>', &bytes[last..]) {
+            Some(offset) => {
+                let i = last + offset;
+                if let Some(q_off) = memchr::memchr(b'"', &bytes[last..i]) {
+                    let q = last + q_off;
+                    if last < q {
+                        out.push_str(unsafe { input.get_unchecked(last..q) });
+                    }
+                    out.push_str("&quot;");
+                    last = q + 1;
+                    continue;
+                }
+                if last < i {
+                    out.push_str(unsafe { input.get_unchecked(last..i) });
+                }
+                let replacement = match bytes[i] {
+                    b'&' => "&amp;",
+                    b'<' => "&lt;",
+                    _ => "&gt;",
+                };
+                out.push_str(replacement);
+                last = i + 1;
+            }
+            None => {
+                if let Some(q_off) = memchr::memchr(b'"', &bytes[last..]) {
+                    let q = last + q_off;
+                    if last < q {
+                        out.push_str(unsafe { input.get_unchecked(last..q) });
+                    }
+                    out.push_str("&quot;");
+                    last = q + 1;
+                } else {
+                    out.push_str(unsafe { input.get_unchecked(last..len) });
+                    return;
+                }
+            }
+        }
     }
 }
 

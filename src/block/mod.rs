@@ -19,13 +19,11 @@ pub fn parse(markdown: &str, options: &ParseOptions) -> String {
     let mut parser = BlockParser::new(markdown, options.enable_tables, options.enable_task_lists);
     let doc = parser.parse();
     let refs = parser.ref_defs;
-    let mut out = String::with_capacity(markdown.len() + markdown.len() / 4);
+    let mut out = String::with_capacity(markdown.len() + markdown.len() / 2);
     let mut bufs = InlineBuffers::new();
     render_block(&doc, &refs, &mut out, options, &mut bufs);
     out
 }
-
-// ── Line representation ──────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
 struct Line<'a> {
@@ -33,6 +31,9 @@ struct Line<'a> {
     col_offset: usize,
     byte_offset: usize,
     partial_spaces: usize,
+    cached_ns_col: usize,
+    cached_ns_off: usize,
+    cached_ns_byte: u8,
 }
 
 impl<'a> Line<'a> {
@@ -42,6 +43,9 @@ impl<'a> Line<'a> {
             col_offset: 0,
             byte_offset: 0,
             partial_spaces: 0,
+            cached_ns_col: 0,
+            cached_ns_off: 0,
+            cached_ns_byte: 0,
         }
     }
 
@@ -54,19 +58,12 @@ impl<'a> Line<'a> {
     }
 
     #[inline(always)]
-    fn is_blank(&self) -> bool {
+    fn is_blank(&mut self) -> bool {
         if self.partial_spaces > 0 {
             return false;
         }
-        let bytes = self.raw.as_bytes();
-        let mut off = self.byte_offset;
-        while off < bytes.len() {
-            match bytes[off] {
-                b' ' | b'\t' => off += 1,
-                _ => return false,
-            }
-        }
-        true
+        let (_, ns_off, ns_byte) = self.peek_nonspace_col();
+        ns_byte == 0 && ns_off >= self.raw.len()
     }
 
     /// Advance past spaces/tabs, returning the number of columns consumed (up to `max`).
@@ -156,7 +153,12 @@ impl<'a> Line<'a> {
     }
 
     #[inline(always)]
-    fn peek_nonspace_col(&self) -> (usize, usize, u8) {
+    fn peek_nonspace_col(&mut self) -> (usize, usize, u8) {
+        if self.cached_ns_off >= self.byte_offset
+            && (self.cached_ns_byte != 0 || self.cached_ns_off >= self.raw.len())
+        {
+            return (self.cached_ns_col, self.cached_ns_off, self.cached_ns_byte);
+        }
         let bytes = self.raw.as_bytes();
         let mut col = self.col_offset;
         let mut off = self.byte_offset;
@@ -173,31 +175,39 @@ impl<'a> Line<'a> {
                     col += 4 - (col % 4);
                     off += 1;
                 }
-                b => return (col, off, b),
+                b => {
+                    self.cached_ns_col = col;
+                    self.cached_ns_off = off;
+                    self.cached_ns_byte = b;
+                    return (col, off, b);
+                }
             }
         }
+        self.cached_ns_col = col;
+        self.cached_ns_off = off;
+        self.cached_ns_byte = 0;
         (col, off, 0)
     }
 
-    fn indent(&self) -> usize {
+    fn indent(&mut self) -> usize {
         let (col, _, _) = self.peek_nonspace_col();
         col - self.col_offset
     }
 
-    fn first_nonspace_byte(&self) -> u8 {
+    fn first_nonspace_byte(&mut self) -> u8 {
         let (_, _, b) = self.peek_nonspace_col();
         b
     }
 
     fn advance_to_nonspace(&mut self) {
-        self.partial_spaces = 0; // partial spaces are whitespace, consume them
+        self.partial_spaces = 0;
         let (col, off, _) = self.peek_nonspace_col();
         self.col_offset = col;
         self.byte_offset = off;
     }
 
     #[inline]
-    fn rest_of_line(&self) -> &'a str {
+    fn rest_of_line(&mut self) -> &'a str {
         let (_, off, _) = self.peek_nonspace_col();
         if off >= self.raw.len() {
             ""
@@ -209,11 +219,10 @@ impl<'a> Line<'a> {
     /// Get the remaining content as a string, with partial tab spaces expanded.
     fn remainder_with_partial(&self) -> Cow<'a, str> {
         if self.partial_spaces > 0 {
+            static SPACES: &str = "    ";
             let rem = self.remainder();
             let mut s = String::with_capacity(self.partial_spaces + rem.len());
-            for _ in 0..self.partial_spaces {
-                s.push(' ');
-            }
+            s.push_str(&SPACES[..self.partial_spaces]);
             s.push_str(rem);
             Cow::Owned(s)
         } else {
@@ -222,7 +231,20 @@ impl<'a> Line<'a> {
     }
 }
 
-// ── Open block types ─────────────────────────────────────────────────
+#[derive(Clone, Debug)]
+struct FencedCodeData {
+    fence_char: u8,
+    fence_len: usize,
+    fence_indent: usize,
+    info: String,
+}
+
+#[derive(Clone, Debug)]
+struct TableData {
+    alignments: Vec<TableAlignment>,
+    header: Vec<String>,
+    rows: Vec<Vec<String>>,
+}
 
 #[derive(Clone, Debug)]
 enum OpenBlockType {
@@ -234,22 +256,13 @@ enum OpenBlockType {
         /// True if the item started with a blank line after the marker
         started_blank: bool,
     },
-    FencedCode {
-        fence_char: u8,
-        fence_len: usize,
-        fence_indent: usize,
-        info: String,
-    },
+    FencedCode(Box<FencedCodeData>),
     IndentedCode,
     HtmlBlock {
         end_condition: HtmlBlockEnd,
     },
     Paragraph,
-    Table {
-        alignments: Vec<TableAlignment>,
-        header: Vec<String>,
-        rows: Vec<Vec<String>>,
-    },
+    Table(Box<TableData>),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -275,6 +288,7 @@ struct OpenBlock {
     children: Vec<Block>,
     had_blank_in_item: bool,
     list_has_blank_between: bool,
+    content_has_newline: bool,
     checked: Option<bool>,
     list_start: u32,
     list_kind: Option<ListKind>,
@@ -289,14 +303,13 @@ impl OpenBlock {
             children: Vec::new(),
             had_blank_in_item: false,
             list_has_blank_between: false,
+            content_has_newline: false,
             checked: None,
             list_start: 0,
             list_kind: None,
         }
     }
 }
-
-// ── Block parser ─────────────────────────────────────────────────────
 
 pub(crate) struct BlockParser<'a> {
     input: &'a str,
@@ -305,12 +318,17 @@ pub(crate) struct BlockParser<'a> {
     open: Vec<OpenBlock>,
     enable_tables: bool,
     enable_task_lists: bool,
+    /// Number of open BlockQuote containers (used for fast-path checks)
+    open_blockquotes: usize,
+    /// Cumulative sum of content_col for all open ListItem containers.
+    /// Updated when ListItems are pushed/popped.
+    list_indent_sum: usize,
 }
 
 impl<'a> BlockParser<'a> {
     pub fn new(input: &'a str, enable_tables: bool, enable_task_lists: bool) -> Self {
         let doc = OpenBlock::new(OpenBlockType::Document);
-        let mut open = Vec::with_capacity(8);
+        let mut open = Vec::with_capacity(16);
         open.push(doc);
         Self {
             input,
@@ -318,6 +336,8 @@ impl<'a> BlockParser<'a> {
             open,
             enable_tables,
             enable_task_lists,
+            open_blockquotes: 0,
+            list_indent_sum: 0,
         }
     }
 
@@ -332,6 +352,19 @@ impl<'a> BlockParser<'a> {
             let raw_line = trim_cr(raw_line);
             let line = Line::new(raw_line);
             self.process_line(line);
+
+            if self.open.len() == 2 {
+                if let OpenBlockType::FencedCode(ref fc_data) = self.open[1].block_type {
+                    if fc_data.fence_indent == 0 {
+                        let fc = fc_data.fence_char;
+                        let fl = fc_data.fence_len;
+                        start = end + 1;
+                        start = self.bulk_scan_fenced_code(input, bytes, start, len, fc, fl);
+                        continue;
+                    }
+                }
+            }
+
             start = end + 1;
         }
         while self.open.len() > 1 {
@@ -343,23 +376,82 @@ impl<'a> BlockParser<'a> {
         }
     }
 
+    /// Bulk-scan content lines of a document-level fenced code block with indent=0.
+    /// Returns the byte offset to continue parsing from.
+    #[inline(never)]
+    fn bulk_scan_fenced_code(
+        &mut self,
+        input: &str,
+        bytes: &[u8],
+        start: usize,
+        len: usize,
+        fence_char: u8,
+        fence_len: usize,
+    ) -> usize {
+        let content_start = start;
+        let mut pos = start;
+        let mut has_cr = false;
+
+        while pos < len {
+            let line_end = memchr_newline(bytes, pos);
+            let check_end = if line_end > pos && bytes[line_end - 1] == b'\r' {
+                has_cr = true;
+                line_end - 1
+            } else {
+                line_end
+            };
+
+            if is_closing_fence(&bytes[pos..check_end], fence_char, fence_len) {
+                if pos > content_start {
+                    self.push_bulk_content(input, content_start, pos, has_cr);
+                }
+                self.close_top_block();
+                return line_end + 1;
+            }
+
+            pos = line_end + 1;
+        }
+
+        if len > content_start {
+            self.push_bulk_content(input, content_start, len, has_cr);
+            let content = &mut self.open[1].content;
+            if !content.ends_with('\n') {
+                content.push('\n');
+            }
+        }
+        pos
+    }
+
+    #[inline]
+    fn push_bulk_content(&mut self, input: &str, start: usize, end: usize, has_cr: bool) {
+        let content = &mut self.open[1].content;
+        if !has_cr {
+            content.push_str(unsafe { input.get_unchecked(start..end) });
+        } else {
+            let s = unsafe { input.get_unchecked(start..end) };
+            content.reserve(s.len());
+            for chunk in s.split('\r') {
+                content.push_str(chunk);
+            }
+        }
+    }
+
     fn has_open_leaf_after(&self, idx: usize) -> bool {
         for i in (idx + 1)..self.open.len() {
-            match &self.open[i].block_type {
+            if matches!(
+                self.open[i].block_type,
                 OpenBlockType::Paragraph
-                | OpenBlockType::FencedCode { .. }
-                | OpenBlockType::IndentedCode
-                | OpenBlockType::HtmlBlock { .. } => return true,
-                _ => {}
+                    | OpenBlockType::FencedCode(..)
+                    | OpenBlockType::IndentedCode
+                    | OpenBlockType::HtmlBlock { .. }
+            ) {
+                return true;
             }
         }
         false
     }
 
     fn mark_blank_on_list_items(&mut self) {
-        // Find the innermost list item, but only mark it if there's no
-        // container block (blockquote) between it and the blank line.
-        // A blank inside a nested blockquote should not make the list item loose.
         let len = self.open.len();
         for i in (1..len).rev() {
             match &self.open[i].block_type {
@@ -368,8 +460,6 @@ impl<'a> BlockParser<'a> {
                     break;
                 }
                 OpenBlockType::BlockQuote => {
-                    // The blank is inside a blockquote, not at the list item level.
-                    // Don't mark the enclosing list item.
                     break;
                 }
                 _ => {}
@@ -380,6 +470,15 @@ impl<'a> BlockParser<'a> {
     #[inline]
     fn close_top_block(&mut self) {
         let block = self.open.pop().unwrap();
+        match &block.block_type {
+            OpenBlockType::BlockQuote => {
+                self.open_blockquotes -= 1;
+            }
+            OpenBlockType::ListItem { content_col, .. } => {
+                self.list_indent_sum -= content_col;
+            }
+            _ => {}
+        }
         let finalized = self.finalize_block(block);
         if let Some(block) = finalized {
             let parent = self.open.last_mut().unwrap();

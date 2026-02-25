@@ -48,7 +48,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "npm run build:wasm && node wasm/build.mjs",
+    "build": "pnpm build:wasm && node wasm/build.mjs",
     "build:dev": "PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" cargo build -p ironmark-wasm --target wasm32-unknown-unknown && PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/debug/ironmark.wasm && node wasm/build.mjs",
     "build:wasm": "PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" cargo build -p ironmark-wasm --profile release-wasm --target wasm32-unknown-unknown && PATH=\"$PWD/.wasm-tools/bin:$HOME/.cargo/bin:$PATH\" wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/release-wasm/ironmark.wasm && wasm-opt --enable-bulk-memory -O3 wasm/pkg/ironmark_bg.wasm -o wasm/pkg/ironmark_bg.wasm",
     "check": "cargo fmt --check && oxlint && oxfmt --check .",
@@ -58,6 +58,7 @@
     "release": "semantic-release",
     "release:dry": "semantic-release --dry-run",
     "setup:wasm": "PATH=\"$HOME/.cargo/bin:$PATH\" rustup target add wasm32-unknown-unknown && TMPDIR=/tmp PATH=\"$HOME/.cargo/bin:$PATH\" cargo install wasm-bindgen-cli --locked --root .wasm-tools",
+    "bench": "cargo bench && node benchmark/report.mjs",
     "test": "cargo test --offline"
   },
   "devDependencies": {
@@ -68,6 +69,8 @@
     "@semantic-release/npm": "^13.1.4",
     "@semantic-release/release-notes-generator": "^14.1.0",
     "conventional-changelog-conventionalcommits": "^9.1.0",
+    "markdown-wasm": "^1.2.0",
+    "md4w": "^0.2.7",
     "oxfmt": "^0.35.0",
     "oxlint": "^1.50.0",
     "semantic-release": "^25.0.3"
@@ -76,5 +79,5 @@
     "node": ">=18"
   },
   "packageManager": "pnpm@10.30.2",
-  "prepack": "npm run build"
+  "prepack": "pnpm build"
 }

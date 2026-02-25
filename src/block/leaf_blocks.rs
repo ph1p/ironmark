@@ -65,10 +65,10 @@ pub(super) fn strip_closing_hashes(s: &str) -> &str {
         end -= 1;
     }
     if end == bytes.len() {
-        return s; // no trailing hashes
+        return s;
     }
     if end == 0 {
-        return ""; // all hashes
+        return "";
     }
     if bytes[end - 1] == b' ' || bytes[end - 1] == b'\t' {
         let result = &s[..end];
@@ -119,33 +119,40 @@ pub(super) fn parse_fence_start(line: &str) -> Option<(u8, usize, &str)> {
     Some((ch, count, info))
 }
 
+/// Check if a line is a closing code fence. Works on raw bytes.
 #[inline]
-pub(super) fn is_closing_fence(line: &str, fence_char: u8, fence_len: usize) -> bool {
-    let bytes = line.as_bytes();
-    let len = bytes.len();
+pub(super) fn is_closing_fence(line: &[u8], fence_char: u8, fence_len: usize) -> bool {
+    let len = line.len();
+    if len == 0 {
+        return false;
+    }
+    let b0 = line[0];
+    if b0 != b' ' && b0 != b'\t' && b0 != fence_char {
+        return false;
+    }
     let mut i = 0;
-    while i < len && i < 3 && bytes[i] == b' ' {
+    while i < len && i < 3 && line[i] == b' ' {
         i += 1;
     }
-    if i < len && bytes[i] == b'\t' && i < 4 {
+    if i < len && line[i] == b'\t' && i < 4 {
         let tab_width = 4 - (i % 4);
         if i + tab_width > 3 {
             return false;
         }
         i += 1;
     }
-    if i >= len || bytes[i] != fence_char {
+    if i >= len || line[i] != fence_char {
         return false;
     }
     let fence_start = i;
-    while i < len && bytes[i] == fence_char {
+    while i < len && line[i] == fence_char {
         i += 1;
     }
     if i - fence_start < fence_len {
         return false;
     }
     while i < len {
-        if bytes[i] != b' ' && bytes[i] != b'\t' {
+        if line[i] != b' ' && line[i] != b'\t' {
             return false;
         }
         i += 1;
@@ -168,29 +175,25 @@ pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
         return None;
     }
 
-    let cells: Vec<&str> = inner.split('|').collect();
-    if cells.is_empty() {
+    if !trimmed.contains('|') {
         return None;
     }
 
     let mut alignments = Vec::new();
-    for cell in &cells {
+    for cell in inner.split('|') {
         let c = cell.trim();
         if c.is_empty() {
             return None;
         }
-        let left = c.starts_with(':');
-        let right = c.ends_with(':');
-        let dashes = if left && right {
-            &c[1..c.len() - 1]
-        } else if left {
-            &c[1..]
-        } else if right {
-            &c[..c.len() - 1]
-        } else {
-            c
-        };
-        if dashes.is_empty() || !dashes.bytes().all(|b| b == b'-') {
+        let bytes = c.as_bytes();
+        let left = bytes[0] == b':';
+        let right = bytes[bytes.len() - 1] == b':';
+        let start = if left { 1 } else { 0 };
+        let end = if right { bytes.len() - 1 } else { bytes.len() };
+        if start >= end {
+            return None;
+        }
+        if !bytes[start..end].iter().all(|&b| b == b'-') {
             return None;
         }
         let alignment = match (left, right) {
@@ -206,10 +209,6 @@ pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
         return None;
     }
 
-    if !trimmed.contains('|') {
-        return None;
-    }
-
     Some(alignments)
 }
 
@@ -219,28 +218,44 @@ pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
 
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = inner.strip_suffix('|').unwrap_or(inner);
-    let has_escaped_pipe = {
+
+    let has_escaped_pipe = memchr::memchr(b'\\', inner.as_bytes()).is_some_and(|pos| {
         let bytes = inner.as_bytes();
-        let mut j = 0;
-        let mut found = false;
-        while j + 1 < bytes.len() {
-            if bytes[j] == b'\\' && bytes[j + 1] == b'|' {
-                found = true;
-                break;
+        let mut p = pos;
+        loop {
+            if p + 1 < bytes.len() && bytes[p + 1] == b'|' {
+                return true;
             }
-            j += 1;
+            match memchr::memchr(b'\\', &bytes[p + 1..]) {
+                Some(offset) => p = p + 1 + offset,
+                None => return false,
+            }
         }
-        found
-    };
+    });
 
     if !has_escaped_pipe {
-        let mut cells: Vec<String> = inner.split('|').map(|s| s.trim().to_string()).collect();
+        let mut cells = Vec::with_capacity(num_cols);
+        let bytes = inner.as_bytes();
+        let mut start = 0;
+        while cells.len() < num_cols {
+            match memchr::memchr(b'|', &bytes[start..]) {
+                Some(offset) => {
+                    let end = start + offset;
+                    cells.push(inner[start..end].trim().to_string());
+                    start = end + 1;
+                }
+                None => {
+                    cells.push(inner[start..].trim().to_string());
+                    start = bytes.len();
+                    break;
+                }
+            }
+        }
         cells.resize(num_cols, String::new());
-        cells.truncate(num_cols);
         return cells;
     }
 
-    let mut cells = Vec::new();
+    let mut cells = Vec::with_capacity(num_cols);
     let mut current = String::new();
     let bytes = inner.as_bytes();
     let mut i = 0;
@@ -251,7 +266,7 @@ pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
             i += 2;
         } else if bytes[i] == b'|' {
             cells.push(current.trim().to_string());
-            current = String::new();
+            current.clear();
             i += 1;
         } else {
             current.push(bytes[i] as char);

@@ -1,0 +1,928 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ironmark benchmark results</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #0f0f0f;
+        color: #e0e0e0;
+        padding: 2rem;
+        max-width: 960px;
+        margin: 0 auto;
+        line-height: 1.5;
+      }
+      header {
+        text-align: center;
+        margin-bottom: 3rem;
+      }
+      header h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #fff;
+        letter-spacing: -0.02em;
+      }
+      header p {
+        color: #888;
+        margin-top: 0.25rem;
+      }
+      h1 {
+        font-size: 1.4rem;
+        font-weight: 600;
+        color: #fff;
+        border-bottom: 1px solid #2a2a2a;
+        padding-bottom: 0.5rem;
+        margin: 2.5rem 0 0.5rem;
+      }
+      .subtitle {
+        color: #888;
+        font-size: 0.85rem;
+        margin-bottom: 1.5rem;
+      }
+      .subtitle code {
+        background: #1a1a1a;
+        padding: 0.1em 0.4em;
+        border-radius: 3px;
+        font-size: 0.8rem;
+      }
+      h2 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #ccc;
+        margin: 2rem 0 1rem;
+      }
+      .bench-card {
+        background: #1a1a1a;
+        border: 1px solid #2a2a2a;
+        border-radius: 8px;
+        padding: 1.25rem;
+        margin-bottom: 1rem;
+      }
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.75rem;
+        gap: 0.75rem;
+      }
+      .card-header h3 {
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: #aaa;
+        margin: 0;
+      }
+      .winner-badge {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #fff;
+        border: 1px solid;
+        border-radius: 4px;
+        padding: 0.15em 0.6em;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+      }
+      .speedup {
+        font-size: 0.7rem;
+        font-weight: 400;
+        color: #8f8;
+      }
+      .speedup.tied {
+        color: #888;
+      }
+      .bars {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .bar-row {
+        display: grid;
+        grid-template-columns: 120px 1fr 90px 80px;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .bar-winner .bar-label {
+        color: #fff;
+        font-weight: 600;
+      }
+      .bar-label {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: #777;
+        text-align: right;
+      }
+      .bar-track {
+        background: #252525;
+        border-radius: 4px;
+        height: 22px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s ease;
+        min-width: 2px;
+      }
+      .bar-value {
+        font-size: 0.8rem;
+        color: #e0e0e0;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+      .bar-throughput {
+        font-size: 0.75rem;
+        color: #666;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+
+      .legend {
+        display: flex;
+        gap: 1.5rem;
+        margin: 1rem 0 0;
+        flex-wrap: wrap;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.8rem;
+        color: #aaa;
+      }
+      .legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+      }
+
+      .note {
+        color: #666;
+        font-size: 0.75rem;
+        text-align: center;
+        margin-top: 3rem;
+      }
+
+      @media (max-width: 640px) {
+        body {
+          padding: 1rem;
+        }
+        .bar-row {
+          grid-template-columns: 80px 1fr 70px 60px;
+          gap: 0.4rem;
+        }
+        .bar-label,
+        .bar-value {
+          font-size: 0.7rem;
+        }
+        .bar-throughput {
+          font-size: 0.65rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>ironmark</h1>
+      <p>benchmark results</p>
+    </header>
+
+    <div class="legend">
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #e8590c"></span> ironmark</span
+      >
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #1971c2"></span> pulldown-cmark</span
+      >
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #2f9e44"></span> comrak</span
+      >
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #c2185b"></span> markdown-rs</span
+      >
+    </div>
+    <h1>Native Rust</h1>
+    <p class="subtitle">
+      ironmark vs pulldown-cmark vs comrak vs markdown-rs &mdash;
+      <code>cargo bench</code> (criterion)
+    </p>
+    <h2>CommonMark Spec</h2>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>commonmark_spec (15.2 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup tied">~tied</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">197.7 µs</span>
+          <span class="bar-throughput">75.1 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">pulldown_cmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 99.8%; background: #1971c2"></div>
+          </div>
+          <span class="bar-value">198.0 µs</span>
+          <span class="bar-throughput">75.0 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">comrak</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 28.4%; background: #2f9e44"></div>
+          </div>
+          <span class="bar-value">695.1 µs</span>
+          <span class="bar-throughput">21.4 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown_rs</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 4.1%; background: #c2185b"></div>
+          </div>
+          <span class="bar-value">4.78 ms</span>
+          <span class="bar-throughput">3.1 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <h2>Document Sizes</h2>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>1000 bytes (1000 B)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.4x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">6.1 µs</span>
+          <span class="bar-throughput">157.2 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">pulldown_cmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 70.9%; background: #1971c2"></div>
+          </div>
+          <span class="bar-value">8.6 µs</span>
+          <span class="bar-throughput">111.5 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">comrak</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 22%; background: #2f9e44"></div>
+          </div>
+          <span class="bar-value">27.6 µs</span>
+          <span class="bar-throughput">34.6 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown_rs</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 4.3%; background: #c2185b"></div>
+          </div>
+          <span class="bar-value">139.6 µs</span>
+          <span class="bar-throughput">6.8 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>10000 bytes (9.8 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.5x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">54.1 µs</span>
+          <span class="bar-throughput">176.2 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">pulldown_cmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 68.1%; background: #1971c2"></div>
+          </div>
+          <span class="bar-value">79.5 µs</span>
+          <span class="bar-throughput">119.9 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">comrak</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 20.3%; background: #2f9e44"></div>
+          </div>
+          <span class="bar-value">267.2 µs</span>
+          <span class="bar-throughput">35.7 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown_rs</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 3.9%; background: #c2185b"></div>
+          </div>
+          <span class="bar-value">1.38 ms</span>
+          <span class="bar-throughput">6.9 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>100000 bytes (97.7 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.5x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">535.2 µs</span>
+          <span class="bar-throughput">178.2 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">pulldown_cmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 68.3%; background: #1971c2"></div>
+          </div>
+          <span class="bar-value">783.2 µs</span>
+          <span class="bar-throughput">121.8 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">comrak</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 20.2%; background: #2f9e44"></div>
+          </div>
+          <span class="bar-value">2.65 ms</span>
+          <span class="bar-throughput">36.0 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown_rs</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 3.4%; background: #c2185b"></div>
+          </div>
+          <span class="bar-value">15.69 ms</span>
+          <span class="bar-throughput">6.1 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <h2>Block Types</h2>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>code_blocks (5.2 KB)</h3>
+        <div class="winner-badge" style="border-color: #1971c2">
+          pulldown_cmark <span class="speedup">1.1x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">pulldown_cmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #1971c2"></div>
+          </div>
+          <span class="bar-value">15.7 µs</span>
+          <span class="bar-throughput">320.9 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 88.6%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">17.7 µs</span>
+          <span class="bar-throughput">284.4 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">comrak</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 16.8%; background: #2f9e44"></div>
+          </div>
+          <span class="bar-value">93.4 µs</span>
+          <span class="bar-throughput">54.0 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown_rs</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 3.6%; background: #c2185b"></div>
+          </div>
+          <span class="bar-value">440.6 µs</span>
+          <span class="bar-throughput">11.5 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>headings (10.3 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.1x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">35.5 µs</span>
+          <span class="bar-throughput">284.4 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">pulldown_cmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 91.5%; background: #1971c2"></div>
+          </div>
+          <span class="bar-value">38.8 µs</span>
+          <span class="bar-throughput">260.2 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">comrak</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 20.6%; background: #2f9e44"></div>
+          </div>
+          <span class="bar-value">172.4 µs</span>
+          <span class="bar-throughput">58.6 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown_rs</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 3.3%; background: #c2185b"></div>
+          </div>
+          <span class="bar-value">1.07 ms</span>
+          <span class="bar-throughput">9.4 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>nested_lists (2.9 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.4x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">11.5 µs</span>
+          <span class="bar-throughput">243.0 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">pulldown_cmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 70.7%; background: #1971c2"></div>
+          </div>
+          <span class="bar-value">16.3 µs</span>
+          <span class="bar-throughput">171.7 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">comrak</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 28.8%; background: #2f9e44"></div>
+          </div>
+          <span class="bar-value">40.1 µs</span>
+          <span class="bar-throughput">70.0 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown_rs</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 1.5%; background: #c2185b"></div>
+          </div>
+          <span class="bar-value">785.9 µs</span>
+          <span class="bar-throughput">3.6 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>table (8.0 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.1x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">44.5 µs</span>
+          <span class="bar-throughput">176.5 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">pulldown_cmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 87.9%; background: #1971c2"></div>
+          </div>
+          <span class="bar-value">50.6 µs</span>
+          <span class="bar-throughput">155.2 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown_rs</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 15.8%; background: #c2185b"></div>
+          </div>
+          <span class="bar-value">282.1 µs</span>
+          <span class="bar-throughput">27.8 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">comrak</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 11.2%; background: #2f9e44"></div>
+          </div>
+          <span class="bar-value">397.7 µs</span>
+          <span class="bar-throughput">19.7 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <h2>Inline-heavy</h2>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>inline_heavy (16.7 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.4x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">96.2 µs</span>
+          <span class="bar-throughput">169.5 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">pulldown_cmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 70.6%; background: #1971c2"></div>
+          </div>
+          <span class="bar-value">136.2 µs</span>
+          <span class="bar-throughput">119.7 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">comrak</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 20.4%; background: #2f9e44"></div>
+          </div>
+          <span class="bar-value">470.8 µs</span>
+          <span class="bar-throughput">34.6 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown_rs</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 3.9%; background: #c2185b"></div>
+          </div>
+          <span class="bar-value">2.48 ms</span>
+          <span class="bar-throughput">6.6 MB/s</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend" style="margin-top: 2.5rem">
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #e8590c"></span> ironmark</span
+      >
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #7048e8"></span> markdown-wasm</span
+      >
+      <span class="legend-item"
+        ><span class="legend-dot" style="background: #0ea5e9"></span> md4w</span
+      >
+    </div>
+    <h1>WASM (Node.js)</h1>
+    <p class="subtitle">ironmark vs markdown-wasm vs md4w &mdash; median of 500 iterations</p>
+    <h2>CommonMark Spec</h2>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>spec (all examples) (15.1 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.1x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">324.7 µs</span>
+          <span class="bar-throughput">45.4 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">md4w</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 87.3%; background: #0ea5e9"></div>
+          </div>
+          <span class="bar-value">372.1 µs</span>
+          <span class="bar-throughput">39.6 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown-wasm</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 83.1%; background: #7048e8"></div>
+          </div>
+          <span class="bar-value">390.7 µs</span>
+          <span class="bar-throughput">37.8 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <h2>Document Sizes</h2>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>mixed 1000 B (1000 B)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.4x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">11.0 µs</span>
+          <span class="bar-throughput">86.4 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown-wasm</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 74%; background: #7048e8"></div>
+          </div>
+          <span class="bar-value">14.9 µs</span>
+          <span class="bar-throughput">63.9 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">md4w</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 72%; background: #0ea5e9"></div>
+          </div>
+          <span class="bar-value">15.3 µs</span>
+          <span class="bar-throughput">62.2 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>mixed 9.8 KB (9.8 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.3x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">100.2 µs</span>
+          <span class="bar-throughput">95.2 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">md4w</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 75.4%; background: #0ea5e9"></div>
+          </div>
+          <span class="bar-value">132.9 µs</span>
+          <span class="bar-throughput">71.8 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown-wasm</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 74.6%; background: #7048e8"></div>
+          </div>
+          <span class="bar-value">134.3 µs</span>
+          <span class="bar-throughput">71.0 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>mixed 97.7 KB (97.7 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.3x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">1.01 ms</span>
+          <span class="bar-throughput">94.3 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">md4w</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 76.7%; background: #0ea5e9"></div>
+          </div>
+          <span class="bar-value">1.32 ms</span>
+          <span class="bar-throughput">72.3 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown-wasm</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 75.8%; background: #7048e8"></div>
+          </div>
+          <span class="bar-value">1.33 ms</span>
+          <span class="bar-throughput">71.5 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <h2>Block Types</h2>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>headings (10.3 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.4x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">64.4 µs</span>
+          <span class="bar-throughput">156.7 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown-wasm</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 70.3%; background: #7048e8"></div>
+          </div>
+          <span class="bar-value">91.6 µs</span>
+          <span class="bar-throughput">110.1 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">md4w</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 66.7%; background: #0ea5e9"></div>
+          </div>
+          <span class="bar-value">96.5 µs</span>
+          <span class="bar-throughput">104.6 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>nested lists (2.9 KB)</h3>
+        <div class="winner-badge" style="border-color: #0ea5e9">
+          md4w <span class="speedup">1.0x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">md4w</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #0ea5e9"></div>
+          </div>
+          <span class="bar-value">16.7 µs</span>
+          <span class="bar-throughput">167.8 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 96.9%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">17.2 µs</span>
+          <span class="bar-throughput">162.5 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown-wasm</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 90.3%; background: #7048e8"></div>
+          </div>
+          <span class="bar-value">18.5 µs</span>
+          <span class="bar-throughput">151.6 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>table (100x10) (8.0 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.6x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">70.0 µs</span>
+          <span class="bar-throughput">112.1 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">md4w</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 61.1%; background: #0ea5e9"></div>
+          </div>
+          <span class="bar-value">114.6 µs</span>
+          <span class="bar-throughput">68.5 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown-wasm</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 46%; background: #7048e8"></div>
+          </div>
+          <span class="bar-value">152.3 µs</span>
+          <span class="bar-throughput">51.6 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>code blocks (5.2 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.2x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">32.0 µs</span>
+          <span class="bar-throughput">157.9 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">md4w</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 84.4%; background: #0ea5e9"></div>
+          </div>
+          <span class="bar-value">37.9 µs</span>
+          <span class="bar-throughput">133.2 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown-wasm</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 82%; background: #7048e8"></div>
+          </div>
+          <span class="bar-value">39.0 µs</span>
+          <span class="bar-throughput">129.5 MB/s</span>
+        </div>
+      </div>
+    </div>
+    <h2>Inline-heavy</h2>
+    <div class="bench-card">
+      <div class="card-header">
+        <h3>inline heavy (16.7 KB)</h3>
+        <div class="winner-badge" style="border-color: #e8590c">
+          ironmark <span class="speedup">1.4x faster</span>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row bar-winner">
+          <span class="bar-label">ironmark</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 100%; background: #e8590c"></div>
+          </div>
+          <span class="bar-value">160.6 µs</span>
+          <span class="bar-throughput">101.5 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">md4w</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 73%; background: #0ea5e9"></div>
+          </div>
+          <span class="bar-value">220.0 µs</span>
+          <span class="bar-throughput">74.1 MB/s</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">markdown-wasm</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 70.9%; background: #7048e8"></div>
+          </div>
+          <span class="bar-value">226.3 µs</span>
+          <span class="bar-throughput">72.0 MB/s</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="note">Bars show throughput (longer is faster). Generated on 2026-02-25.</p>
+  </body>
+</html>

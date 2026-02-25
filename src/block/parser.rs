@@ -3,46 +3,49 @@ use super::*;
 impl<'a> BlockParser<'a> {
     #[inline(never)]
     pub(super) fn process_line(&mut self, mut line: Line<'a>) {
-        // Fast path: if tip is a fenced code block at document level (no containers),
-        // skip full container matching and handle directly
         let num_open = self.open.len();
-        if num_open == 2 {
-            if let OpenBlockType::FencedCode {
-                fence_char,
-                fence_len,
-                fence_indent,
-                ..
-            } = &self.open[1].block_type
-            {
-                let fc = *fence_char;
-                let fl = *fence_len;
-                let fi = *fence_indent;
-                let rem = line.remainder();
-                if is_closing_fence(rem, fc, fl) {
-                    self.close_top_block();
-                    return;
-                }
-                if fi == 0 {
-                    self.open[1].content.push_str(rem);
-                } else {
-                    let _ = line.skip_indent(fi);
-                    if line.partial_spaces == 0 {
-                        self.open[1].content.push_str(line.remainder());
-                    } else {
-                        let content = line.remainder_with_partial();
-                        self.open[1].content.push_str(&content);
-                    }
-                }
-                self.open[1].content.push('\n');
-                return;
-            }
-        }
 
-        // Phase 1: Match continuation of open container blocks
-        let mut matched = 1; // document always matches
+        let mut matched = 1;
 
         let mut all_matched = true;
         let mut i = 1;
+
+        if num_open > 2 && line.partial_spaces == 0 && self.open_blockquotes == 0 {
+            let tip_is_leaf = matches!(
+                self.open[num_open - 1].block_type,
+                OpenBlockType::Paragraph
+                    | OpenBlockType::FencedCode(..)
+                    | OpenBlockType::IndentedCode
+                    | OpenBlockType::HtmlBlock { .. }
+                    | OpenBlockType::Table(..)
+            );
+            let container_end = if tip_is_leaf { num_open - 1 } else { num_open };
+
+            if container_end > 1 {
+                let total_indent = self.list_indent_sum;
+
+                let (ns_col, ns_off, ns_byte) = line.peek_nonspace_col();
+                let is_blank = ns_byte == 0 && ns_off >= line.raw.len();
+
+                if !is_blank {
+                    let indent = ns_col - line.col_offset;
+                    let off = line.byte_offset;
+                    let no_tabs = (ns_off - off) == indent;
+
+                    if indent >= total_indent && no_tabs {
+                        line.byte_offset += total_indent;
+                        line.col_offset += total_indent;
+                        matched = container_end;
+                        i = container_end;
+                        all_matched = container_end == num_open;
+                        if all_matched {
+                            matched = num_open;
+                        }
+                    }
+                }
+            }
+        }
+
         while i < num_open {
             match &self.open[i].block_type {
                 OpenBlockType::BlockQuote => {
@@ -53,7 +56,6 @@ impl<'a> BlockParser<'a> {
                         line.byte_offset += 1;
                         line.col_offset += 1;
                         if line.partial_spaces > 0 {
-                            // There are remaining partial tab spaces
                             let consume = 1.min(line.partial_spaces);
                             line.partial_spaces -= consume;
                             line.col_offset += consume;
@@ -63,7 +65,6 @@ impl<'a> BlockParser<'a> {
                                 line.byte_offset += 1;
                                 line.col_offset += 1;
                             } else if b == b'\t' {
-                                // Consume 1 column of the tab for the optional space
                                 let tab_width = 4 - (line.col_offset % 4);
                                 line.byte_offset += 1;
                                 line.col_offset += 1;
@@ -107,11 +108,11 @@ impl<'a> BlockParser<'a> {
                         break;
                     }
                 }
-                OpenBlockType::FencedCode { .. }
+                OpenBlockType::FencedCode(..)
                 | OpenBlockType::IndentedCode
                 | OpenBlockType::HtmlBlock { .. }
                 | OpenBlockType::Paragraph
-                | OpenBlockType::Table { .. } => {
+                | OpenBlockType::Table(..) => {
                     matched = i;
                     all_matched = false;
                     break;
@@ -130,40 +131,32 @@ impl<'a> BlockParser<'a> {
         let tip_idx = num_open - 1;
         let tip_is_leaf = matches!(
             self.open[tip_idx].block_type,
-            OpenBlockType::FencedCode { .. }
+            OpenBlockType::FencedCode(..)
                 | OpenBlockType::IndentedCode
                 | OpenBlockType::HtmlBlock { .. }
                 | OpenBlockType::Paragraph
-                | OpenBlockType::Table { .. }
+                | OpenBlockType::Table(..)
         );
 
         if matched == num_open || (matched == num_open - 1 && tip_is_leaf) {
             if tip_is_leaf && matched >= num_open - 1 {
                 match &self.open[tip_idx].block_type {
-                    OpenBlockType::FencedCode {
-                        fence_char,
-                        fence_len,
-                        fence_indent,
-                        ..
-                    } => {
-                        let fc = *fence_char;
-                        let fl = *fence_len;
-                        let fi = *fence_indent;
-                        let rem = line.remainder();
-                        if is_closing_fence(rem, fc, fl) {
+                    OpenBlockType::FencedCode(fc_data) => {
+                        let fc = fc_data.fence_char;
+                        let fl = fc_data.fence_len;
+                        let fi = fc_data.fence_indent;
+                        if is_closing_fence(line.remainder().as_bytes(), fc, fl) {
                             self.close_top_block();
                             return;
                         }
-                        if fi == 0 {
-                            self.open[tip_idx].content.push_str(rem);
-                        } else {
+                        if fi > 0 {
                             let _ = line.skip_indent(fi);
-                            if line.partial_spaces == 0 {
-                                self.open[tip_idx].content.push_str(line.remainder());
-                            } else {
-                                let content = line.remainder_with_partial();
-                                self.open[tip_idx].content.push_str(&content);
-                            }
+                        }
+                        if line.partial_spaces > 0 {
+                            let content = line.remainder_with_partial();
+                            self.open[tip_idx].content.push_str(&content);
+                        } else {
+                            self.open[tip_idx].content.push_str(line.remainder());
                         }
                         self.open[tip_idx].content.push('\n');
                         return;
@@ -208,22 +201,17 @@ impl<'a> BlockParser<'a> {
                         }
                         return;
                     }
-                    OpenBlockType::Table { .. } => {
+                    OpenBlockType::Table(..) => {
                         if line.is_blank() {
                             self.close_top_block();
                             self.mark_blank_on_list_items();
                             return;
                         }
                         let rest = line.rest_of_line();
-                        if let OpenBlockType::Table {
-                            ref mut rows,
-                            ref alignments,
-                            ..
-                        } = self.open[tip_idx].block_type
-                        {
-                            let num_cols = alignments.len();
+                        if let OpenBlockType::Table(td) = &mut self.open[tip_idx].block_type {
+                            let num_cols = td.alignments.len();
                             let row = parse_table_row(rest, num_cols);
-                            rows.push(row);
+                            td.rows.push(row);
                         }
                         return;
                     }
@@ -244,24 +232,23 @@ impl<'a> BlockParser<'a> {
                             &line.raw[ns_off..]
                         };
 
-                        // Check for table separator (paragraph has single line = header)
-                        if self.enable_tables && !self.open[tip_idx].content.contains('\n') {
+                        if self.enable_tables && !self.open[tip_idx].content_has_newline {
                             if let Some(alignments) = parse_table_separator(rest) {
                                 let num_cols = alignments.len();
                                 let header = parse_table_row(&self.open[tip_idx].content, num_cols);
                                 if header.len() == num_cols {
                                     self.open.pop();
-                                    self.open.push(OpenBlock::new(OpenBlockType::Table {
-                                        alignments,
-                                        header,
-                                        rows: Vec::new(),
-                                    }));
+                                    self.open.push(OpenBlock::new(OpenBlockType::Table(Box::new(
+                                        TableData {
+                                            alignments,
+                                            header,
+                                            rows: Vec::with_capacity(16),
+                                        },
+                                    ))));
                                     return;
                                 }
                             }
                         }
-                        // Fast path: if first non-space byte cannot start any
-                        // paragraph-interrupting construct, skip all checks.
                         if indent > 3
                             || !matches!(
                                 ns_byte,
@@ -278,6 +265,7 @@ impl<'a> BlockParser<'a> {
                             )
                         {
                             self.open[tip_idx].content.push('\n');
+                            self.open[tip_idx].content_has_newline = true;
                             if indent == 0 {
                                 self.open[tip_idx].content.push_str(line.remainder());
                             } else {
@@ -329,16 +317,17 @@ impl<'a> BlockParser<'a> {
                         if indent <= 3 {
                             if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
                                 self.close_top_block();
-                                self.open.push(OpenBlock::new(OpenBlockType::FencedCode {
-                                    fence_char,
-                                    fence_len,
-                                    fence_indent: indent,
-                                    info: resolve_entities_and_escapes(info),
-                                }));
+                                self.open.push(OpenBlock::new(OpenBlockType::FencedCode(
+                                    Box::new(FencedCodeData {
+                                        fence_char,
+                                        fence_len,
+                                        fence_indent: indent,
+                                        info: resolve_entities_and_escapes(info),
+                                    }),
+                                )));
                                 return;
                             }
                         }
-                        // Check for HTML block start (types 1-6 can interrupt paragraph)
                         if indent <= 3 {
                             if let Some(end_condition) = parse_html_block_start(rest, true) {
                                 self.close_top_block();
@@ -357,13 +346,11 @@ impl<'a> BlockParser<'a> {
                                 return;
                             }
                         }
-                        // Check for blockquote start (can interrupt paragraph)
                         if indent <= 3 && ns_byte == b'>' {
                             self.close_top_block();
                             self.open_new_blocks(line);
                             return;
                         }
-                        // Check for list marker that can interrupt paragraph
                         if indent <= 3 {
                             if let Some(marker) = parse_list_marker(rest) {
                                 if can_interrupt_paragraph(&marker) {
@@ -374,6 +361,7 @@ impl<'a> BlockParser<'a> {
                             }
                         }
                         self.open[tip_idx].content.push('\n');
+                        self.open[tip_idx].content_has_newline = true;
                         if indent == 0 {
                             self.open[tip_idx].content.push_str(line.remainder());
                         } else {
@@ -404,15 +392,18 @@ impl<'a> BlockParser<'a> {
                         matches!(self.open[idx].block_type, OpenBlockType::ListItem { .. })
                     });
 
-                    let is_new_list_marker = indent <= 3 && parse_list_marker(rest).is_some();
+                    let cached_marker = if indent <= 3 {
+                        parse_list_marker(rest)
+                    } else {
+                        None
+                    };
+                    let is_new_list_marker = cached_marker.is_some();
 
                     if has_unmatched_list && is_new_list_marker {
                     } else if !is_new_list_marker || !has_unmatched_list {
-                        if !(indent <= 3
-                            && parse_list_marker(rest)
-                                .map_or(false, |m| can_interrupt_paragraph(&m)))
-                        {
+                        if !(cached_marker.map_or(false, |m| can_interrupt_paragraph(&m))) {
                             self.open[tip_idx].content.push('\n');
+                            self.open[tip_idx].content_has_newline = true;
                             line.advance_to_nonspace();
                             self.open[tip_idx].content.push_str(line.remainder());
                             return;
@@ -445,8 +436,6 @@ impl<'a> BlockParser<'a> {
                         break;
                     }
                 }
-                // If no list item is open but the parent has a list as its last child,
-                // mark that a blank occurred between list items
                 if !found_list_item {
                     let parent = self.open.last_mut().unwrap();
                     if parent
@@ -483,6 +472,7 @@ impl<'a> BlockParser<'a> {
                     }
                 }
                 self.open.push(OpenBlock::new(OpenBlockType::BlockQuote));
+                self.open_blockquotes += 1;
                 continue;
             }
 
@@ -493,56 +483,91 @@ impl<'a> BlockParser<'a> {
                     &line.raw[ns_off..]
                 };
 
-                if let Some((level, content)) = parse_atx_heading(rest) {
-                    line.advance_to_nonspace();
-                    let parent = self.open.last_mut().unwrap();
-                    parent.children.push(Block::Heading {
-                        level,
-                        raw: content.to_string(),
-                    });
-                    return;
-                }
+                let is_only_list_char = matches!(first_byte, b'0'..=b'9' | b'+');
+                let is_ambiguous_list_char = first_byte == b'-' || first_byte == b'*';
 
-                if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
-                    self.open.push(OpenBlock::new(OpenBlockType::FencedCode {
-                        fence_char,
-                        fence_len,
-                        fence_indent: indent,
-                        info: resolve_entities_and_escapes(info),
-                    }));
-                    return;
-                }
-
-                if let Some(end_condition) = parse_html_block_start(rest, false) {
-                    let mut block = OpenBlock::new(OpenBlockType::HtmlBlock {
-                        end_condition: end_condition,
-                    });
-                    block.content.push_str(line.remainder());
-                    if html_block_ends(&end_condition, line.remainder()) {
-                        let parent = self.open.last_mut().unwrap();
-                        parent.children.push(Block::HtmlBlock {
-                            literal: block.content,
-                        });
-                    } else {
-                        self.open.push(block);
+                if is_only_list_char {
+                    if let Some(marker) = parse_list_marker(rest) {
+                        let marker_indent = indent;
+                        line.advance_to_nonspace();
+                        let rest_is_blank = self.start_list_item(&mut line, marker, marker_indent);
+                        if rest_is_blank {
+                            return;
+                        }
+                        continue;
                     }
-                    return;
-                }
-
-                if is_thematic_break(rest) {
-                    let parent = self.open.last_mut().unwrap();
-                    parent.children.push(Block::ThematicBreak);
-                    return;
-                }
-
-                if let Some(marker) = parse_list_marker(rest) {
-                    let marker_indent = indent;
-                    line.advance_to_nonspace();
-                    let rest_is_blank = self.start_list_item(&mut line, marker, marker_indent);
-                    if rest_is_blank {
+                } else if is_ambiguous_list_char {
+                    if is_thematic_break(rest) {
+                        let parent = self.open.last_mut().unwrap();
+                        parent.children.push(Block::ThematicBreak);
                         return;
                     }
-                    continue;
+                    if let Some(marker) = parse_list_marker(rest) {
+                        let marker_indent = indent;
+                        line.advance_to_nonspace();
+                        let rest_is_blank = self.start_list_item(&mut line, marker, marker_indent);
+                        if rest_is_blank {
+                            return;
+                        }
+                        continue;
+                    }
+                }
+
+                if !is_only_list_char && !is_ambiguous_list_char {
+                    if let Some((level, content)) = parse_atx_heading(rest) {
+                        line.advance_to_nonspace();
+                        let parent = self.open.last_mut().unwrap();
+                        parent.children.push(Block::Heading {
+                            level,
+                            raw: content.to_string(),
+                        });
+                        return;
+                    }
+
+                    if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
+                        self.open
+                            .push(OpenBlock::new(OpenBlockType::FencedCode(Box::new(
+                                FencedCodeData {
+                                    fence_char,
+                                    fence_len,
+                                    fence_indent: indent,
+                                    info: resolve_entities_and_escapes(info),
+                                },
+                            ))));
+                        return;
+                    }
+
+                    if let Some(end_condition) = parse_html_block_start(rest, false) {
+                        let mut block = OpenBlock::new(OpenBlockType::HtmlBlock {
+                            end_condition: end_condition,
+                        });
+                        block.content.push_str(line.remainder());
+                        if html_block_ends(&end_condition, line.remainder()) {
+                            let parent = self.open.last_mut().unwrap();
+                            parent.children.push(Block::HtmlBlock {
+                                literal: block.content,
+                            });
+                        } else {
+                            self.open.push(block);
+                        }
+                        return;
+                    }
+
+                    if is_thematic_break(rest) {
+                        let parent = self.open.last_mut().unwrap();
+                        parent.children.push(Block::ThematicBreak);
+                        return;
+                    }
+
+                    if let Some(marker) = parse_list_marker(rest) {
+                        let marker_indent = indent;
+                        line.advance_to_nonspace();
+                        let rest_is_blank = self.start_list_item(&mut line, marker, marker_indent);
+                        if rest_is_blank {
+                            return;
+                        }
+                        continue;
+                    }
                 }
             } else {
                 let tip = self.open.last().unwrap();
@@ -575,19 +600,16 @@ impl<'a> BlockParser<'a> {
         line.advance_columns(marker.marker_len);
         let (ns_col, ns_off, ns_byte) = line.peek_nonspace_col();
         let rest_blank = ns_byte == 0 && ns_off >= line.raw.len();
-        let spaces_after;
-        if rest_blank {
-            spaces_after = 1;
+        let spaces_after = if rest_blank {
+            1
         } else {
             let total_sp = ns_col - line.col_offset;
-            if total_sp >= 5 {
-                spaces_after = 1;
-            } else if total_sp == 0 {
-                spaces_after = 1;
+            if total_sp == 0 || total_sp >= 5 {
+                1
             } else {
-                spaces_after = total_sp;
+                total_sp
             }
-        }
+        };
 
         let content_col = marker_indent + marker.marker_len + spaces_after;
 
@@ -624,6 +646,7 @@ impl<'a> BlockParser<'a> {
         item.list_kind = Some(list_kind);
         item.list_start = marker.start_num;
         item.checked = checked;
+        self.list_indent_sum += content_col;
         self.open.push(item);
         rest_blank
     }
@@ -637,26 +660,16 @@ impl<'a> BlockParser<'a> {
                 children: block.children,
             }),
             OpenBlockType::ListItem { .. } => {
+                let had_blank = block.had_blank_in_item;
+                let kind = block.list_kind.unwrap_or(ListKind::Bullet(b'-'));
+                let blank_between_children = had_blank && block.children.len() >= 2;
+
                 let item = Block::ListItem {
                     children: block.children,
                     checked: block.checked,
                 };
                 let parent = self.open.last_mut().unwrap();
-                let kind = block.list_kind.unwrap_or(ListKind::Bullet(b'-'));
-                let had_blank = block.had_blank_in_item;
 
-                // A list item with a blank line that has 2+ children is "loose-inducing"
-                // (the blank is between block children, not just trailing)
-                let item_children_count = match &item {
-                    Block::ListItem { children, .. } => children.len(),
-                    _ => 0,
-                };
-                let blank_between_children = had_blank && item_children_count >= 2;
-
-                // If this item had a trailing blank (blank but not between its own
-                // children), propagate the blank to the enclosing list item.
-                // This handles the case where a blank line falls between a sublist
-                // and subsequent content in the parent item.
                 if had_blank && !blank_between_children {
                     if matches!(parent.block_type, OpenBlockType::ListItem { .. }) {
                         parent.had_blank_in_item = true;
@@ -698,19 +711,15 @@ impl<'a> BlockParser<'a> {
                 };
                 return Some(list);
             }
-            OpenBlockType::FencedCode { info, .. } => Some(Block::CodeBlock {
-                info,
+            OpenBlockType::FencedCode(fc_data) => Some(Block::CodeBlock {
+                info: fc_data.info,
                 literal: block.content,
             }),
             OpenBlockType::IndentedCode => {
                 let mut literal = block.content;
                 literal.push('\n');
-                while literal.ends_with("\n\n") {
-                    literal.pop();
-                }
-                if !literal.ends_with('\n') {
-                    literal.push('\n');
-                }
+                let trimmed_len = literal.trim_end_matches('\n').len();
+                literal.truncate(trimmed_len + 1); // keep exactly one trailing newline
                 Some(Block::CodeBlock {
                     info: String::new(),
                     literal,
@@ -720,22 +729,13 @@ impl<'a> BlockParser<'a> {
                 let literal = block.content;
                 Some(Block::HtmlBlock { literal })
             }
-            OpenBlockType::Table {
-                alignments,
-                header,
-                rows,
-            } => Some(Block::Table {
-                alignments,
-                header,
-                rows,
+            OpenBlockType::Table(td) => Some(Block::Table {
+                alignments: td.alignments,
+                header: td.header,
+                rows: td.rows,
             }),
             OpenBlockType::Paragraph => {
-                if block
-                    .content
-                    .as_bytes()
-                    .iter()
-                    .all(|&b| matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
-                {
+                if block.content.is_empty() {
                     return None;
                 }
                 let remaining = self.extract_ref_defs_owned(block.content);
@@ -777,9 +777,23 @@ impl<'a> BlockParser<'a> {
     }
 
     /// Like extract_ref_defs but takes an owned String and avoids copying when no ref defs found.
+    #[inline]
     pub(super) fn extract_ref_defs_owned(&mut self, mut content: String) -> String {
         let bytes = content.as_bytes();
         let len = bytes.len();
+
+        if len > 0 && !matches!(bytes[0], b' ' | b'\t' | b'\n' | b'\r' | b'[') {
+            if !matches!(bytes[len - 1], b' ' | b'\t' | b'\n' | b'\r') {
+                return content;
+            }
+            let mut end = len;
+            while end > 0 && matches!(bytes[end - 1], b' ' | b'\t' | b'\n' | b'\r') {
+                end -= 1;
+            }
+            content.truncate(end);
+            return content;
+        }
+
         let mut start = 0;
         while start < len && matches!(bytes[start], b' ' | b'\t' | b'\n' | b'\r') {
             start += 1;
@@ -794,7 +808,7 @@ impl<'a> BlockParser<'a> {
 
         if bytes[start] != b'[' {
             if start == 0 && end == len {
-                return content; // Already trimmed, return as-is — zero copy!
+                return content;
             }
             content.truncate(end);
             if start > 0 {

@@ -110,8 +110,8 @@ static ASCII_CHAR_STRS: [&str; 128] = {
     make()
 };
 
-const SPECIAL_ANY: u8 = 1; // any special inline character
-const SPECIAL_COMPLEX: u8 = 2; // complex (not just emphasis)
+const SPECIAL_ANY: u8 = 1;
+const SPECIAL_COMPLEX: u8 = 2;
 
 static SPECIAL: [u8; 256] = {
     let mut t = [0u8; 256];
@@ -145,7 +145,7 @@ pub(crate) fn parse_inline_pass(
     let bytes = raw.as_bytes();
 
     let mut first_pos = usize::MAX;
-    let mut complex_mask: u8 = 0; // bits: 1=has newline/backslash only, 2=has other complex
+    let mut complex_mask: u8 = 0;
     for (i, &b) in bytes.iter().enumerate() {
         let s = SPECIAL[b as usize];
         if s == 0 {
