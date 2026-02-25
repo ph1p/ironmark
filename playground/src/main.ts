@@ -1,28 +1,80 @@
 import "./style.css";
 import { init, parse } from "ironmark";
 import wasmUrl from "ironmark/ironmark.wasm?url";
-import { createHighlighter } from "shiki";
 import { version } from "../../package.json";
 
-const [, highlighter] = await Promise.all([
-  init(wasmUrl),
-  createHighlighter({
-    themes: ["github-dark-default"],
-    langs: [
-      "javascript",
-      "typescript",
-      "rust",
-      "html",
-      "css",
-      "json",
-      "bash",
-      "python",
-      "markdown",
-      "yaml",
-      "toml",
-    ],
-  }),
-]);
+import { EditorState } from "@codemirror/state";
+import { EditorView, keymap, lineNumbers } from "@codemirror/view";
+import { markdown } from "@codemirror/lang-markdown";
+import { html as langHtml } from "@codemirror/lang-html";
+import { javascript } from "@codemirror/lang-javascript";
+import { css } from "@codemirror/lang-css";
+import { json } from "@codemirror/lang-json";
+import { python } from "@codemirror/lang-python";
+import { rust } from "@codemirror/lang-rust";
+import { yaml } from "@codemirror/lang-yaml";
+import { oneDark } from "@codemirror/theme-one-dark";
+import { highlightCode } from "@lezer/highlight";
+import { oneDarkHighlightStyle } from "@codemirror/theme-one-dark";
+import { LanguageSupport, Language } from "@codemirror/language";
+import { indentWithTab } from "@codemirror/commands";
+
+await init(wasmUrl);
+
+const langs: Record<string, () => LanguageSupport> = {
+  javascript,
+  js: javascript,
+  typescript: () => javascript({ typescript: true }),
+  ts: () => javascript({ typescript: true }),
+  jsx: () => javascript({ jsx: true }),
+  tsx: () => javascript({ jsx: true, typescript: true }),
+  rust,
+  html: langHtml,
+  css,
+  json,
+  python,
+  py: python,
+  yaml,
+  yml: yaml,
+  markdown,
+  md: markdown,
+};
+
+function highlightCodeString(code: string, langName: string): string {
+  const langFactory = langs[langName];
+  if (!langFactory) return escapeHtml(code);
+
+  const support = langFactory();
+  const language: Language = support.language;
+  const tree = language.parser.parse(code);
+  let result = "";
+  let pos = 0;
+
+  highlightCode(
+    code,
+    tree,
+    oneDarkHighlightStyle,
+    (text, classes) => {
+      const escaped = escapeHtml(text);
+      result += classes ? `<span class="${classes}">${escaped}</span>` : escaped;
+      pos += text.length;
+    },
+    () => {
+      result += "\n";
+      pos++;
+    },
+  );
+
+  if (pos < code.length) {
+    result += escapeHtml(code.slice(pos));
+  }
+
+  return result;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 const DEFAULT_MARKDOWN = `# Markdown Playground
 
@@ -93,16 +145,7 @@ app.innerHTML = `
         <div class="px-4 py-2 text-xs font-medium text-zinc-400 uppercase tracking-wider border-b border-zinc-800 bg-zinc-900/50">
           Markdown
         </div>
-        <div class="flex-1 relative min-h-0">
-          <div id="editor-highlight" class="absolute inset-0 p-4 overflow-auto pointer-events-none text-sm font-mono leading-relaxed whitespace-pre-wrap break-words" aria-hidden="true"></div>
-          <textarea
-            id="editor"
-            class="absolute inset-0 w-full h-full p-4 bg-transparent text-sm font-mono text-transparent caret-zinc-200 resize-none outline-none placeholder:text-zinc-600 leading-relaxed whitespace-pre-wrap break-words"
-            spellcheck="false"
-            placeholder="Type markdown here..."
-            disabled
-          ></textarea>
-        </div>
+        <div id="editor-container" class="flex-1 min-h-0 overflow-hidden"></div>
       </div>
       <div class="flex-1 flex flex-col">
         <div class="flex border-b border-zinc-800 bg-zinc-900/50">
@@ -116,18 +159,17 @@ app.innerHTML = `
         <div id="preview-panel" class="flex-1 overflow-auto p-5">
           <div id="preview" class="prose"></div>
         </div>
-        <div id="html-panel" class="flex-1 overflow-auto p-4 hidden">
-          <div id="html-source" class="text-sm font-mono leading-relaxed"></div>
+        <div id="html-panel" class="flex-1 min-h-0 overflow-hidden hidden">
+          <div id="html-source" class="h-full"></div>
         </div>
       </div>
     </div>
   </div>
 `;
 
-const editor = document.querySelector<HTMLTextAreaElement>("#editor")!;
-const editorHighlight = document.querySelector<HTMLDivElement>("#editor-highlight")!;
+const editorContainer = document.querySelector<HTMLDivElement>("#editor-container")!;
 const preview = document.querySelector<HTMLDivElement>("#preview")!;
-const htmlSource = document.querySelector<HTMLDivElement>("#html-source")!;
+const htmlSourceContainer = document.querySelector<HTMLDivElement>("#html-source")!;
 const status = document.querySelector<HTMLDivElement>("#status")!;
 const previewPanel = document.querySelector<HTMLDivElement>("#preview-panel")!;
 const htmlPanel = document.querySelector<HTMLDivElement>("#html-panel")!;
@@ -151,21 +193,119 @@ function setTab(tab: "preview" | "html") {
 tabPreview.addEventListener("click", () => setTab("preview"));
 tabHtml.addEventListener("click", () => setTab("html"));
 
-function highlightEditor(md: string) {
-  editorHighlight.innerHTML = highlighter.codeToHtml(md, {
-    lang: "markdown",
-    theme: "github-dark-default",
-  });
+const VOID_ELEMENTS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
 
-  const pre = editorHighlight.querySelector("pre");
-  if (pre) {
-    pre.style.margin = "0";
-    pre.style.padding = "0";
-    pre.style.background = "transparent";
-    pre.style.whiteSpace = "pre-wrap";
-    pre.style.wordBreak = "break-word";
+function formatHtml(html: string): string {
+  const tokens: string[] = [];
+  let i = 0;
+  while (i < html.length) {
+    if (html[i] === "<") {
+      const end = html.indexOf(">", i);
+      if (end === -1) {
+        tokens.push(html.slice(i));
+        break;
+      }
+      tokens.push(html.slice(i, end + 1));
+      i = end + 1;
+    } else {
+      const end = html.indexOf("<", i);
+      const text = end === -1 ? html.slice(i) : html.slice(i, end);
+      if (text.trim()) tokens.push(text);
+      i = end === -1 ? html.length : end;
+    }
   }
+
+  const lines: string[] = [];
+  let indent = 0;
+
+  for (const token of tokens) {
+    if (token.startsWith("</")) {
+      indent = Math.max(0, indent - 1);
+      lines.push("  ".repeat(indent) + token);
+    } else if (token.startsWith("<")) {
+      lines.push("  ".repeat(indent) + token);
+      const match = token.match(/^<([a-zA-Z][a-zA-Z0-9]*)/);
+      if (match && !token.endsWith("/>") && !VOID_ELEMENTS.has(match[1].toLowerCase())) {
+        indent++;
+      }
+    } else {
+      lines.push("  ".repeat(indent) + token);
+    }
+  }
+
+  return lines.join("\n");
 }
+
+const baseTheme = EditorView.theme(
+  {
+    "&": {
+      height: "100%",
+      fontSize: "0.875rem",
+    },
+    ".cm-scroller": {
+      fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+      lineHeight: "1.625",
+    },
+    ".cm-gutters": {
+      backgroundColor: "transparent",
+      borderRight: "1px solid rgba(63, 63, 70, 0.5)",
+      paddingRight: "4px",
+    },
+    ".cm-lineNumbers .cm-gutterElement": {
+      color: "rgba(113, 113, 122, 0.5)",
+      paddingLeft: "12px",
+      paddingRight: "8px",
+      minWidth: "3em",
+    },
+    ".cm-activeLine": {
+      backgroundColor: "transparent",
+    },
+    ".cm-activeLineGutter": {
+      backgroundColor: "transparent",
+    },
+  },
+  { dark: true },
+);
+
+const readonlyTheme = EditorView.theme(
+  {
+    ".cm-cursor": {
+      display: "none !important",
+    },
+  },
+  { dark: true },
+);
+
+const htmlView = new EditorView({
+  state: EditorState.create({
+    doc: "",
+    extensions: [
+      langHtml(),
+      oneDark,
+      baseTheme,
+      readonlyTheme,
+      lineNumbers(),
+      EditorState.readOnly.of(true),
+      EditorView.editable.of(false),
+    ],
+  }),
+  parent: htmlSourceContainer,
+});
 
 function parseMarkdown(md: string) {
   const start = performance.now();
@@ -176,52 +316,60 @@ function parseMarkdown(md: string) {
 
   preview.querySelectorAll("pre code").forEach((block) => {
     const lang =
-      [...block.classList].find((c) => c.startsWith("language-"))?.replace("language-", "") ||
-      "text";
+      [...block.classList].find((c) => c.startsWith("language-"))?.replace("language-", "") || "";
     const code = block.textContent || "";
-    try {
-      const highlighted = highlighter.codeToHtml(code, {
-        lang,
-        theme: "github-dark-default",
-      });
-      block.parentElement!.outerHTML = highlighted;
-    } catch {
-      // Language not loaded — leave as-is
+    if (lang) {
+      const highlighted = highlightCodeString(code, lang);
+      if (highlighted !== escapeHtml(code)) {
+        (block as HTMLElement).innerHTML = highlighted;
+      }
     }
   });
 
-  htmlSource.innerHTML = highlighter.codeToHtml(html, {
-    lang: "html",
-    theme: "github-dark-default",
+  const formatted = formatHtml(html);
+  htmlView.dispatch({
+    changes: { from: 0, to: htmlView.state.doc.length, insert: formatted },
   });
-
-  highlightEditor(md);
 }
-
-editor.addEventListener("scroll", () => {
-  editorHighlight.scrollTop = editor.scrollTop;
-  editorHighlight.scrollLeft = editor.scrollLeft;
-});
 
 let timer: ReturnType<typeof setTimeout>;
 
-editor.addEventListener("input", () => {
-  clearTimeout(timer);
-  timer = setTimeout(() => parseMarkdown(editor.value), 50);
+const editorTheme = EditorView.theme(
+  {
+    ".cm-selectionBackground": {
+      backgroundColor: "rgba(113, 113, 122, 0.3) !important",
+    },
+    "&.cm-focused .cm-selectionBackground": {
+      backgroundColor: "rgba(113, 113, 122, 0.4) !important",
+    },
+    ".cm-cursor": {
+      borderLeftColor: "#d4d4d8",
+    },
+  },
+  { dark: true },
+);
+
+const view = new EditorView({
+  state: EditorState.create({
+    doc: DEFAULT_MARKDOWN,
+    extensions: [
+      markdown(),
+      oneDark,
+      baseTheme,
+      editorTheme,
+      lineNumbers(),
+      keymap.of([indentWithTab]),
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          clearTimeout(timer);
+          timer = setTimeout(() => parseMarkdown(update.state.doc.toString()), 50);
+        }
+      }),
+    ],
+  }),
+  parent: editorContainer,
 });
 
-editor.addEventListener("keydown", (e) => {
-  if (e.key === "Tab") {
-    e.preventDefault();
-    const start = editor.selectionStart;
-    const end = editor.selectionEnd;
-    editor.value = editor.value.substring(0, start) + "  " + editor.value.substring(end);
-    editor.selectionStart = editor.selectionEnd = start + 2;
-    editor.dispatchEvent(new Event("input"));
-  }
-});
-
-editor.disabled = false;
-editor.value = DEFAULT_MARKDOWN;
-editor.focus();
+status.textContent = "";
+view.focus();
 parseMarkdown(DEFAULT_MARKDOWN);

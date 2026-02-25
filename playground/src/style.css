@@ -56,12 +56,6 @@
 .prose pre code {
   @apply bg-transparent text-zinc-300 p-0 rounded-none text-[0.8125em] leading-relaxed;
 }
-.prose .shiki {
-  @apply bg-zinc-900! border border-zinc-800 rounded-md px-[1em] py-[0.875em] overflow-x-auto my-[1em];
-}
-.prose .shiki code {
-  @apply bg-transparent p-0 rounded-none text-[0.8125em] leading-relaxed font-mono;
-}
 .prose blockquote {
   @apply border-l-[3px] border-zinc-700 pl-[1em] my-[1em] text-zinc-400;
 }
@@ -83,7 +77,8 @@
   @apply my-[0.25em];
 }
 .prose hr {
-  @apply border-none border-t border-zinc-800 my-[1.5em];
+  @apply border-t border-zinc-800 my-[1.5em];
+  border-style: solid;
 }
 .prose img {
   @apply max-w-full rounded-md my-[1em] inline-block;
@@ -100,20 +95,4 @@
 }
 .prose tbody tr:hover {
   @apply bg-zinc-800/25;
-}
-
-/* Editor highlight overlay */
-#editor-highlight .shiki {
-  @apply bg-transparent! m-0 p-0;
-}
-#editor-highlight .shiki code {
-  @apply text-sm font-mono leading-relaxed;
-}
-
-/* HTML source panel */
-#html-source .shiki {
-  @apply bg-transparent! m-0 p-0;
-}
-#html-source .shiki code {
-  @apply whitespace-pre-wrap break-words;
 }
