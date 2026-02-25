@@ -19,8 +19,6 @@ exclude = [
   "pnpm-lock.yaml",
   ".releaserc.cjs",
   ".npmignore",
-  "
-*",
   ".github/*",
   "node_modules/*",
 ]
