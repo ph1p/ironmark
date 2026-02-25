@@ -74,8 +74,6 @@ jobs:
         with:
           node-version: 24
 
-      - run: npm install -g npm@latest
-
       - uses: pnpm/action-setup@v4
 
       - run: pnpm install --frozen-lockfile
