@@ -1,3 +1,38 @@
+//! # ironmark
+//!
+//! A fast, CommonMark 0.31.2 compliant Markdown-to-HTML parser with extensions.
+//!
+//! ## Usage
+//!
+//! ```
+//! use ironmark::{parse, ParseOptions};
+//!
+//! // With defaults (all extensions enabled)
+//! let html = parse("# Hello, **world**!", &ParseOptions::default());
+//!
+//! // Disable specific extensions
+//! let opts = ParseOptions {
+//!     enable_strikethrough: false,
+//!     enable_tables: false,
+//!     ..Default::default()
+//! };
+//! let html = parse("Plain CommonMark only.", &opts);
+//! ```
+//!
+//! ## Extensions
+//!
+//! All extensions are enabled by default via [`ParseOptions`]:
+//!
+//! | Syntax | HTML | Option |
+//! |---|---|---|
+//! | `~~text~~` | `<del>` | `enable_strikethrough` |
+//! | `==text==` | `<mark>` | `enable_highlight` |
+//! | `++text++` | `<u>` | `enable_underline` |
+//! | `\| table \|` | `<table>` | `enable_tables` |
+//! | `- [x] task` | checkbox | `enable_task_lists` |
+//! | bare URLs | `<a>` | `enable_autolink` |
+//! | newlines | `<br />` | `hard_breaks` |
+
 mod ast;
 mod block;
 mod entities;

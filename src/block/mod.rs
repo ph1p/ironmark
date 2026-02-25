@@ -15,6 +15,16 @@ use crate::inline::{InlineBuffers, LinkRefMap};
 use crate::render::render_block;
 use std::borrow::Cow;
 
+/// Parse a Markdown string and return the rendered HTML.
+///
+/// # Examples
+///
+/// ```
+/// use ironmark::{parse, ParseOptions};
+///
+/// let html = parse("**bold** and *italic*", &ParseOptions::default());
+/// assert!(html.contains("<strong>bold</strong>"));
+/// ```
 pub fn parse(markdown: &str, options: &ParseOptions) -> String {
     let mut parser = BlockParser::new(markdown, options.enable_tables, options.enable_task_lists);
     let doc = parser.parse();
