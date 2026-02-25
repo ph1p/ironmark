@@ -1,6 +1,7 @@
 /target
 /pkg
 /wasm/pkg
+/wasm/target
 /wasm/node.js
 /node_modules
 /.wasm-tools
@@ -9,4 +10,3 @@
 /benchmark/results/bench.csv
 /benchmark/results/rust-markdown-bench-*.csv
 /benchmark/results/compare-bench-*.csv
-/placground/

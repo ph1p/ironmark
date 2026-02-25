@@ -246,7 +246,6 @@ pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
                 }
                 None => {
                     cells.push(inner[start..].trim().to_string());
-                    start = bytes.len();
                     break;
                 }
             }
