@@ -37,7 +37,7 @@ members = ["wasm"]
 
 [dev-dependencies]
 comrak = { version = "0.36", default-features = false }
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.5" }
 markdown = "1"
 pulldown-cmark = "0.13"
 serde = { version = "1", features = ["derive"] }
