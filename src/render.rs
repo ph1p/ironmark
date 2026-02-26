@@ -4,37 +4,6 @@ use crate::html::escape_html_into;
 use crate::inline::{InlineBuffers, LinkRefMap, parse_inline_pass};
 
 #[inline(always)]
-fn is_plain_text(s: &str) -> bool {
-    static NEEDS_PROCESSING: [bool; 256] = {
-        let mut t = [false; 256];
-        t[b'*' as usize] = true;
-        t[b'_' as usize] = true;
-        t[b'\\' as usize] = true;
-        t[b'`' as usize] = true;
-        t[b'!' as usize] = true;
-        t[b'[' as usize] = true;
-        t[b']' as usize] = true;
-        t[b'<' as usize] = true;
-        t[b'&' as usize] = true;
-        t[b'\n' as usize] = true;
-        t[b'~' as usize] = true;
-        t[b'=' as usize] = true;
-        t[b'+' as usize] = true;
-        t[b':' as usize] = true;
-        t[b'@' as usize] = true;
-        t[b'>' as usize] = true;
-        t[b'"' as usize] = true;
-        t
-    };
-    for &b in s.as_bytes() {
-        if NEEDS_PROCESSING[b as usize] {
-            return false;
-        }
-    }
-    true
-}
-
-#[inline(always)]
 fn emit_checkbox(out: &mut String, checked: Option<bool>) {
     match checked {
         Some(true) => out.push_str("<input type=\"checkbox\" checked=\"\" disabled=\"\" /> "),
@@ -287,11 +256,7 @@ fn render_nested_tight_list<'a>(
             ) = (&item_children[0], &item_children[1])
             {
                 if inner_children.len() == 1 {
-                    if is_plain_text(raw) {
-                        out.push_str(raw);
-                    } else {
-                        parse_inline_pass(out, raw, refs, opts, bufs);
-                    }
+                    parse_inline_pass(out, raw, refs, opts, bufs);
                     out.push('\n');
                     close_tags[depth] = list_close_tag(cur_kind);
                     depth += 1;
@@ -305,11 +270,7 @@ fn render_nested_tight_list<'a>(
 
         if item_children.len() == 1 {
             if let Block::Paragraph { raw } = &item_children[0] {
-                if is_plain_text(raw) {
-                    out.push_str(raw);
-                } else {
-                    parse_inline_pass(out, raw, refs, opts, bufs);
-                }
+                parse_inline_pass(out, raw, refs, opts, bufs);
                 out.push_str("</li>\n");
                 out.push_str(list_close_tag(cur_kind));
                 let mut i = depth;

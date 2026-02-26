@@ -1,6 +1,9 @@
 use super::*;
 use crate::ParseOptions;
 
+static EM_CLOSE: [&str; 6] = ["</em>", "</em>", "</strong>", "</del>", "</mark>", "</u>"];
+static EM_OPEN: [&str; 6] = ["<em>", "<em>", "<strong>", "<del>", "<mark>", "<u>"];
+
 impl<'a> InlineScanner<'a> {
     pub(super) fn render_to_html(&self, out: &mut String, opts: &ParseOptions) {
         let mut tag_buf: [u8; 16] = [0; 16];
@@ -54,13 +57,7 @@ impl<'a> InlineScanner<'a> {
                     for &size in close_em.as_slice() {
                         if tag_len > 0 && tag_buf[tag_len - 1] == size {
                             tag_len -= 1;
-                            match size {
-                                2 => out.push_str("</strong>"),
-                                3 => out.push_str("</del>"),
-                                4 => out.push_str("</mark>"),
-                                5 => out.push_str("</u>"),
-                                _ => out.push_str("</em>"),
-                            }
+                            out.push_str(EM_CLOSE[size as usize]);
                         }
                     }
                     if *count > 0 {
@@ -73,13 +70,7 @@ impl<'a> InlineScanner<'a> {
                             tag_buf[tag_len] = size;
                             tag_len += 1;
                         }
-                        match size {
-                            2 => out.push_str("<strong>"),
-                            3 => out.push_str("<del>"),
-                            4 => out.push_str("<mark>"),
-                            5 => out.push_str("<u>"),
-                            _ => out.push_str("<em>"),
-                        }
+                        out.push_str(EM_OPEN[size as usize]);
                     }
                 }
                 InlineItem::BracketOpen { is_image, .. } => {

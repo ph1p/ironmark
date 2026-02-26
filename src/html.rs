@@ -27,16 +27,13 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     let bytes = input.as_bytes();
     let len = bytes.len();
     let mut last = 0;
-
     if memchr::memchr3(b'&', b'<', b'>', bytes).is_none() {
         escape_quote_only(out, input, bytes);
         return;
     }
-
     while last < len {
         let next = memchr::memchr3(b'&', b'<', b'>', &bytes[last..]);
         let boundary = next.map_or(len, |o| last + o);
-
         if let Some(q_off) = memchr::memchr(b'"', &bytes[last..boundary]) {
             let q = last + q_off;
             if last < q {
@@ -46,11 +43,9 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
             last = q + 1;
             continue;
         }
-
         if last < boundary {
             out.push_str(unsafe { input.get_unchecked(last..boundary) });
         }
-
         if let Some(offset) = next {
             let i = last + offset;
             out.push_str(match bytes[i] {
@@ -69,40 +64,22 @@ static HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
 
 static URL_HTML_SAFE: [bool; 256] = {
     let mut t = [false; 256];
-    let mut i = b'A';
-    while i <= b'Z' {
-        t[i as usize] = true;
-        i += 1;
+    let ranges: &[(u8, u8)] = &[(b'A', b'Z'), (b'a', b'z'), (b'0', b'9')];
+    let mut r = 0;
+    while r < 3 {
+        let mut i = ranges[r].0;
+        while i <= ranges[r].1 {
+            t[i as usize] = true;
+            i += 1;
+        }
+        r += 1;
     }
-    let mut i = b'a';
-    while i <= b'z' {
-        t[i as usize] = true;
-        i += 1;
+    let extra = b"-_.~!*'();/?:@=+$,#";
+    let mut j = 0;
+    while j < extra.len() {
+        t[extra[j] as usize] = true;
+        j += 1;
     }
-    let mut i = b'0';
-    while i <= b'9' {
-        t[i as usize] = true;
-        i += 1;
-    }
-    t[b'-' as usize] = true;
-    t[b'_' as usize] = true;
-    t[b'.' as usize] = true;
-    t[b'~' as usize] = true;
-    t[b'!' as usize] = true;
-    t[b'*' as usize] = true;
-    t[b'\'' as usize] = true;
-    t[b'(' as usize] = true;
-    t[b')' as usize] = true;
-    t[b';' as usize] = true;
-    t[b'/' as usize] = true;
-    t[b'?' as usize] = true;
-    t[b':' as usize] = true;
-    t[b'@' as usize] = true;
-    t[b'=' as usize] = true;
-    t[b'+' as usize] = true;
-    t[b'$' as usize] = true;
-    t[b',' as usize] = true;
-    t[b'#' as usize] = true;
     t
 };
 
@@ -162,12 +139,7 @@ pub(crate) fn encode_url_escaped_into(out: &mut String, url: &str) {
 
 #[inline(always)]
 pub(crate) fn trim_cr(line: &str) -> &str {
-    let bytes = line.as_bytes();
-    if !bytes.is_empty() && bytes[bytes.len() - 1] == b'\r' {
-        unsafe { line.get_unchecked(..bytes.len() - 1) }
-    } else {
-        line
-    }
+    line.strip_suffix('\r').unwrap_or(line)
 }
 
 #[cfg(test)]

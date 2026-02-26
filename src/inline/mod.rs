@@ -576,20 +576,15 @@ pub(super) use crate::utf8_char_len;
 
 static EMAIL_LOCAL: [bool; 256] = {
     let mut t = [false; 256];
-    let mut i = b'0';
-    while i <= b'9' {
-        t[i as usize] = true;
-        i += 1;
-    }
-    let mut i = b'A';
-    while i <= b'Z' {
-        t[i as usize] = true;
-        i += 1;
-    }
-    let mut i = b'a';
-    while i <= b'z' {
-        t[i as usize] = true;
-        i += 1;
+    let ranges: &[(u8, u8)] = &[(b'0', b'9'), (b'A', b'Z'), (b'a', b'z')];
+    let mut r = 0;
+    while r < 3 {
+        let mut i = ranges[r].0;
+        while i <= ranges[r].1 {
+            t[i as usize] = true;
+            i += 1;
+        }
+        r += 1;
     }
     let extra = b".!#$%&'*+/=?^_`{|}~-";
     let mut j = 0;
