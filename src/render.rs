@@ -36,6 +36,15 @@ fn is_plain_text(s: &str) -> bool {
     true
 }
 
+#[inline(always)]
+fn emit_checkbox(out: &mut String, checked: Option<bool>) {
+    match checked {
+        Some(true) => out.push_str("<input type=\"checkbox\" checked=\"\" disabled=\"\" /> "),
+        Some(false) => out.push_str("<input type=\"checkbox\" disabled=\"\" /> "),
+        None => {}
+    }
+}
+
 enum Work<'a> {
     Block(&'a Block),
     TightListItem(&'a Block),
@@ -177,13 +186,7 @@ fn render_one<'a>(
         }
         Block::ListItem { children, checked } => {
             out.push_str("<li>");
-            match checked {
-                Some(true) => {
-                    out.push_str("<input type=\"checkbox\" checked=\"\" disabled=\"\" /> ")
-                }
-                Some(false) => out.push_str("<input type=\"checkbox\" disabled=\"\" /> "),
-                None => {}
-            }
+            emit_checkbox(out, *checked);
             if !children.is_empty() {
                 out.push('\n');
                 stack.push(Work::CloseTag("</li>\n"));
@@ -201,17 +204,13 @@ fn render_one<'a>(
         } => {
             let all_none = alignments.iter().all(|a| *a == TableAlignment::None);
             out.push_str("<table>\n<thead>\n<tr>\n");
-            if all_none {
-                for cell in header.iter() {
-                    out.push_str("<th>");
-                    parse_inline_pass(out, cell, refs, opts, bufs);
-                    out.push_str("</th>\n");
-                }
-            } else {
-                for (i, cell) in header.iter().enumerate() {
-                    let align = alignments.get(i).copied().unwrap_or(TableAlignment::None);
-                    render_table_cell(out, cell, "th", align, refs, opts, bufs);
-                }
+            for (i, cell) in header.iter().enumerate() {
+                let align = if all_none {
+                    TableAlignment::None
+                } else {
+                    alignments.get(i).copied().unwrap_or(TableAlignment::None)
+                };
+                render_table_cell(out, cell, "th", align, refs, opts, bufs);
             }
             out.push_str("</tr>\n</thead>\n");
             if !rows.is_empty() {
@@ -283,11 +282,7 @@ fn render_nested_tight_list<'a>(
         };
 
         out.push_str("<li>");
-        match checked {
-            Some(true) => out.push_str("<input type=\"checkbox\" checked=\"\" disabled=\"\" /> "),
-            Some(false) => out.push_str("<input type=\"checkbox\" disabled=\"\" /> "),
-            None => {}
-        }
+        emit_checkbox(out, *checked);
 
         if item_children.len() == 2 && depth < MAX_DEPTH {
             if let (
@@ -392,11 +387,7 @@ fn render_tight_list_item<'a>(
     };
 
     out.push_str("<li>");
-    match checked {
-        Some(true) => out.push_str("<input type=\"checkbox\" checked=\"\" disabled=\"\" /> "),
-        Some(false) => out.push_str("<input type=\"checkbox\" disabled=\"\" /> "),
-        None => {}
-    }
+    emit_checkbox(out, *checked);
 
     if children.len() == 1 {
         if let Block::Paragraph { raw } = &children[0] {

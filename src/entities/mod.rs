@@ -61,7 +61,6 @@ pub(crate) static MAX_ENTITY_LEN: [u8; 128] = {
 };
 
 /// First-character dispatch table: maps ASCII byte to (start, end) range in ENTITIES.
-/// Reduces binary search from ~11 comparisons to ~8 for the largest bucket.
 static ENTITY_FIRST_CHAR: [(u16, u16); 128] = {
     let mut t = [(0u16, 0u16); 128];
     t[b'A' as usize] = (0, 18);
@@ -119,19 +118,19 @@ static ENTITY_FIRST_CHAR: [(u16, u16); 128] = {
     t
 };
 
-/// Look up an HTML5 named entity and return its codepoints slice.
+/// Look up an HTML5 named entity and return its codepoints as (cp1, cp2) where cp2=0 for single.
 #[inline]
-pub(crate) fn lookup_entity_codepoints(name: &str) -> Option<&'static [u32]> {
+pub(crate) fn lookup_entity_codepoints(name: &str) -> Option<(u32, u32)> {
     let bytes = name.as_bytes();
     let first = bytes[0];
 
     match (first, bytes.len()) {
-        (b'a', 3) if bytes[1] == b'm' && bytes[2] == b'p' => return Some(&[0x26]),
-        (b'l', 2) if bytes[1] == b't' => return Some(&[0x3C]),
-        (b'g', 2) if bytes[1] == b't' => return Some(&[0x3E]),
-        (b'q', 4) if bytes == b"quot" => return Some(&[0x22]),
-        (b'n', 4) if bytes == b"nbsp" => return Some(&[0xA0]),
-        (b'c', 4) if bytes == b"copy" => return Some(&[0xA9]),
+        (b'a', 3) if bytes[1] == b'm' && bytes[2] == b'p' => return Some((0x26, 0)),
+        (b'l', 2) if bytes[1] == b't' => return Some((0x3C, 0)),
+        (b'g', 2) if bytes[1] == b't' => return Some((0x3E, 0)),
+        (b'q', 4) if bytes == b"quot" => return Some((0x22, 0)),
+        (b'n', 4) if bytes == b"nbsp" => return Some((0xA0, 0)),
+        (b'c', 4) if bytes == b"copy" => return Some((0xA9, 0)),
         _ => {}
     }
     if first >= 128 {
@@ -142,36 +141,34 @@ pub(crate) fn lookup_entity_codepoints(name: &str) -> Option<&'static [u32]> {
         return None;
     }
     let slice = &ENTITIES[start as usize..=end as usize];
-    match slice.binary_search_by(|(n, _)| n.cmp(&name)) {
-        Ok(i) => Some(slice[i].1),
+    match slice.binary_search_by(|(n, _, _)| n.cmp(&name)) {
+        Ok(i) => Some((slice[i].1, slice[i].2)),
         Err(_) => None,
     }
 }
 
-/// Look up an HTML5 named entity reference and write replacement chars to output.
-/// Returns true if found.
-#[inline]
-pub(crate) fn lookup_entity_into(name: &str, out: &mut String) -> bool {
-    let first = name.as_bytes()[0];
-    if first >= 128 {
-        return false;
+/// Write the codepoints of a (cp1, cp2) pair to the output string.
+#[inline(always)]
+fn push_codepoints(out: &mut String, cp1: u32, cp2: u32) {
+    if let Some(c) = char::from_u32(cp1) {
+        out.push(c);
     }
-    let (start, end) = ENTITY_FIRST_CHAR[first as usize];
-    if start == 0 && end == 0 && first != b'A' {
-        return false;
-    }
-    let slice = &ENTITIES[start as usize..=end as usize];
-    let idx = match slice.binary_search_by(|(n, _)| n.cmp(&name)) {
-        Ok(i) => i,
-        Err(_) => return false,
-    };
-    let (_, codepoints) = &slice[idx];
-    for &cp in *codepoints {
-        if let Some(c) = char::from_u32(cp) {
+    if cp2 != 0 {
+        if let Some(c) = char::from_u32(cp2) {
             out.push(c);
         }
     }
-    true
+}
+
+/// Look up an HTML5 named entity reference and write replacement chars to output.
+#[inline]
+pub(crate) fn lookup_entity_into(name: &str, out: &mut String) -> bool {
+    if let Some((cp1, cp2)) = lookup_entity_codepoints(name) {
+        push_codepoints(out, cp1, cp2);
+        true
+    } else {
+        false
+    }
 }
 
 /// Resolve a numeric character reference and write to output. Returns true if valid.

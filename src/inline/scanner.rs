@@ -461,31 +461,16 @@ impl<'a> InlineScanner<'a> {
         }
 
         let colon_pos = self.pos;
-        let (scheme_start, _scheme_len) = {
-            if colon_pos >= 5 {
-                let candidate = &self.input[colon_pos - 5..colon_pos];
-                if candidate.eq_ignore_ascii_case("https") {
-                    (colon_pos - 5, 5)
-                } else if colon_pos >= 4 {
-                    let candidate = &self.input[colon_pos - 4..colon_pos];
-                    if candidate.eq_ignore_ascii_case("http") {
-                        (colon_pos - 4, 4)
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            } else if colon_pos >= 4 {
-                let candidate = &self.input[colon_pos - 4..colon_pos];
-                if candidate.eq_ignore_ascii_case("http") {
-                    (colon_pos - 4, 4)
-                } else {
-                    return false;
-                }
-            } else {
-                return false;
-            }
+        let scheme_start = if colon_pos >= 5
+            && self.input[colon_pos - 5..colon_pos].eq_ignore_ascii_case("https")
+        {
+            colon_pos - 5
+        } else if colon_pos >= 4
+            && self.input[colon_pos - 4..colon_pos].eq_ignore_ascii_case("http")
+        {
+            colon_pos - 4
+        } else {
+            return false;
         };
 
         if scheme_start > 0 {
@@ -566,36 +551,8 @@ impl<'a> InlineScanner<'a> {
         }
 
         let mut local_start = at_pos;
-        while local_start > 0 {
-            let b = bytes[local_start - 1];
-            if b.is_ascii_alphanumeric()
-                || matches!(
-                    b,
-                    b'.' | b'!'
-                        | b'#'
-                        | b'$'
-                        | b'%'
-                        | b'&'
-                        | b'\''
-                        | b'*'
-                        | b'+'
-                        | b'/'
-                        | b'='
-                        | b'?'
-                        | b'^'
-                        | b'_'
-                        | b'`'
-                        | b'{'
-                        | b'|'
-                        | b'}'
-                        | b'~'
-                        | b'-'
-                )
-            {
-                local_start -= 1;
-            } else {
-                break;
-            }
+        while local_start > 0 && is_email_local_char(bytes[local_start - 1]) {
+            local_start -= 1;
         }
 
         if local_start == at_pos {

@@ -76,7 +76,6 @@ impl<'a> Line<'a> {
         ns_byte == 0 && ns_off >= self.raw.len()
     }
 
-    /// Advance past spaces/tabs, returning the number of columns consumed (up to `max`).
     #[inline]
     fn skip_indent(&mut self, max: usize) -> usize {
         let bytes = self.raw.as_bytes();
@@ -136,7 +135,6 @@ impl<'a> Line<'a> {
         cols
     }
 
-    /// Advance past exactly one partial tab or spaces, consuming `n` columns.
     fn advance_columns(&mut self, n: usize) {
         let bytes = self.raw.as_bytes();
         let mut cols = 0;

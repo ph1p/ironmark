@@ -265,10 +265,7 @@ pub(super) fn parse_link_title(bytes: &[u8], start: usize) -> Option<(String, us
     let mut i = start + 1;
     let mut title = String::new();
     while i < bytes.len() {
-        if bytes[i] == close_quote && quote != b'(' {
-            return Some((title, i + 1));
-        }
-        if bytes[i] == b')' && quote == b'(' {
+        if bytes[i] == close_quote {
             return Some((title, i + 1));
         }
         if bytes[i] == b'(' && quote == b'(' {

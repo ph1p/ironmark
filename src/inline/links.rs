@@ -164,11 +164,7 @@ impl<'a> InlineScanner<'a> {
         let mut title = String::new();
         while self.pos < self.bytes.len() {
             let b = self.bytes[self.pos];
-            if b == cq && q != b'(' {
-                self.pos += 1;
-                return Some(title);
-            }
-            if b == b')' && q == b'(' {
+            if b == cq {
                 self.pos += 1;
                 return Some(title);
             }
@@ -564,12 +560,14 @@ impl<'a> InlineScanner<'a> {
             }
             let name = unsafe { self.input.get_unchecked(ns..self.pos) };
             self.pos += 1;
-            if let Some(codepoints) = entities::lookup_entity_codepoints(name) {
+            if let Some((cp1, cp2)) = entities::lookup_entity_codepoints(name) {
                 let mut off = 0usize;
-                for &cp in codepoints {
-                    if let Some(c) = char::from_u32(cp) {
-                        let n = c.encode_utf8(&mut buf[off..]).len();
-                        off += n;
+                if let Some(c) = char::from_u32(cp1) {
+                    off += c.encode_utf8(&mut buf[off..]).len();
+                }
+                if cp2 != 0 {
+                    if let Some(c) = char::from_u32(cp2) {
+                        off += c.encode_utf8(&mut buf[off..]).len();
                     }
                 }
                 Some(off as u8)

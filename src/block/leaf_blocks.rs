@@ -279,6 +279,11 @@ pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
     cells
 }
 
+#[inline(always)]
+fn rest_is_blank(bytes: &[u8], from: usize) -> bool {
+    bytes[from..].iter().all(|&b| b == b' ' || b == b'\t')
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct ListMarkerInfo {
     pub kind: ListKind,
@@ -298,20 +303,7 @@ pub(super) fn parse_list_marker(line: &str) -> Option<ListMarkerInfo> {
 
     if b0 == b'-' || b0 == b'*' || b0 == b'+' {
         if bytes.len() == 1 || bytes[1] == b' ' || bytes[1] == b'\t' {
-            let is_empty = if bytes.len() <= 1 {
-                true
-            } else {
-                let mut j = 1;
-                loop {
-                    if j >= bytes.len() {
-                        break true;
-                    }
-                    match bytes[j] {
-                        b' ' | b'\t' => j += 1,
-                        _ => break false,
-                    }
-                }
-            };
+            let is_empty = bytes.len() <= 1 || rest_is_blank(bytes, 1);
             return Some(ListMarkerInfo {
                 kind: ListKind::Bullet(b0),
                 marker_len: 1,
@@ -342,20 +334,7 @@ pub(super) fn parse_list_marker(line: &str) -> Option<ListMarkerInfo> {
                         Err(_) => return None,
                     }
                 };
-                let is_empty = if i + 1 >= bytes.len() {
-                    true
-                } else {
-                    let mut j = i + 1;
-                    loop {
-                        if j >= bytes.len() {
-                            break true;
-                        }
-                        match bytes[j] {
-                            b' ' | b'\t' => j += 1,
-                            _ => break false,
-                        }
-                    }
-                };
+                let is_empty = i + 1 >= bytes.len() || rest_is_blank(bytes, i + 1);
                 return Some(ListMarkerInfo {
                     kind: ListKind::Ordered(delim),
                     marker_len: i + 1,

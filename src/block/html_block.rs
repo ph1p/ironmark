@@ -91,48 +91,39 @@ pub(super) fn parse_html_block_start(line: &str, in_paragraph: bool) -> Option<H
         return None;
     }
 
-    // Type 1: <pre, <script, <style, <textarea (case-insensitive)
-    if starts_with_tag_ci(bytes, b"pre") {
-        return Some(HtmlBlockEnd::EndTag("</pre>"));
-    }
-    if starts_with_tag_ci(bytes, b"script") {
-        return Some(HtmlBlockEnd::EndTag("</script>"));
-    }
-    if starts_with_tag_ci(bytes, b"style") {
-        return Some(HtmlBlockEnd::EndTag("</style>"));
-    }
-    if starts_with_tag_ci(bytes, b"textarea") {
-        return Some(HtmlBlockEnd::EndTag("</textarea>"));
+    for &(tag, end) in &[
+        (b"pre" as &[u8], "</pre>"),
+        (b"script", "</script>"),
+        (b"style", "</style>"),
+        (b"textarea", "</textarea>"),
+    ] {
+        if starts_with_tag_ci(bytes, tag) {
+            return Some(HtmlBlockEnd::EndTag(end));
+        }
     }
 
-    // Type 2: <!-- (HTML comment)
     if bytes.len() >= 4 && &bytes[..4] == b"<!--" {
         return Some(HtmlBlockEnd::Comment);
     }
 
-    // Type 3: <?
     if bytes.len() >= 2 && &bytes[..2] == b"<?" {
         return Some(HtmlBlockEnd::ProcessingInstruction);
     }
 
-    // Type 4: <! followed by ASCII letter
     if bytes.len() >= 2 && bytes[0] == b'<' && bytes[1] == b'!' {
         if bytes.len() > 2 && bytes[2].is_ascii_alphabetic() {
             return Some(HtmlBlockEnd::Declaration);
         }
     }
 
-    // Type 5: <![CDATA[
     if bytes.len() >= 9 && &bytes[..9] == b"<![CDATA[" {
         return Some(HtmlBlockEnd::Cdata);
     }
 
-    // Type 6: block-level tag (open or close)
-    if let Some(_) = check_html_block_type6(line) {
+    if check_html_block_type6(line) {
         return Some(HtmlBlockEnd::BlankLine);
     }
 
-    // Type 7: any complete open/close tag alone on a line (cannot interrupt paragraph)
     if !in_paragraph {
         if is_html_block_type7(line) {
             return Some(HtmlBlockEnd::BlankLine);
@@ -143,10 +134,10 @@ pub(super) fn parse_html_block_start(line: &str, in_paragraph: bool) -> Option<H
 }
 
 #[inline]
-pub(super) fn check_html_block_type6(line: &str) -> Option<()> {
+pub(super) fn check_html_block_type6(line: &str) -> bool {
     let bytes = line.as_bytes();
     if bytes.len() < 2 || bytes[0] != b'<' {
-        return None;
+        return false;
     }
     let start = if bytes[1] == b'/' { 2 } else { 1 };
     let mut end = start;
@@ -154,31 +145,25 @@ pub(super) fn check_html_block_type6(line: &str) -> Option<()> {
         end += 1;
     }
     if end == start {
-        return None;
+        return false;
     }
     if end < bytes.len() {
         let next = bytes[end];
-        if !(next == b' ' || next == b'\t' || next == b'>' || next == b'/' || next == b'\n') {
-            return None;
+        if !matches!(next, b' ' | b'\t' | b'>' | b'/' | b'\n') {
+            return false;
         }
     }
     let tag_len = end - start;
     if tag_len > 10 {
-        return None;
+        return false;
     }
     let mut buf = [0u8; 10];
     for i in 0..tag_len {
         buf[i] = bytes[start + i].to_ascii_lowercase();
     }
-    let lc_tag = &buf[..tag_len];
-    if HTML_BLOCK_TYPE6_TAGS
-        .binary_search_by(|t| t.as_bytes().cmp(lc_tag))
+    HTML_BLOCK_TYPE6_TAGS
+        .binary_search_by(|t| t.as_bytes().cmp(&buf[..tag_len]))
         .is_ok()
-    {
-        Some(())
-    } else {
-        None
-    }
 }
 
 pub(super) fn is_html_block_type7(line: &str) -> bool {

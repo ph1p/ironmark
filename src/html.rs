@@ -12,62 +12,46 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     let mut last = 0;
 
     if memchr::memchr3(b'&', b'<', b'>', bytes).is_none() {
-        while last < len {
-            match memchr::memchr(b'"', &bytes[last..]) {
-                Some(offset) => {
-                    let q = last + offset;
-                    if last < q {
-                        out.push_str(unsafe { input.get_unchecked(last..q) });
-                    }
-                    out.push_str("&quot;");
-                    last = q + 1;
-                }
-                None => {
-                    out.push_str(unsafe { input.get_unchecked(last..len) });
-                    return;
-                }
+        while let Some(q_off) = memchr::memchr(b'"', &bytes[last..]) {
+            let q = last + q_off;
+            if last < q {
+                out.push_str(unsafe { input.get_unchecked(last..q) });
             }
+            out.push_str("&quot;");
+            last = q + 1;
         }
+        out.push_str(unsafe { input.get_unchecked(last..len) });
         return;
     }
 
     while last < len {
-        match memchr::memchr3(b'&', b'<', b'>', &bytes[last..]) {
-            Some(offset) => {
-                let i = last + offset;
-                if let Some(q_off) = memchr::memchr(b'"', &bytes[last..i]) {
-                    let q = last + q_off;
-                    if last < q {
-                        out.push_str(unsafe { input.get_unchecked(last..q) });
-                    }
-                    out.push_str("&quot;");
-                    last = q + 1;
-                    continue;
-                }
-                if last < i {
-                    out.push_str(unsafe { input.get_unchecked(last..i) });
-                }
-                let replacement = match bytes[i] {
-                    b'&' => "&amp;",
-                    b'<' => "&lt;",
-                    _ => "&gt;",
-                };
-                out.push_str(replacement);
-                last = i + 1;
+        let next = memchr::memchr3(b'&', b'<', b'>', &bytes[last..]);
+        let boundary = next.map_or(len, |o| last + o);
+
+        if let Some(q_off) = memchr::memchr(b'"', &bytes[last..boundary]) {
+            let q = last + q_off;
+            if last < q {
+                out.push_str(unsafe { input.get_unchecked(last..q) });
             }
-            None => {
-                if let Some(q_off) = memchr::memchr(b'"', &bytes[last..]) {
-                    let q = last + q_off;
-                    if last < q {
-                        out.push_str(unsafe { input.get_unchecked(last..q) });
-                    }
-                    out.push_str("&quot;");
-                    last = q + 1;
-                } else {
-                    out.push_str(unsafe { input.get_unchecked(last..len) });
-                    return;
-                }
-            }
+            out.push_str("&quot;");
+            last = q + 1;
+            continue;
+        }
+
+        if last < boundary {
+            out.push_str(unsafe { input.get_unchecked(last..boundary) });
+        }
+
+        if let Some(offset) = next {
+            let i = last + offset;
+            out.push_str(match bytes[i] {
+                b'&' => "&amp;",
+                b'<' => "&lt;",
+                _ => "&gt;",
+            });
+            last = i + 1;
+        } else {
+            return;
         }
     }
 }
@@ -145,15 +129,7 @@ pub(crate) fn encode_url_escaped_into(out: &mut String, url: &str) {
         if last < i {
             out.push_str(&url[last..i]);
         }
-        let ch_len = if b < 0x80 {
-            1
-        } else if b < 0xE0 {
-            2
-        } else if b < 0xF0 {
-            3
-        } else {
-            4
-        };
+        let ch_len = crate::utf8_char_len(b);
         for j in 0..ch_len {
             if i + j < len {
                 let b = bytes[i + j];
@@ -162,7 +138,7 @@ pub(crate) fn encode_url_escaped_into(out: &mut String, url: &str) {
                     HEX_CHARS[(b >> 4) as usize],
                     HEX_CHARS[(b & 0xF) as usize],
                 ];
-                // SAFETY: HEX_CHARS only contains ASCII hex digits
+
                 out.push_str(unsafe { std::str::from_utf8_unchecked(&enc) });
             }
         }

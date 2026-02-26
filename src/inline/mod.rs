@@ -207,21 +207,6 @@ struct EmDelim {
     close_em_len: u8,
 }
 
-const EMPTY_DELIM: EmDelim = EmDelim {
-    orig_start: 0,
-    orig_end: 0,
-    cur_start: 0,
-    cur_end: 0,
-    marker: 0,
-    can_open: false,
-    can_close: false,
-    active: true,
-    open_em: [0; 4],
-    open_em_len: 0,
-    close_em: [0; 4],
-    close_em_len: 0,
-};
-
 /// Shared emphasis processing: resolve opener/closer pairs in a slice of EmDelim.
 #[inline(never)]
 fn process_em_delims(delims: &mut [EmDelim]) {
@@ -316,49 +301,12 @@ fn render_em_delim(out: &mut String, d: &EmDelim) {
     }
 }
 
-struct EmDelimBuf {
-    stack: [EmDelim; 16],
-    heap: Vec<EmDelim>,
-    count: usize,
-}
-
-impl EmDelimBuf {
-    #[inline(always)]
-    fn new() -> Self {
-        Self {
-            stack: [EMPTY_DELIM; 16],
-            heap: Vec::new(),
-            count: 0,
-        }
-    }
-    #[inline(always)]
-    fn push(&mut self, d: EmDelim) {
-        if self.count < 16 {
-            self.stack[self.count] = d;
-        } else {
-            if self.heap.is_empty() {
-                self.heap.extend_from_slice(&self.stack);
-            }
-            self.heap.push(d);
-        }
-        self.count += 1;
-    }
-    #[inline(always)]
-    fn as_mut_slice(&mut self) -> &mut [EmDelim] {
-        if self.count == 0 {
-            &mut []
-        } else if self.count <= 16 {
-            &mut self.stack[..self.count]
-        } else {
-            &mut self.heap[..]
-        }
-    }
-}
+type EmDelimBuf = Vec<EmDelim>;
 
 /// Scan emphasis delimiter runs, skipping backslash escapes.
 fn scan_em_delims(raw: &str, bytes: &[u8], skip_escapes: bool) -> EmDelimBuf {
     let len = bytes.len();
-    let mut buf = EmDelimBuf::new();
+    let mut buf = Vec::new();
     let mut i = 0;
     while i < len {
         let b = bytes[i];
@@ -400,13 +348,12 @@ fn scan_em_delims(raw: &str, bytes: &[u8], skip_escapes: bool) -> EmDelimBuf {
 }
 
 fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
-    let mut buf = scan_em_delims(raw, bytes, false);
-    if buf.count == 0 {
+    let mut delims = scan_em_delims(raw, bytes, false);
+    if delims.is_empty() {
         escape_html_into(out, raw);
         return;
     }
-    let delims = buf.as_mut_slice();
-    process_em_delims(delims);
+    process_em_delims(&mut delims);
 
     let mut text_pos = 0usize;
     for d in delims.iter() {
@@ -423,10 +370,9 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
 
 /// Fast path for content with only emphasis markers, newlines, and backslash escapes.
 fn emit_breaks_and_emphasis(out: &mut String, raw: &str, bytes: &[u8], opts: &ParseOptions) {
-    let mut buf = scan_em_delims(raw, bytes, true);
-    let delims = buf.as_mut_slice();
+    let mut delims = scan_em_delims(raw, bytes, true);
     if !delims.is_empty() {
-        process_em_delims(delims);
+        process_em_delims(&mut delims);
     }
 
     let len = bytes.len();
@@ -654,6 +600,33 @@ pub(super) use crate::is_ascii_punctuation;
 pub(super) use crate::utf8_char_len;
 
 #[inline(always)]
+fn is_email_local_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || matches!(
+            b,
+            b'.' | b'!'
+                | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'/'
+                | b'='
+                | b'?'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'{'
+                | b'|'
+                | b'}'
+                | b'~'
+                | b'-'
+        )
+}
+
+#[inline(always)]
 fn is_punctuation_char(c: char) -> bool {
     if c.is_ascii() {
         return is_ascii_punctuation(c as u8);
@@ -726,33 +699,8 @@ fn is_email_autolink(s: &str) -> bool {
     if at == 0 || at + 1 >= bytes.len() {
         return false;
     }
-    for &b in &bytes[..at] {
-        if !(b.is_ascii_alphanumeric()
-            || matches!(
-                b,
-                b'.' | b'!'
-                    | b'#'
-                    | b'$'
-                    | b'%'
-                    | b'&'
-                    | b'\''
-                    | b'*'
-                    | b'+'
-                    | b'/'
-                    | b'='
-                    | b'?'
-                    | b'^'
-                    | b'_'
-                    | b'`'
-                    | b'{'
-                    | b'|'
-                    | b'}'
-                    | b'~'
-                    | b'-'
-            ))
-        {
-            return false;
-        }
+    if !bytes[..at].iter().all(|&b| is_email_local_char(b)) {
+        return false;
     }
     for &b in &bytes[at + 1..] {
         if !(b.is_ascii_alphanumeric() || b == b'-' || b == b'.') {

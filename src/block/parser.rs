@@ -1,5 +1,29 @@
 use super::*;
 
+#[inline(always)]
+fn advance_past_blockquote_marker(line: &mut Line) {
+    line.byte_offset += 1;
+    line.col_offset += 1;
+    if line.partial_spaces > 0 {
+        let consume = 1.min(line.partial_spaces);
+        line.partial_spaces -= consume;
+        line.col_offset += consume;
+    } else if line.byte_offset < line.raw.len() {
+        let b = line.raw.as_bytes()[line.byte_offset];
+        if b == b' ' {
+            line.byte_offset += 1;
+            line.col_offset += 1;
+        } else if b == b'\t' {
+            let tab_width = 4 - (line.col_offset % 4);
+            line.byte_offset += 1;
+            line.col_offset += 1;
+            if tab_width > 1 {
+                line.partial_spaces = tab_width - 1;
+            }
+        }
+    }
+}
+
 impl<'a> BlockParser<'a> {
     #[inline(never)]
     pub(super) fn process_line(&mut self, mut line: Line<'a>) {
@@ -53,26 +77,7 @@ impl<'a> BlockParser<'a> {
                     let indent = ns_col - line.col_offset;
                     if indent <= 3 && ns_byte == b'>' {
                         line.advance_to_nonspace();
-                        line.byte_offset += 1;
-                        line.col_offset += 1;
-                        if line.partial_spaces > 0 {
-                            let consume = 1.min(line.partial_spaces);
-                            line.partial_spaces -= consume;
-                            line.col_offset += consume;
-                        } else if line.byte_offset < line.raw.len() {
-                            let b = line.raw.as_bytes()[line.byte_offset];
-                            if b == b' ' {
-                                line.byte_offset += 1;
-                                line.col_offset += 1;
-                            } else if b == b'\t' {
-                                let tab_width = 4 - (line.col_offset % 4);
-                                line.byte_offset += 1;
-                                line.col_offset += 1;
-                                if tab_width > 1 {
-                                    line.partial_spaces = tab_width - 1;
-                                }
-                            }
-                        }
+                        advance_past_blockquote_marker(&mut line);
                         matched = i + 1;
                     } else {
                         all_matched = false;
@@ -296,14 +301,12 @@ impl<'a> BlockParser<'a> {
                                 parent.children.push(heading);
                                 return;
                             }
-                        }
-                        if indent <= 3 && is_thematic_break(rest) {
-                            self.close_top_block();
-                            let parent = self.open.last_mut().unwrap();
-                            parent.children.push(Block::ThematicBreak);
-                            return;
-                        }
-                        if indent <= 3 {
+                            if is_thematic_break(rest) {
+                                self.close_top_block();
+                                let parent = self.open.last_mut().unwrap();
+                                parent.children.push(Block::ThematicBreak);
+                                return;
+                            }
                             if let Some((level, content)) = parse_atx_heading(rest) {
                                 self.close_top_block();
                                 let parent = self.open.last_mut().unwrap();
@@ -313,8 +316,6 @@ impl<'a> BlockParser<'a> {
                                 });
                                 return;
                             }
-                        }
-                        if indent <= 3 {
                             if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
                                 self.close_top_block();
                                 self.open.push(OpenBlock::new(OpenBlockType::FencedCode(
@@ -327,13 +328,10 @@ impl<'a> BlockParser<'a> {
                                 )));
                                 return;
                             }
-                        }
-                        if indent <= 3 {
                             if let Some(end_condition) = parse_html_block_start(rest, true) {
                                 self.close_top_block();
-                                let mut block = OpenBlock::new(OpenBlockType::HtmlBlock {
-                                    end_condition: end_condition,
-                                });
+                                let mut block =
+                                    OpenBlock::new(OpenBlockType::HtmlBlock { end_condition });
                                 block.content.push_str(line.remainder());
                                 if html_block_ends(&end_condition, line.remainder()) {
                                     let parent = self.open.last_mut().unwrap();
@@ -345,13 +343,11 @@ impl<'a> BlockParser<'a> {
                                 }
                                 return;
                             }
-                        }
-                        if indent <= 3 && ns_byte == b'>' {
-                            self.close_top_block();
-                            self.open_new_blocks(line);
-                            return;
-                        }
-                        if indent <= 3 {
+                            if ns_byte == b'>' {
+                                self.close_top_block();
+                                self.open_new_blocks(line);
+                                return;
+                            }
                             if let Some(marker) = parse_list_marker(rest) {
                                 if can_interrupt_paragraph(&marker) {
                                     self.close_top_block();
@@ -451,26 +447,7 @@ impl<'a> BlockParser<'a> {
 
             if indent <= 3 && first_byte == b'>' {
                 line.advance_to_nonspace();
-                line.byte_offset += 1;
-                line.col_offset += 1;
-                if line.partial_spaces > 0 {
-                    let consume = 1.min(line.partial_spaces);
-                    line.partial_spaces -= consume;
-                    line.col_offset += consume;
-                } else if line.byte_offset < line.raw.len() {
-                    let b = line.raw.as_bytes()[line.byte_offset];
-                    if b == b' ' {
-                        line.byte_offset += 1;
-                        line.col_offset += 1;
-                    } else if b == b'\t' {
-                        let tab_width = 4 - (line.col_offset % 4);
-                        line.byte_offset += 1;
-                        line.col_offset += 1;
-                        if tab_width > 1 {
-                            line.partial_spaces = tab_width - 1;
-                        }
-                    }
-                }
+                advance_past_blockquote_marker(&mut line);
                 self.open.push(OpenBlock::new(OpenBlockType::BlockQuote));
                 self.open_blockquotes += 1;
                 continue;
@@ -483,90 +460,87 @@ impl<'a> BlockParser<'a> {
                     &line.raw[ns_off..]
                 };
 
-                let is_only_list_char = matches!(first_byte, b'0'..=b'9' | b'+');
-                let is_ambiguous_list_char = first_byte == b'-' || first_byte == b'*';
-
-                if is_only_list_char {
-                    if let Some(marker) = parse_list_marker(rest) {
-                        let marker_indent = indent;
-                        line.advance_to_nonspace();
-                        let rest_is_blank = self.start_list_item(&mut line, marker, marker_indent);
-                        if rest_is_blank {
-                            return;
+                match first_byte {
+                    b'0'..=b'9' | b'+' => {
+                        if let Some(marker) = parse_list_marker(rest) {
+                            let marker_indent = indent;
+                            line.advance_to_nonspace();
+                            let rest_is_blank =
+                                self.start_list_item(&mut line, marker, marker_indent);
+                            if rest_is_blank {
+                                return;
+                            }
+                            continue;
                         }
-                        continue;
                     }
-                } else if is_ambiguous_list_char {
-                    if is_thematic_break(rest) {
-                        let parent = self.open.last_mut().unwrap();
-                        parent.children.push(Block::ThematicBreak);
-                        return;
-                    }
-                    if let Some(marker) = parse_list_marker(rest) {
-                        let marker_indent = indent;
-                        line.advance_to_nonspace();
-                        let rest_is_blank = self.start_list_item(&mut line, marker, marker_indent);
-                        if rest_is_blank {
-                            return;
-                        }
-                        continue;
-                    }
-                }
-
-                if !is_only_list_char && !is_ambiguous_list_char {
-                    if let Some((level, content)) = parse_atx_heading(rest) {
-                        line.advance_to_nonspace();
-                        let parent = self.open.last_mut().unwrap();
-                        parent.children.push(Block::Heading {
-                            level,
-                            raw: content.to_string(),
-                        });
-                        return;
-                    }
-
-                    if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
-                        self.open
-                            .push(OpenBlock::new(OpenBlockType::FencedCode(Box::new(
-                                FencedCodeData {
-                                    fence_char,
-                                    fence_len,
-                                    fence_indent: indent,
-                                    info: resolve_entities_and_escapes(info),
-                                },
-                            ))));
-                        return;
-                    }
-
-                    if let Some(end_condition) = parse_html_block_start(rest, false) {
-                        let mut block = OpenBlock::new(OpenBlockType::HtmlBlock {
-                            end_condition: end_condition,
-                        });
-                        block.content.push_str(line.remainder());
-                        if html_block_ends(&end_condition, line.remainder()) {
+                    b'-' | b'*' => {
+                        if is_thematic_break(rest) {
                             let parent = self.open.last_mut().unwrap();
-                            parent.children.push(Block::HtmlBlock {
-                                literal: block.content,
-                            });
-                        } else {
-                            self.open.push(block);
-                        }
-                        return;
-                    }
-
-                    if is_thematic_break(rest) {
-                        let parent = self.open.last_mut().unwrap();
-                        parent.children.push(Block::ThematicBreak);
-                        return;
-                    }
-
-                    if let Some(marker) = parse_list_marker(rest) {
-                        let marker_indent = indent;
-                        line.advance_to_nonspace();
-                        let rest_is_blank = self.start_list_item(&mut line, marker, marker_indent);
-                        if rest_is_blank {
+                            parent.children.push(Block::ThematicBreak);
                             return;
                         }
-                        continue;
+                        if let Some(marker) = parse_list_marker(rest) {
+                            let marker_indent = indent;
+                            line.advance_to_nonspace();
+                            let rest_is_blank =
+                                self.start_list_item(&mut line, marker, marker_indent);
+                            if rest_is_blank {
+                                return;
+                            }
+                            continue;
+                        }
+                    }
+                    _ => {
+                        if let Some((level, content)) = parse_atx_heading(rest) {
+                            line.advance_to_nonspace();
+                            let parent = self.open.last_mut().unwrap();
+                            parent.children.push(Block::Heading {
+                                level,
+                                raw: content.to_string(),
+                            });
+                            return;
+                        }
+                        if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
+                            self.open
+                                .push(OpenBlock::new(OpenBlockType::FencedCode(Box::new(
+                                    FencedCodeData {
+                                        fence_char,
+                                        fence_len,
+                                        fence_indent: indent,
+                                        info: resolve_entities_and_escapes(info),
+                                    },
+                                ))));
+                            return;
+                        }
+                        if let Some(end_condition) = parse_html_block_start(rest, false) {
+                            let mut block =
+                                OpenBlock::new(OpenBlockType::HtmlBlock { end_condition });
+                            block.content.push_str(line.remainder());
+                            if html_block_ends(&end_condition, line.remainder()) {
+                                let parent = self.open.last_mut().unwrap();
+                                parent.children.push(Block::HtmlBlock {
+                                    literal: block.content,
+                                });
+                            } else {
+                                self.open.push(block);
+                            }
+                            return;
+                        }
+                        if is_thematic_break(rest) {
+                            let parent = self.open.last_mut().unwrap();
+                            parent.children.push(Block::ThematicBreak);
+                            return;
+                        }
+                        if let Some(marker) = parse_list_marker(rest) {
+                            let marker_indent = indent;
+                            line.advance_to_nonspace();
+                            let rest_is_blank =
+                                self.start_list_item(&mut line, marker, marker_indent);
+                            if rest_is_blank {
+                                return;
+                            }
+                            continue;
+                        }
                     }
                 }
             } else {

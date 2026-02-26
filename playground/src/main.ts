@@ -94,7 +94,7 @@ Write **markdown** on the left and see the _rendered HTML_ on the right.
 - Live preview as you type
 - Supports **bold**, *italic*, and \`code\`
 - Links: [Example](https://example.com)
-- Images: ![alt](https://via.placeholder.com/100)
+- Images: ![alt](https://placeholdit.com/200x200/dddddd/999999?font=inter)
 
 ## Code Block
 
