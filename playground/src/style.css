@@ -8,7 +8,7 @@
 
 /* Prose styles for rendered markdown */
 .prose {
-  @apply text-zinc-200 leading-relaxed text-[0.9375rem];
+  @apply text-zinc-700 dark:text-zinc-200 leading-relaxed text-[0.9375rem];
 }
 .prose h1,
 .prose h2,
@@ -16,13 +16,13 @@
 .prose h4,
 .prose h5,
 .prose h6 {
-  @apply text-zinc-50 font-semibold leading-tight mt-[1.5em] mb-[0.5em];
+  @apply text-zinc-900 dark:text-zinc-50 font-semibold leading-tight mt-[1.5em] mb-[0.5em];
 }
 .prose h1 {
   @apply text-[1.75em];
 }
 .prose h2 {
-  @apply text-[1.375em] border-b border-zinc-800 pb-[0.3em];
+  @apply text-[1.375em] border-b border-zinc-200 dark:border-zinc-800 pb-[0.3em];
 }
 .prose h3 {
   @apply text-[1.125em];
@@ -36,28 +36,28 @@
   @apply my-[0.75em];
 }
 .prose a {
-  @apply text-blue-400 underline underline-offset-2;
+  @apply text-blue-600 dark:text-blue-400 underline underline-offset-2;
 }
 .prose a:hover {
-  @apply text-blue-300;
+  @apply text-blue-500 dark:text-blue-300;
 }
 .prose strong {
-  @apply text-zinc-50 font-semibold;
+  @apply text-zinc-900 dark:text-zinc-50 font-semibold;
 }
 .prose em {
   @apply italic;
 }
 .prose code {
-  @apply bg-zinc-800 text-fuchsia-300 px-[0.35em] py-[0.15em] rounded-[4px] text-[0.875em] font-mono;
+  @apply bg-zinc-100 dark:bg-zinc-800 text-fuchsia-600 dark:text-fuchsia-300 px-[0.35em] py-[0.15em] rounded-[4px] text-[0.875em] font-mono;
 }
 .prose pre {
-  @apply bg-zinc-900 border border-zinc-800 rounded-md px-[1em] py-[0.875em] overflow-x-auto my-[1em];
+  @apply bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md px-[1em] py-[0.875em] overflow-x-auto my-[1em];
 }
 .prose pre code {
-  @apply bg-transparent text-zinc-300 p-0 rounded-none text-[0.8125em] leading-relaxed;
+  @apply bg-transparent text-zinc-700 dark:text-zinc-300 p-0 rounded-none text-[0.8125em] leading-relaxed;
 }
 .prose blockquote {
-  @apply border-l-[3px] border-zinc-700 pl-[1em] my-[1em] text-zinc-400;
+  @apply border-l-[3px] border-zinc-300 dark:border-zinc-700 pl-[1em] my-[1em] text-zinc-500 dark:text-zinc-400;
 }
 .prose ul,
 .prose ol {
@@ -77,7 +77,7 @@
   @apply my-[0.25em];
 }
 .prose hr {
-  @apply border-t border-zinc-800 my-[1.5em];
+  @apply border-t border-zinc-200 dark:border-zinc-800 my-[1.5em];
   border-style: solid;
 }
 .prose img {
@@ -88,11 +88,11 @@
 }
 .prose th,
 .prose td {
-  @apply border border-zinc-700 px-[0.75em] py-[0.5em];
+  @apply border border-zinc-300 dark:border-zinc-700 px-[0.75em] py-[0.5em];
 }
 .prose th {
-  @apply bg-zinc-800 font-semibold text-zinc-50;
+  @apply bg-zinc-100 dark:bg-zinc-800 font-semibold text-zinc-900 dark:text-zinc-50;
 }
 .prose tbody tr:hover {
-  @apply bg-zinc-800/25;
+  @apply bg-zinc-50 dark:bg-zinc-800/25;
 }
