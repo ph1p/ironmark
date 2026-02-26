@@ -77,10 +77,10 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
     Some((label, dest, title, consumed))
 }
 
-pub(super) fn resolve_entities_and_escapes(s: &str) -> String {
+pub(super) fn resolve_entities_and_escapes(s: &str) -> std::borrow::Cow<'_, str> {
     let bytes = s.as_bytes();
     if memchr::memchr2(b'\\', b'&', bytes).is_none() {
-        return s.to_string();
+        return std::borrow::Cow::Borrowed(s);
     }
     let mut out = String::with_capacity(s.len());
     let mut i = 0;
@@ -101,7 +101,7 @@ pub(super) fn resolve_entities_and_escapes(s: &str) -> String {
             i += ch_len;
         }
     }
-    out
+    std::borrow::Cow::Owned(out)
 }
 
 pub(super) fn resolve_entity_in_bytes(

@@ -283,9 +283,12 @@ impl<'a> BlockParser<'a> {
                             )
                         {
                             line.advance_to_nonspace();
-                            self.open[tip_idx].content.push('\n');
-                            self.open[tip_idx].content_has_newline = true;
-                            self.open[tip_idx].content.push_str(line.remainder());
+                            let rem = line.remainder();
+                            let tip = &mut self.open[tip_idx];
+                            tip.content.reserve(1 + rem.len());
+                            tip.content.push('\n');
+                            tip.content_has_newline = true;
+                            tip.content.push_str(rem);
                             return;
                         }
                         if indent <= 3 {
@@ -294,7 +297,10 @@ impl<'a> BlockParser<'a> {
                                 let remaining = self.extract_ref_defs(&content);
                                 if remaining.is_empty() {
                                     self.open.pop();
-                                    let mut para = OpenBlock::new(OpenBlockType::Paragraph);
+                                    let mut para = OpenBlock::with_content_capacity(
+                                        OpenBlockType::Paragraph,
+                                        128,
+                                    );
                                     para.content.push_str(rest);
                                     self.open.push(para);
                                     return;
@@ -325,20 +331,23 @@ impl<'a> BlockParser<'a> {
                             }
                             if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
                                 self.close_top_block();
-                                self.open.push(OpenBlock::new(OpenBlockType::FencedCode(
-                                    Box::new(FencedCodeData {
+                                self.open.push(OpenBlock::with_content_capacity(
+                                    OpenBlockType::FencedCode(Box::new(FencedCodeData {
                                         fence_char,
                                         fence_len,
                                         fence_indent: indent,
-                                        info: resolve_entities_and_escapes(info),
-                                    }),
-                                )));
+                                        info: resolve_entities_and_escapes(info).into_owned(),
+                                    })),
+                                    256,
+                                ));
                                 return;
                             }
                             if let Some(end_condition) = parse_html_block_start(rest, true) {
                                 self.close_top_block();
-                                let mut block =
-                                    OpenBlock::new(OpenBlockType::HtmlBlock { end_condition });
+                                let mut block = OpenBlock::with_content_capacity(
+                                    OpenBlockType::HtmlBlock { end_condition },
+                                    128,
+                                );
                                 block.content.push_str(line.remainder());
                                 if html_block_ends(&end_condition, line.remainder()) {
                                     let parent = self.open.last_mut().unwrap();
@@ -364,9 +373,12 @@ impl<'a> BlockParser<'a> {
                             }
                         }
                         line.advance_to_nonspace();
-                        self.open[tip_idx].content.push('\n');
-                        self.open[tip_idx].content_has_newline = true;
-                        self.open[tip_idx].content.push_str(line.remainder());
+                        let rem = line.remainder();
+                        let tip = &mut self.open[tip_idx];
+                        tip.content.reserve(1 + rem.len());
+                        tip.content.push('\n');
+                        tip.content_has_newline = true;
+                        tip.content.push_str(rem);
                         return;
                     }
                     _ => {}
@@ -406,10 +418,13 @@ impl<'a> BlockParser<'a> {
                             .as_ref()
                             .map_or(false, |m| can_interrupt_paragraph(m));
                     if !should_break {
-                        self.open[tip_idx].content.push('\n');
-                        self.open[tip_idx].content_has_newline = true;
                         line.advance_to_nonspace();
-                        self.open[tip_idx].content.push_str(line.remainder());
+                        let rem = line.remainder();
+                        let tip = &mut self.open[tip_idx];
+                        tip.content.reserve(1 + rem.len());
+                        tip.content.push('\n');
+                        tip.content_has_newline = true;
+                        tip.content.push_str(rem);
                         return;
                     }
                 }
@@ -498,19 +513,22 @@ impl<'a> BlockParser<'a> {
                     return;
                 }
                 if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
-                    self.open
-                        .push(OpenBlock::new(OpenBlockType::FencedCode(Box::new(
-                            FencedCodeData {
-                                fence_char,
-                                fence_len,
-                                fence_indent: indent,
-                                info: resolve_entities_and_escapes(info),
-                            },
-                        ))));
+                    self.open.push(OpenBlock::with_content_capacity(
+                        OpenBlockType::FencedCode(Box::new(FencedCodeData {
+                            fence_char,
+                            fence_len,
+                            fence_indent: indent,
+                            info: resolve_entities_and_escapes(info).into_owned(),
+                        })),
+                        256,
+                    ));
                     return;
                 }
                 if let Some(end_condition) = parse_html_block_start(rest, false) {
-                    let mut block = OpenBlock::new(OpenBlockType::HtmlBlock { end_condition });
+                    let mut block = OpenBlock::with_content_capacity(
+                        OpenBlockType::HtmlBlock { end_condition },
+                        128,
+                    );
                     block.content.push_str(line.remainder());
                     if html_block_ends(&end_condition, line.remainder()) {
                         let parent = self.open.last_mut().unwrap();
@@ -536,7 +554,8 @@ impl<'a> BlockParser<'a> {
                 if !matches!(tip.block_type, OpenBlockType::Paragraph) {
                     let _ = line.skip_indent(4);
                     let content = line.remainder_with_partial();
-                    let mut block = OpenBlock::new(OpenBlockType::IndentedCode);
+                    let mut block =
+                        OpenBlock::with_content_capacity(OpenBlockType::IndentedCode, 128);
                     block.content.push_str(&content);
                     self.open.push(block);
                     return;
@@ -544,7 +563,7 @@ impl<'a> BlockParser<'a> {
             }
 
             line.advance_to_nonspace();
-            let mut block = OpenBlock::new(OpenBlockType::Paragraph);
+            let mut block = OpenBlock::with_content_capacity(OpenBlockType::Paragraph, 128);
             block.content.push_str(line.remainder());
             self.open.push(block);
             return;
@@ -686,11 +705,11 @@ impl<'a> BlockParser<'a> {
             OpenBlockType::HtmlBlock { .. } => Some(Block::HtmlBlock {
                 literal: block.content,
             }),
-            OpenBlockType::Table(td) => Some(Block::Table {
+            OpenBlockType::Table(td) => Some(Block::Table(Box::new(crate::ast::TableData {
                 alignments: td.alignments,
                 header: td.header,
                 rows: td.rows,
-            }),
+            }))),
             OpenBlockType::Paragraph => {
                 if block.content.is_empty() {
                     return None;
@@ -714,8 +733,10 @@ impl<'a> BlockParser<'a> {
             if let Some((label, href, title, consumed)) = parse_link_ref_def(trimmed) {
                 let key = crate::inline::normalize_reference_label(&label);
                 if !self.ref_defs.contains_key(&*key) {
-                    let resolved_href = resolve_entities_and_escapes(&href);
-                    let resolved_title = title.map(|t| resolve_entities_and_escapes(&t));
+                    let resolved_href: std::rc::Rc<str> =
+                        resolve_entities_and_escapes(&href).into();
+                    let resolved_title = title
+                        .map(|t| -> std::rc::Rc<str> { resolve_entities_and_escapes(&t).into() });
                     self.ref_defs.insert(
                         key.into_owned(),
                         crate::inline::LinkReference {

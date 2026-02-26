@@ -1,7 +1,7 @@
 use super::*;
 
 impl<'a> InlineScanner<'a> {
-    pub(super) fn try_inline_link(&mut self) -> Option<(LinkDest, Option<String>)> {
+    pub(super) fn try_inline_link(&mut self) -> Option<(LinkDest, Option<Rc<str>>)> {
         if self.pos >= self.bytes.len() || self.bytes[self.pos] != b'(' {
             return None;
         }
@@ -16,7 +16,7 @@ impl<'a> InlineScanner<'a> {
 
         let dest = if self.pos < self.bytes.len() && self.bytes[self.pos] == b'<' {
             match self.scan_angle_dest() {
-                Some(d) => LinkDest::Owned(d),
+                Some(d) => LinkDest::Owned(d.into()),
                 None => {
                     self.pos = saved;
                     return None;
@@ -34,12 +34,14 @@ impl<'a> InlineScanner<'a> {
 
         self.skip_ws();
 
-        let mut title = None;
+        let mut title: Option<Rc<str>> = None;
         if self.pos < self.bytes.len() && matches!(self.bytes[self.pos], b'"' | b'\'' | b'(') {
-            title = self.scan_link_title();
-            if title.is_none() {
-                self.pos = saved;
-                return None;
+            match self.scan_link_title() {
+                Some(t) => title = Some(t.into()),
+                None => {
+                    self.pos = saved;
+                    return None;
+                }
             }
             self.skip_ws();
         }
@@ -149,7 +151,7 @@ impl<'a> InlineScanner<'a> {
         if paren_depth != 0 {
             return None;
         }
-        Some(LinkDest::Owned(dest))
+        Some(LinkDest::Owned(dest.into()))
     }
 
     pub(super) fn scan_link_title(&mut self) -> Option<String> {
@@ -195,7 +197,7 @@ impl<'a> InlineScanner<'a> {
         &mut self,
         text_pos: usize,
         close_pos: usize,
-    ) -> Option<(LinkDest, Option<String>)> {
+    ) -> Option<(LinkDest, Option<Rc<str>>)> {
         let saved = self.pos;
         let raw_label = &self.input[text_pos..close_pos];
 

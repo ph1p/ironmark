@@ -5,21 +5,30 @@ pub(crate) fn escape_html(input: &str) -> String {
     out
 }
 
+/// Push the segment `input[last..end]`, escaping any `"` found within.
 #[inline(always)]
-fn escape_quote_only(out: &mut String, input: &str, bytes: &[u8]) {
-    let len = bytes.len();
-    let mut last = 0;
-    while let Some(q_off) = memchr::memchr(b'"', &bytes[last..]) {
-        let q = last + q_off;
-        if last < q {
-            out.push_str(unsafe { input.get_unchecked(last..q) });
+fn push_segment_escaping_quotes(
+    out: &mut String,
+    input: &str,
+    bytes: &[u8],
+    last: &mut usize,
+    end: usize,
+) {
+    let mut pos = *last;
+    while pos < end {
+        if let Some(q) = memchr::memchr(b'"', &bytes[pos..end]) {
+            let q = pos + q;
+            if pos < q {
+                out.push_str(unsafe { input.get_unchecked(pos..q) });
+            }
+            out.push_str("&quot;");
+            pos = q + 1;
+        } else {
+            out.push_str(unsafe { input.get_unchecked(pos..end) });
+            pos = end;
         }
-        out.push_str("&quot;");
-        last = q + 1;
     }
-    if last < len {
-        out.push_str(unsafe { input.get_unchecked(last..len) });
-    }
+    *last = end;
 }
 
 #[inline]
@@ -27,27 +36,11 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     let bytes = input.as_bytes();
     let len = bytes.len();
     let mut last = 0;
-    if memchr::memchr3(b'&', b'<', b'>', bytes).is_none() {
-        escape_quote_only(out, input, bytes);
-        return;
-    }
     while last < len {
-        let next = memchr::memchr3(b'&', b'<', b'>', &bytes[last..]);
-        let boundary = next.map_or(len, |o| last + o);
-        if let Some(q_off) = memchr::memchr(b'"', &bytes[last..boundary]) {
-            let q = last + q_off;
-            if last < q {
-                out.push_str(unsafe { input.get_unchecked(last..q) });
-            }
-            out.push_str("&quot;");
-            last = q + 1;
-            continue;
-        }
-        if last < boundary {
-            out.push_str(unsafe { input.get_unchecked(last..boundary) });
-        }
-        if let Some(offset) = next {
-            let i = last + offset;
+        if let Some(off) = memchr::memchr3(b'&', b'<', b'>', &bytes[last..]) {
+            let i = last + off;
+            // Flush text before this hit, escaping any quotes within.
+            push_segment_escaping_quotes(out, input, bytes, &mut last, i);
             out.push_str(match bytes[i] {
                 b'&' => "&amp;",
                 b'<' => "&lt;",
@@ -55,7 +48,8 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
             });
             last = i + 1;
         } else {
-            return;
+            // No more &<> — flush remaining, escaping quotes.
+            push_segment_escaping_quotes(out, input, bytes, &mut last, len);
         }
     }
 }

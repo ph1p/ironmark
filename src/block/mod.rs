@@ -288,6 +288,14 @@ impl OpenBlock {
             list_kind: None,
         }
     }
+
+    #[inline]
+    fn with_content_capacity(block_type: OpenBlockType, cap: usize) -> Self {
+        Self {
+            content: String::with_capacity(cap),
+            ..Self::new(block_type)
+        }
+    }
 }
 
 pub(crate) struct BlockParser<'a> {

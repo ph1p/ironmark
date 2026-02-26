@@ -36,7 +36,12 @@ impl<'a> InlineScanner<'a> {
                 }
                 InlineItem::Code(c) => {
                     out.push_str("<code>");
-                    out.push_str(c);
+                    escape_html_into(out, c);
+                    out.push_str("</code>");
+                }
+                InlineItem::CodeRange(s, e) => {
+                    out.push_str("<code>");
+                    escape_html_into(out, &self.input[*s as usize..*e as usize]);
                     out.push_str("</code>");
                 }
                 InlineItem::HardBreak => out.push_str("<br />\n"),
@@ -148,6 +153,7 @@ impl<'a> InlineScanner<'a> {
         for idx in start..end {
             match &self.items[idx] {
                 InlineItem::TextRange(a, b) => s.push_str(&self.input[*a..*b]),
+                InlineItem::CodeRange(a, b) => s.push_str(&self.input[*a as usize..*b as usize]),
                 InlineItem::TextOwned(t) | InlineItem::Code(t) => s.push_str(t),
                 InlineItem::TextStatic(t) => s.push_str(t),
                 InlineItem::TextInline { buf, len } => {

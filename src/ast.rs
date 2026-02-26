@@ -31,11 +31,14 @@ pub(crate) enum Block {
         literal: String,
     },
     ThematicBreak,
-    Table {
-        alignments: Vec<TableAlignment>,
-        header: Vec<String>,
-        rows: Vec<Vec<String>>,
-    },
+    Table(Box<TableData>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TableData {
+    pub alignments: Vec<TableAlignment>,
+    pub header: Vec<String>,
+    pub rows: Vec<Vec<String>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

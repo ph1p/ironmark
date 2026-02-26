@@ -7,11 +7,12 @@ use crate::entities;
 use crate::html::escape_html_into;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
+use std::rc::Rc;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LinkReference {
-    pub href: String,
-    pub title: Option<String>,
+    pub href: Rc<str>,
+    pub title: Option<Rc<str>>,
 }
 
 pub(crate) type LinkRefMap = FxHashMap<String, LinkReference>;
@@ -127,38 +128,33 @@ pub(crate) fn parse_inline_pass(
 ) {
     let bytes = raw.as_bytes();
 
-    let mut first_pos = usize::MAX;
-    let mut complex_mask: u8 = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        let s = SPECIAL[b as usize];
-        if s == 0 {
-            continue;
+    // Fast check: find first complex byte (not * or _) using memchr3 on the most
+    // common complex triggers. If none found, we only need emphasis-only or plain.
+    let first_complex = memchr::memchr3(b'[', b'`', b'<', bytes)
+        .or_else(|| memchr::memchr3(b'&', b'!', b'~', bytes))
+        .or_else(|| memchr::memchr3(b'=', b'+', b':', bytes))
+        .or_else(|| memchr::memchr(b'@', bytes));
+
+    let has_newline_or_backslash = if first_complex.is_none() {
+        memchr::memchr2(b'\n', b'\\', bytes)
+    } else {
+        None
+    };
+
+    if first_complex.is_none() && has_newline_or_backslash.is_none() {
+        // No complex bytes. Check if there are emphasis markers at all.
+        if let Some(first_em) = memchr::memchr2(b'*', b'_', bytes) {
+            emit_emphasis_only(out, raw, bytes, &mut bufs.em_delims);
+            let _ = first_em;
+            return;
         }
-        if first_pos == usize::MAX {
-            first_pos = i;
-        }
-        if s & SPECIAL_COMPLEX != 0 {
-            if b == b'\n' || b == b'\\' {
-                complex_mask |= 1;
-            } else {
-                complex_mask = 3;
-                break;
-            }
-        }
-    }
-    if first_pos == usize::MAX {
         escape_html_into(out, raw);
         return;
     }
 
-    let first_byte = bytes[first_pos];
-    if (first_byte == b'*' || first_byte == b'_') && complex_mask == 0 {
-        emit_emphasis_only(out, raw, bytes);
-        return;
-    }
-
-    if complex_mask == 1 {
-        emit_breaks_and_emphasis(out, raw, bytes, opts);
+    if first_complex.is_none() {
+        // Only \n and/or \\ — breaks + emphasis path.
+        emit_breaks_and_emphasis(out, raw, bytes, opts, &mut bufs.em_delims);
         return;
     }
 
@@ -282,59 +278,68 @@ fn render_em_delim(out: &mut String, d: &EmDelim) {
     }
 }
 
-fn scan_em_delims(raw: &str, bytes: &[u8], skip_escapes: bool) -> Vec<EmDelim> {
+fn scan_em_delims(raw: &str, bytes: &[u8], skip_escapes: bool, buf: &mut Vec<EmDelim>) {
+    buf.clear();
     let len = bytes.len();
-    let mut buf = Vec::new();
     let mut i = 0;
     while i < len {
+        // Use memchr to skip to the next interesting byte.
+        let next = if skip_escapes {
+            memchr::memchr3(b'*', b'_', b'\\', &bytes[i..])
+        } else {
+            memchr::memchr2(b'*', b'_', &bytes[i..])
+        };
+        let Some(off) = next else { break };
+        i += off;
         let b = bytes[i];
-        if skip_escapes && b == b'\\' && i + 1 < len && crate::is_ascii_punctuation(bytes[i + 1]) {
-            i += 2;
-            continue;
-        }
-        if b == b'*' || b == b'_' {
-            let run_start = i;
-            while i < len && bytes[i] == b {
+        if b == b'\\' {
+            // skip_escapes must be true if we got here
+            if i + 1 < len && crate::is_ascii_punctuation(bytes[i + 1]) {
+                i += 2;
+            } else {
                 i += 1;
             }
-            let before = if run_start > 0 {
-                char_before(raw, run_start)
-            } else {
-                ' '
-            };
-            let after = if i < len { char_at(raw, i) } else { ' ' };
-            let (can_open, can_close) = flanking(b, before, after);
-            buf.push(EmDelim {
-                orig_start: run_start as u32,
-                orig_end: i as u32,
-                cur_start: run_start as u32,
-                cur_end: i as u32,
-                marker: b,
-                can_open,
-                can_close,
-                active: true,
-                open_em: [0; 4],
-                open_em_len: 0,
-                close_em: [0; 4],
-                close_em_len: 0,
-            });
-        } else {
+            continue;
+        }
+        let run_start = i;
+        i += 1;
+        while i < len && bytes[i] == b {
             i += 1;
         }
+        let before = if run_start > 0 {
+            char_before(raw, run_start)
+        } else {
+            ' '
+        };
+        let after = if i < len { char_at(raw, i) } else { ' ' };
+        let (can_open, can_close) = flanking(b, before, after);
+        buf.push(EmDelim {
+            orig_start: run_start as u32,
+            orig_end: i as u32,
+            cur_start: run_start as u32,
+            cur_end: i as u32,
+            marker: b,
+            can_open,
+            can_close,
+            active: true,
+            open_em: [0; 4],
+            open_em_len: 0,
+            close_em: [0; 4],
+            close_em_len: 0,
+        });
     }
-    buf
 }
 
-fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
-    let mut delims = scan_em_delims(raw, bytes, false);
-    if delims.is_empty() {
+fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8], em_buf: &mut Vec<EmDelim>) {
+    scan_em_delims(raw, bytes, false, em_buf);
+    if em_buf.is_empty() {
         escape_html_into(out, raw);
         return;
     }
-    process_em_delims(&mut delims);
+    process_em_delims(em_buf);
 
     let mut text_pos = 0usize;
-    for d in delims.iter() {
+    for d in em_buf.iter() {
         if text_pos < d.orig_start as usize {
             escape_html_into(out, &raw[text_pos..d.orig_start as usize]);
         }
@@ -346,10 +351,16 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
     }
 }
 
-fn emit_breaks_and_emphasis(out: &mut String, raw: &str, bytes: &[u8], opts: &ParseOptions) {
-    let mut delims = scan_em_delims(raw, bytes, true);
-    if !delims.is_empty() {
-        process_em_delims(&mut delims);
+fn emit_breaks_and_emphasis(
+    out: &mut String,
+    raw: &str,
+    bytes: &[u8],
+    opts: &ParseOptions,
+    em_buf: &mut Vec<EmDelim>,
+) {
+    scan_em_delims(raw, bytes, true, em_buf);
+    if !em_buf.is_empty() {
+        process_em_delims(em_buf);
     }
 
     let len = bytes.len();
@@ -357,16 +368,16 @@ fn emit_breaks_and_emphasis(out: &mut String, raw: &str, bytes: &[u8], opts: &Pa
     let mut di = 0usize;
 
     while text_pos < len {
-        let next_delim_pos = if di < delims.len() {
-            delims[di].orig_start as usize
+        let next_delim_pos = if di < em_buf.len() {
+            em_buf[di].orig_start as usize
         } else {
             len
         };
         emit_text_with_breaks(out, raw, bytes, &mut text_pos, next_delim_pos, opts);
 
-        if di < delims.len() && text_pos == delims[di].orig_start as usize {
-            render_em_delim(out, &delims[di]);
-            text_pos = delims[di].orig_end as usize;
+        if di < em_buf.len() && text_pos == em_buf[di].orig_start as usize {
+            render_em_delim(out, &em_buf[di]);
+            text_pos = em_buf[di].orig_end as usize;
             di += 1;
         }
     }
@@ -443,6 +454,7 @@ pub(crate) struct InlineBuffers {
     delims: Vec<usize>,
     brackets: Vec<BracketInfo>,
     links: Vec<LinkInfo>,
+    em_delims: Vec<EmDelim>,
 }
 
 impl InlineBuffers {
@@ -452,6 +464,7 @@ impl InlineBuffers {
             delims: Vec::new(),
             brackets: Vec::new(),
             links: Vec::new(),
+            em_delims: Vec::new(),
         }
     }
 }
@@ -486,13 +499,13 @@ impl SmallEmVec {
 #[derive(Clone, Debug)]
 enum LinkDest {
     Range(u32, u32),
-    Owned(String),
+    Owned(Rc<str>),
 }
 
 #[derive(Clone, Debug)]
 struct LinkInfo {
     dest: LinkDest,
-    title: Option<String>,
+    title: Option<Rc<str>>,
     is_image: bool,
 }
 
@@ -508,6 +521,8 @@ enum InlineItem {
     RawHtml(usize, usize),
     Autolink(u32, u32, bool),
     Code(String),
+    /// Code span stored as byte range into input (unescaped). Escaped at render time.
+    CodeRange(u32, u32),
     HardBreak,
     SoftBreak,
     DelimRun {
@@ -544,6 +559,8 @@ struct InlineScanner<'a> {
     delims: &'a mut Vec<usize>,
     brackets: &'a mut Vec<BracketInfo>,
     links: &'a mut Vec<LinkInfo>,
+    /// Bitfield: bit N set means no closing backtick run of length N exists.
+    backtick_no_match: u64,
 }
 
 impl<'a> InlineScanner<'a> {
@@ -567,6 +584,7 @@ impl<'a> InlineScanner<'a> {
             delims: &mut bufs.delims,
             brackets: &mut bufs.brackets,
             links: &mut bufs.links,
+            backtick_no_match: 0,
         }
     }
 }

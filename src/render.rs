@@ -26,7 +26,8 @@ pub(crate) fn render_block(
     opts: &ParseOptions,
     bufs: &mut InlineBuffers,
 ) {
-    let mut stack: Vec<Work<'_>> = vec![Work::Block(block)];
+    let mut stack: Vec<Work<'_>> = Vec::with_capacity(32);
+    stack.push(Work::Block(block));
 
     while let Some(work) = stack.pop() {
         match work {
@@ -164,11 +165,10 @@ fn render_one<'a>(
                 out.push_str("</li>\n");
             }
         }
-        Block::Table {
-            alignments,
-            header,
-            rows,
-        } => {
+        Block::Table(td) => {
+            let alignments = &td.alignments;
+            let header = &td.header;
+            let rows = &td.rows;
             let all_none = alignments.iter().all(|a| *a == TableAlignment::None);
             out.push_str("<table>\n<thead>\n<tr>\n");
             for (i, cell) in header.iter().enumerate() {
@@ -213,8 +213,16 @@ fn render_one<'a>(
 /// or inline parsing (no `<`, `>`, `&`, `"`, or control chars).
 #[inline(always)]
 fn is_trivially_plain(s: &str) -> bool {
-    s.bytes()
-        .all(|b| b >= b' ' && b != b'<' && b != b'>' && b != b'&' && b != b'"')
+    let bytes = s.as_bytes();
+    // Fast SIMD check for the most common HTML-special characters.
+    if memchr::memchr3(b'<', b'>', b'&', bytes).is_some() {
+        return false;
+    }
+    if memchr::memchr(b'"', bytes).is_some() {
+        return false;
+    }
+    // Check for control characters (bytes < 0x20).
+    bytes.iter().all(|&b| b >= b' ')
 }
 
 /// For trivially plain text, push directly; otherwise run the full inline pass.
@@ -396,6 +404,7 @@ fn render_tight_list_item<'a>(
     }
 }
 
+#[inline]
 fn render_table_cell(
     out: &mut String,
     content: &str,
