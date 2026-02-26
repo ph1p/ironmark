@@ -209,6 +209,30 @@ fn render_one<'a>(
     }
 }
 
+/// Returns `true` if the string contains no characters requiring HTML escaping
+/// or inline parsing (no `<`, `>`, `&`, `"`, or control chars).
+#[inline(always)]
+fn is_trivially_plain(s: &str) -> bool {
+    s.bytes()
+        .all(|b| b >= b' ' && b != b'<' && b != b'>' && b != b'&' && b != b'"')
+}
+
+/// For trivially plain text, push directly; otherwise run the full inline pass.
+#[inline(always)]
+fn push_inline_or_plain(
+    out: &mut String,
+    raw: &str,
+    refs: &LinkRefMap,
+    opts: &ParseOptions,
+    bufs: &mut InlineBuffers,
+) {
+    if is_trivially_plain(raw) {
+        out.push_str(raw);
+    } else {
+        parse_inline_pass(out, raw, refs, opts, bufs);
+    }
+}
+
 #[inline(never)]
 fn render_nested_tight_list<'a>(
     kind: &ListKind,
@@ -256,7 +280,7 @@ fn render_nested_tight_list<'a>(
             ) = (&item_children[0], &item_children[1])
             {
                 if inner_children.len() == 1 {
-                    parse_inline_pass(out, raw, refs, opts, bufs);
+                    push_inline_or_plain(out, raw, refs, opts, bufs);
                     out.push('\n');
                     close_tags[depth] = list_close_tag(cur_kind);
                     depth += 1;
@@ -270,7 +294,9 @@ fn render_nested_tight_list<'a>(
 
         if item_children.len() == 1 {
             if let Block::Paragraph { raw } = &item_children[0] {
-                parse_inline_pass(out, raw, refs, opts, bufs);
+                push_inline_or_plain(out, raw, refs, opts, bufs);
+                // Reserve for unwind: "</li>\n" (6) + close tag (~6) per level
+                out.reserve((depth + 1) * 12);
                 out.push_str("</li>\n");
                 out.push_str(list_close_tag(cur_kind));
                 let mut i = depth;
@@ -315,6 +341,7 @@ fn render_nested_tight_list<'a>(
         return;
     }
 
+    out.reserve(depth * 12);
     let mut i = depth;
     while i > 0 {
         i -= 1;
