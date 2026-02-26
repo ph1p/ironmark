@@ -1,4 +1,3 @@
-// 2125 HTML5 named character references — packed as (name, cp1, cp2) where cp2=0 for single
 pub(crate) static ENTITIES: &[(&str, u32, u32)] = &[
     ("AElig", 0x00C6, 0),
     ("AMP", 0x0026, 0),

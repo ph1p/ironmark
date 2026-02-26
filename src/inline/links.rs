@@ -290,76 +290,68 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        if is_email_autolink(content) {
-            self.items.push(InlineItem::Autolink(
-                content_start as u32,
-                self.pos as u32 - 1,
-                true,
-            ));
-            return true;
+        {
+            let eb = content.as_bytes();
+            if let Some(at) = eb.iter().position(|&b| b == b'@') {
+                if at > 0
+                    && at + 1 < eb.len()
+                    && eb[..at].iter().all(|&b| is_email_local_char(b))
+                    && eb[at + 1..]
+                        .iter()
+                        .all(|&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+                {
+                    self.items.push(InlineItem::Autolink(
+                        content_start as u32,
+                        self.pos as u32 - 1,
+                        true,
+                    ));
+                    return true;
+                }
+            }
         }
 
         self.pos = start;
         false
     }
 
+    fn emit_raw_html(&mut self, len: usize) -> bool {
+        let s = self.pos;
+        self.items.push(InlineItem::RawHtml(s, s + len));
+        self.pos += len;
+        true
+    }
+
     pub(super) fn try_html_inline(&mut self) -> bool {
         let rest = &self.input[self.pos..];
-        let rest_start = self.pos;
+        let bytes = rest.as_bytes();
 
         if rest.starts_with("<!--") {
             if rest.starts_with("<!-->") {
-                self.items
-                    .push(InlineItem::RawHtml(rest_start, rest_start + 5));
-                self.pos += 5;
-                return true;
+                return self.emit_raw_html(5);
             }
             if rest.starts_with("<!--->") {
-                self.items
-                    .push(InlineItem::RawHtml(rest_start, rest_start + 6));
-                self.pos += 6;
-                return true;
+                return self.emit_raw_html(6);
             }
             if let Some(end) = rest[4..].find("-->") {
-                let tag_len = end + 7;
-                self.items
-                    .push(InlineItem::RawHtml(rest_start, rest_start + tag_len));
-                self.pos += tag_len;
-                return true;
+                return self.emit_raw_html(end + 7);
             }
         }
 
         if rest.starts_with("<?") {
             if let Some(end) = rest[2..].find("?>") {
-                let tag_len = end + 4;
-                self.items
-                    .push(InlineItem::RawHtml(rest_start, rest_start + tag_len));
-                self.pos += tag_len;
-                return true;
+                return self.emit_raw_html(end + 4);
             }
         }
 
         if rest.starts_with("<![CDATA[") {
             if let Some(end) = rest[9..].find("]]>") {
-                let tag_len = end + 12;
-                self.items
-                    .push(InlineItem::RawHtml(rest_start, rest_start + tag_len));
-                self.pos += tag_len;
-                return true;
+                return self.emit_raw_html(end + 12);
             }
         }
 
-        let bytes = rest.as_bytes();
-        if bytes.len() > 2
-            && bytes[1] == b'!'
-            && bytes.get(2).map_or(false, |b| b.is_ascii_alphabetic())
-        {
+        if bytes.len() > 2 && bytes[1] == b'!' && bytes[2].is_ascii_alphabetic() {
             if let Some(end) = rest.find('>') {
-                let tag_len = end + 1;
-                self.items
-                    .push(InlineItem::RawHtml(rest_start, rest_start + tag_len));
-                self.pos += tag_len;
-                return true;
+                return self.emit_raw_html(end + 1);
             }
         }
 
@@ -378,17 +370,14 @@ impl<'a> InlineScanner<'a> {
         }
 
         if is_close {
-            while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+            while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
                 i += 1;
             }
-            if i < bytes.len() && bytes[i] == b'>' {
-                i += 1;
-                self.items
-                    .push(InlineItem::RawHtml(rest_start, rest_start + i));
-                self.pos += i;
-                return true;
-            }
-            return false;
+            return if i < bytes.len() && bytes[i] == b'>' {
+                self.emit_raw_html(i + 1)
+            } else {
+                false
+            };
         }
 
         loop {
@@ -403,27 +392,18 @@ impl<'a> InlineScanner<'a> {
                 return false;
             }
             if bytes[i] == b'>' {
-                i += 1;
-                self.items
-                    .push(InlineItem::RawHtml(rest_start, rest_start + i));
-                self.pos += i;
-                return true;
+                return self.emit_raw_html(i + 1);
             }
             if bytes[i] == b'/' {
-                i += 1;
-                if i < bytes.len() && bytes[i] == b'>' {
-                    i += 1;
-                    self.items
-                        .push(InlineItem::RawHtml(rest_start, rest_start + i));
-                    self.pos += i;
-                    return true;
-                }
-                return false;
+                return if i + 1 < bytes.len() && bytes[i + 1] == b'>' {
+                    self.emit_raw_html(i + 2)
+                } else {
+                    false
+                };
             }
-            if !had_space {
-                return false;
-            }
-            if !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' || bytes[i] == b':') {
+            if !had_space
+                || !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' || bytes[i] == b':')
+            {
                 return false;
             }
             while i < bytes.len()
@@ -648,9 +628,10 @@ impl<'a> InlineScanner<'a> {
                     return true;
                 }
                 _ => {
-                    self.items.push(InlineItem::TextStatic(
-                        ASCII_CHAR_STRS[char_buf[0] as usize],
-                    ));
+                    self.items.push(InlineItem::TextInline {
+                        buf: char_buf,
+                        len: 1,
+                    });
                     return true;
                 }
             }

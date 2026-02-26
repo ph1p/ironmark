@@ -77,7 +77,6 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
     Some((label, dest, title, consumed))
 }
 
-/// Resolve HTML entity references and backslash escapes in a string
 pub(super) fn resolve_entities_and_escapes(s: &str) -> String {
     let bytes = s.as_bytes();
     if memchr::memchr2(b'\\', b'&', bytes).is_none() {
@@ -105,8 +104,6 @@ pub(super) fn resolve_entities_and_escapes(s: &str) -> String {
     out
 }
 
-/// Resolve an entity reference starting at `&` in `bytes[start..]`.
-/// On success, appends the resolved characters to `out` and returns the byte offset past `;`.
 pub(super) fn resolve_entity_in_bytes(
     bytes: &[u8],
     start: usize,

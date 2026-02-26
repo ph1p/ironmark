@@ -5,6 +5,23 @@ pub(crate) fn escape_html(input: &str) -> String {
     out
 }
 
+#[inline(always)]
+fn escape_quote_only(out: &mut String, input: &str, bytes: &[u8]) {
+    let len = bytes.len();
+    let mut last = 0;
+    while let Some(q_off) = memchr::memchr(b'"', &bytes[last..]) {
+        let q = last + q_off;
+        if last < q {
+            out.push_str(unsafe { input.get_unchecked(last..q) });
+        }
+        out.push_str("&quot;");
+        last = q + 1;
+    }
+    if last < len {
+        out.push_str(unsafe { input.get_unchecked(last..len) });
+    }
+}
+
 #[inline]
 pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     let bytes = input.as_bytes();
@@ -12,15 +29,7 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     let mut last = 0;
 
     if memchr::memchr3(b'&', b'<', b'>', bytes).is_none() {
-        while let Some(q_off) = memchr::memchr(b'"', &bytes[last..]) {
-            let q = last + q_off;
-            if last < q {
-                out.push_str(unsafe { input.get_unchecked(last..q) });
-            }
-            out.push_str("&quot;");
-            last = q + 1;
-        }
-        out.push_str(unsafe { input.get_unchecked(last..len) });
+        escape_quote_only(out, input, bytes);
         return;
     }
 

@@ -119,7 +119,6 @@ pub(super) fn parse_fence_start(line: &str) -> Option<(u8, usize, &str)> {
     Some((ch, count, info))
 }
 
-/// Check if a line is a closing code fence. Works on raw bytes.
 #[inline]
 pub(super) fn is_closing_fence(line: &[u8], fence_char: u8, fence_len: usize) -> bool {
     let len = line.len();
@@ -160,8 +159,6 @@ pub(super) fn is_closing_fence(line: &[u8], fence_char: u8, fence_len: usize) ->
     true
 }
 
-/// Parse a GFM table separator line like `| --- | :---: | ---: |`
-/// Returns alignments if valid, None otherwise.
 pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
@@ -212,7 +209,6 @@ pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
     Some(alignments)
 }
 
-/// Parse a table row into cells, trimming each cell and padding/truncating to `num_cols`.
 pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
     let trimmed = line.trim();
 

@@ -2,7 +2,6 @@ mod data;
 
 pub(crate) use data::ENTITIES;
 
-/// Maximum entity name length per first character. Allows early rejection of non-entities.
 pub(crate) static MAX_ENTITY_LEN: [u8; 128] = {
     let mut t = [0u8; 128];
     t[b'A' as usize] = 13;
@@ -60,7 +59,6 @@ pub(crate) static MAX_ENTITY_LEN: [u8; 128] = {
     t
 };
 
-/// First-character dispatch table: maps ASCII byte to (start, end) range in ENTITIES.
 static ENTITY_FIRST_CHAR: [(u16, u16); 128] = {
     let mut t = [(0u16, 0u16); 128];
     t[b'A' as usize] = (0, 18);
@@ -118,7 +116,6 @@ static ENTITY_FIRST_CHAR: [(u16, u16); 128] = {
     t
 };
 
-/// Look up an HTML5 named entity and return its codepoints as (cp1, cp2) where cp2=0 for single.
 #[inline]
 pub(crate) fn lookup_entity_codepoints(name: &str) -> Option<(u32, u32)> {
     let bytes = name.as_bytes();
@@ -147,7 +144,6 @@ pub(crate) fn lookup_entity_codepoints(name: &str) -> Option<(u32, u32)> {
     }
 }
 
-/// Write the codepoints of a (cp1, cp2) pair to the output string.
 #[inline(always)]
 fn push_codepoints(out: &mut String, cp1: u32, cp2: u32) {
     if let Some(c) = char::from_u32(cp1) {
@@ -160,7 +156,6 @@ fn push_codepoints(out: &mut String, cp1: u32, cp2: u32) {
     }
 }
 
-/// Look up an HTML5 named entity reference and write replacement chars to output.
 #[inline]
 pub(crate) fn lookup_entity_into(name: &str, out: &mut String) -> bool {
     if let Some((cp1, cp2)) = lookup_entity_codepoints(name) {
@@ -171,7 +166,6 @@ pub(crate) fn lookup_entity_into(name: &str, out: &mut String) -> bool {
     }
 }
 
-/// Resolve a numeric character reference and write to output. Returns true if valid.
 pub(crate) fn resolve_numeric_ref_into(value: &str, hex: bool, out: &mut String) -> bool {
     let cp = if hex {
         match u32::from_str_radix(value, 16) {

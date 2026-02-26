@@ -93,23 +93,6 @@ pub(crate) fn normalize_reference_label(label: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-static ASCII_CHAR_STRS: [&str; 128] = {
-    const fn make() -> [&'static str; 128] {
-        [
-            "\x00", "\x01", "\x02", "\x03", "\x04", "\x05", "\x06", "\x07", "\x08", "\x09", "\x0A",
-            "\x0B", "\x0C", "\x0D", "\x0E", "\x0F", "\x10", "\x11", "\x12", "\x13", "\x14", "\x15",
-            "\x16", "\x17", "\x18", "\x19", "\x1A", "\x1B", "\x1C", "\x1D", "\x1E", "\x1F", " ",
-            "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/", "0", "1",
-            "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?", "@", "A", "B",
-            "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
-            "T", "U", "V", "W", "X", "Y", "Z", "[", "\\", "]", "^", "_", "`", "a", "b", "c", "d",
-            "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u",
-            "v", "w", "x", "y", "z", "{", "|", "}", "~", "\x7F",
-        ]
-    }
-    make()
-};
-
 const SPECIAL_ANY: u8 = 1;
 const SPECIAL_COMPLEX: u8 = 2;
 
@@ -207,7 +190,6 @@ struct EmDelim {
     close_em_len: u8,
 }
 
-/// Shared emphasis processing: resolve opener/closer pairs in a slice of EmDelim.
 #[inline(never)]
 fn process_em_delims(delims: &mut [EmDelim]) {
     let mut closer_idx = 0usize;
@@ -276,15 +258,14 @@ fn process_em_delims(delims: &mut [EmDelim]) {
     }
 }
 
-/// Render emphasis tags for a delimiter.
 #[inline(always)]
 fn render_em_delim(out: &mut String, d: &EmDelim) {
     for j in 0..d.close_em_len as usize {
-        if d.close_em[j] == 2 {
-            out.push_str("</strong>");
+        out.push_str(if d.close_em[j] == 2 {
+            "</strong>"
         } else {
-            out.push_str("</em>");
-        }
+            "</em>"
+        });
     }
     if d.cur_start < d.cur_end {
         let marker = d.marker as char;
@@ -293,18 +274,15 @@ fn render_em_delim(out: &mut String, d: &EmDelim) {
         }
     }
     for j in (0..d.open_em_len as usize).rev() {
-        if d.open_em[j] == 2 {
-            out.push_str("<strong>");
+        out.push_str(if d.open_em[j] == 2 {
+            "<strong>"
         } else {
-            out.push_str("<em>");
-        }
+            "<em>"
+        });
     }
 }
 
-type EmDelimBuf = Vec<EmDelim>;
-
-/// Scan emphasis delimiter runs, skipping backslash escapes.
-fn scan_em_delims(raw: &str, bytes: &[u8], skip_escapes: bool) -> EmDelimBuf {
+fn scan_em_delims(raw: &str, bytes: &[u8], skip_escapes: bool) -> Vec<EmDelim> {
     let len = bytes.len();
     let mut buf = Vec::new();
     let mut i = 0;
@@ -368,7 +346,6 @@ fn emit_emphasis_only(out: &mut String, raw: &str, bytes: &[u8]) {
     }
 }
 
-/// Fast path for content with only emphasis markers, newlines, and backslash escapes.
 fn emit_breaks_and_emphasis(out: &mut String, raw: &str, bytes: &[u8], opts: &ParseOptions) {
     let mut delims = scan_em_delims(raw, bytes, true);
     if !delims.is_empty() {
@@ -395,7 +372,6 @@ fn emit_breaks_and_emphasis(out: &mut String, raw: &str, bytes: &[u8], opts: &Pa
     }
 }
 
-/// Emit text from bytes[text_pos..end], handling newlines and backslash escapes.
 #[inline]
 fn emit_text_with_breaks(
     out: &mut String,
@@ -530,7 +506,6 @@ enum InlineItem {
         len: u8,
     },
     RawHtml(usize, usize),
-    /// Autolink: (content_start, content_end, is_email)
     Autolink(u32, u32, bool),
     Code(String),
     HardBreak,
@@ -599,31 +574,35 @@ impl<'a> InlineScanner<'a> {
 pub(super) use crate::is_ascii_punctuation;
 pub(super) use crate::utf8_char_len;
 
+static EMAIL_LOCAL: [bool; 256] = {
+    let mut t = [false; 256];
+    let mut i = b'0';
+    while i <= b'9' {
+        t[i as usize] = true;
+        i += 1;
+    }
+    let mut i = b'A';
+    while i <= b'Z' {
+        t[i as usize] = true;
+        i += 1;
+    }
+    let mut i = b'a';
+    while i <= b'z' {
+        t[i as usize] = true;
+        i += 1;
+    }
+    let extra = b".!#$%&'*+/=?^_`{|}~-";
+    let mut j = 0;
+    while j < extra.len() {
+        t[extra[j] as usize] = true;
+        j += 1;
+    }
+    t
+};
+
 #[inline(always)]
 fn is_email_local_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric()
-        || matches!(
-            b,
-            b'.' | b'!'
-                | b'#'
-                | b'$'
-                | b'%'
-                | b'&'
-                | b'\''
-                | b'*'
-                | b'+'
-                | b'/'
-                | b'='
-                | b'?'
-                | b'^'
-                | b'_'
-                | b'`'
-                | b'{'
-                | b'|'
-                | b'}'
-                | b'~'
-                | b'-'
-        )
+    EMAIL_LOCAL[b as usize]
 }
 
 #[inline(always)]
@@ -641,8 +620,6 @@ fn is_punctuation_char(c: char) -> bool {
     )
 }
 
-/// Compute flanking rules for a delimiter run.
-/// Returns (can_open, can_close).
 #[inline(always)]
 fn flanking(marker: u8, before: char, after: char) -> (bool, bool) {
     let left_flanking = !after.is_whitespace()
@@ -688,24 +665,4 @@ fn char_at(s: &str, byte_pos: usize) -> char {
     let len = utf8_char_len(b);
     let end = (byte_pos + len).min(s.len());
     s[byte_pos..end].chars().next().unwrap_or(' ')
-}
-
-fn is_email_autolink(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    let at = bytes.iter().position(|&b| b == b'@');
-    let Some(at) = at else {
-        return false;
-    };
-    if at == 0 || at + 1 >= bytes.len() {
-        return false;
-    }
-    if !bytes[..at].iter().all(|&b| is_email_local_char(b)) {
-        return false;
-    }
-    for &b in &bytes[at + 1..] {
-        if !(b.is_ascii_alphanumeric() || b == b'-' || b == b'.') {
-            return false;
-        }
-    }
-    true
 }

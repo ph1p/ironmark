@@ -12,12 +12,8 @@ impl<'a> InlineScanner<'a> {
                 InlineItem::TextRange(start, end) => {
                     escape_html_into(out, &self.input[*start..*end]);
                 }
-                InlineItem::TextOwned(t) => {
-                    out.push_str(t);
-                }
-                InlineItem::TextStatic(t) => {
-                    out.push_str(t);
-                }
+                InlineItem::TextOwned(t) => out.push_str(t),
+                InlineItem::TextStatic(t) => out.push_str(t),
                 InlineItem::TextInline { buf, len } => {
                     out.push_str(unsafe { std::str::from_utf8_unchecked(&buf[..*len as usize]) });
                 }
@@ -67,13 +63,11 @@ impl<'a> InlineScanner<'a> {
                             }
                         }
                     }
-
                     if *count > 0 {
                         for _ in 0..*count {
                             out.push(*kind as char);
                         }
                     }
-
                     for &size in open_em.as_slice().iter().rev() {
                         if tag_len < 16 {
                             tag_buf[tag_len] = size;
@@ -162,31 +156,20 @@ impl<'a> InlineScanner<'a> {
         let mut s = String::new();
         for idx in start..end {
             match &self.items[idx] {
-                InlineItem::TextRange(a, b) => {
-                    s.push_str(&self.input[*a..*b]);
-                }
-                InlineItem::TextOwned(t) => s.push_str(t),
+                InlineItem::TextRange(a, b) => s.push_str(&self.input[*a..*b]),
+                InlineItem::TextOwned(t) | InlineItem::Code(t) => s.push_str(t),
                 InlineItem::TextStatic(t) => s.push_str(t),
                 InlineItem::TextInline { buf, len } => {
                     s.push_str(unsafe { std::str::from_utf8_unchecked(&buf[..*len as usize]) });
                 }
-                InlineItem::Code(c) => s.push_str(c),
                 InlineItem::DelimRun { kind, count, .. } => {
                     for _ in 0..*count {
                         s.push(*kind as char);
                     }
                 }
-                InlineItem::RawHtml(_, _) | InlineItem::Autolink(..) => {}
-                InlineItem::HardBreak | InlineItem::SoftBreak => {}
-                InlineItem::LinkStart(_) => {}
-                InlineItem::LinkEnd => {}
-                InlineItem::BracketOpen { is_image, .. } => {
-                    if *is_image {
-                        s.push_str("![");
-                    } else {
-                        s.push('[');
-                    }
-                }
+                InlineItem::BracketOpen { is_image: true, .. } => s.push_str("!["),
+                InlineItem::BracketOpen { .. } => s.push('['),
+                _ => {}
             }
         }
         s

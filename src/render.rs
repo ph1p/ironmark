@@ -3,8 +3,6 @@ use crate::ast::{Block, ListKind, TableAlignment};
 use crate::html::escape_html_into;
 use crate::inline::{InlineBuffers, LinkRefMap, parse_inline_pass};
 
-/// Check if text is plain (no inline specials, no HTML-escapable chars).
-/// If so, it can be pushed directly to output without any processing.
 #[inline(always)]
 fn is_plain_text(s: &str) -> bool {
     static NEEDS_PROCESSING: [bool; 256] = {
@@ -242,13 +240,6 @@ fn render_one<'a>(
     }
 }
 
-/// Render a chain of tight single-item lists directly, without the work stack.
-///
-/// The chain pattern is: List(tight, 1 item) containing ListItem with
-/// [Paragraph("text"), List(tight, 1 item)] recursively. This renders
-/// the open tags in a loop and emits all close tags at the end.
-///
-/// Uses a fixed-size stack-allocated array of close tags to avoid heap allocation.
 #[inline(never)]
 fn render_nested_tight_list<'a>(
     kind: &ListKind,
@@ -371,7 +362,6 @@ fn render_nested_tight_list<'a>(
     }
 }
 
-/// Render a list item in tight mode.
 #[inline]
 fn render_tight_list_item<'a>(
     block: &'a Block,

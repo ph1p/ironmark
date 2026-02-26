@@ -197,16 +197,6 @@ impl<'a> Line<'a> {
         (col, off, 0)
     }
 
-    fn indent(&mut self) -> usize {
-        let (col, _, _) = self.peek_nonspace_col();
-        col - self.col_offset
-    }
-
-    fn first_nonspace_byte(&mut self) -> u8 {
-        let (_, _, b) = self.peek_nonspace_col();
-        b
-    }
-
     fn advance_to_nonspace(&mut self) {
         self.partial_spaces = 0;
         let (col, off, _) = self.peek_nonspace_col();
@@ -214,17 +204,6 @@ impl<'a> Line<'a> {
         self.byte_offset = off;
     }
 
-    #[inline]
-    fn rest_of_line(&mut self) -> &'a str {
-        let (_, off, _) = self.peek_nonspace_col();
-        if off >= self.raw.len() {
-            ""
-        } else {
-            &self.raw[off..]
-        }
-    }
-
-    /// Get the remaining content as a string, with partial tab spaces expanded.
     fn remainder_with_partial(&self) -> Cow<'a, str> {
         if self.partial_spaces > 0 {
             static SPACES: &str = "    ";
@@ -259,9 +238,7 @@ enum OpenBlockType {
     Document,
     BlockQuote,
     ListItem {
-        /// Column position where content starts (after marker + spaces)
         content_col: usize,
-        /// True if the item started with a blank line after the marker
         started_blank: bool,
     },
     FencedCode(Box<FencedCodeData>),
@@ -275,17 +252,11 @@ enum OpenBlockType {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum HtmlBlockEnd {
-    /// Type 1: ends at </pre>, </script>, </style>, </textarea>
     EndTag(&'static str),
-    /// Type 2: ends at -->
     Comment,
-    /// Type 3: ends at ?>
     ProcessingInstruction,
-    /// Type 4: ends at >
     Declaration,
-    /// Type 5: ends at ]]>
     Cdata,
-    /// Types 6,7: ends at blank line
     BlankLine,
 }
 
@@ -322,14 +293,10 @@ impl OpenBlock {
 pub(crate) struct BlockParser<'a> {
     input: &'a str,
     pub(crate) ref_defs: LinkRefMap,
-    /// Stack of open blocks. Index 0 is the Document.
     open: Vec<OpenBlock>,
     enable_tables: bool,
     enable_task_lists: bool,
-    /// Number of open BlockQuote containers (used for fast-path checks)
     open_blockquotes: usize,
-    /// Cumulative sum of content_col for all open ListItem containers.
-    /// Updated when ListItems are pushed/popped.
     list_indent_sum: usize,
 }
 
@@ -384,8 +351,6 @@ impl<'a> BlockParser<'a> {
         }
     }
 
-    /// Bulk-scan content lines of a document-level fenced code block with indent=0.
-    /// Returns the byte offset to continue parsing from.
     #[inline(never)]
     fn bulk_scan_fenced_code(
         &mut self,
@@ -442,21 +407,6 @@ impl<'a> BlockParser<'a> {
                 content.push_str(chunk);
             }
         }
-    }
-
-    fn has_open_leaf_after(&self, idx: usize) -> bool {
-        for i in (idx + 1)..self.open.len() {
-            if matches!(
-                self.open[i].block_type,
-                OpenBlockType::Paragraph
-                    | OpenBlockType::FencedCode(..)
-                    | OpenBlockType::IndentedCode
-                    | OpenBlockType::HtmlBlock { .. }
-            ) {
-                return true;
-            }
-        }
-        false
     }
 
     fn mark_blank_on_list_items(&mut self) {
