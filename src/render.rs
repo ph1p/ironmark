@@ -137,7 +137,15 @@ fn render_one<'a>(
             children,
         } => {
             if *tight && children.len() == 1 {
-                render_nested_tight_list(kind, *start, children, refs, out, opts, bufs, stack);
+                render_nested_tight_list(
+                    kind,
+                    *start,
+                    children,
+                    InlineCtx { refs, opts },
+                    out,
+                    bufs,
+                    stack,
+                );
                 return;
             }
             emit_list_open(out, kind, *start);
@@ -241,14 +249,19 @@ fn push_inline_or_plain(
     }
 }
 
+#[derive(Copy, Clone)]
+struct InlineCtx<'a> {
+    refs: &'a LinkRefMap,
+    opts: &'a ParseOptions,
+}
+
 #[inline(never)]
 fn render_nested_tight_list<'a>(
     kind: &ListKind,
     start: u32,
     children: &'a [Block],
-    refs: &LinkRefMap,
+    inline: InlineCtx<'_>,
     out: &mut String,
-    opts: &ParseOptions,
     bufs: &mut InlineBuffers,
     stack: &mut Vec<Work<'a>>,
 ) {
@@ -276,8 +289,9 @@ fn render_nested_tight_list<'a>(
         out.push_str("<li>");
         emit_checkbox(out, *checked);
 
-        if item_children.len() == 2 && depth < MAX_DEPTH {
-            if let (
+        if item_children.len() == 2
+            && depth < MAX_DEPTH
+            && let (
                 Block::Paragraph { raw },
                 Block::List {
                     kind: inner_kind,
@@ -286,35 +300,33 @@ fn render_nested_tight_list<'a>(
                     children: inner_children,
                 },
             ) = (&item_children[0], &item_children[1])
-            {
-                if inner_children.len() == 1 {
-                    push_inline_or_plain(out, raw, refs, opts, bufs);
-                    out.push('\n');
-                    close_tags[depth] = list_close_tag(cur_kind);
-                    depth += 1;
-                    cur_kind = inner_kind;
-                    cur_start = *inner_start;
-                    cur_children = inner_children;
-                    continue;
-                }
-            }
+            && inner_children.len() == 1
+        {
+            push_inline_or_plain(out, raw, inline.refs, inline.opts, bufs);
+            out.push('\n');
+            close_tags[depth] = list_close_tag(cur_kind);
+            depth += 1;
+            cur_kind = inner_kind;
+            cur_start = *inner_start;
+            cur_children = inner_children;
+            continue;
         }
 
-        if item_children.len() == 1 {
-            if let Block::Paragraph { raw } = &item_children[0] {
-                push_inline_or_plain(out, raw, refs, opts, bufs);
-                // Reserve for unwind: "</li>\n" (6) + close tag (~6) per level
-                out.reserve((depth + 1) * 12);
+        if item_children.len() == 1
+            && let Block::Paragraph { raw } = &item_children[0]
+        {
+            push_inline_or_plain(out, raw, inline.refs, inline.opts, bufs);
+            // Reserve for unwind: "</li>\n" (6) + close tag (~6) per level
+            out.reserve((depth + 1) * 12);
+            out.push_str("</li>\n");
+            out.push_str(list_close_tag(cur_kind));
+            let mut i = depth;
+            while i > 0 {
+                i -= 1;
                 out.push_str("</li>\n");
-                out.push_str(list_close_tag(cur_kind));
-                let mut i = depth;
-                while i > 0 {
-                    i -= 1;
-                    out.push_str("</li>\n");
-                    out.push_str(close_tags[i]);
-                }
-                return;
+                out.push_str(close_tags[i]);
             }
+            return;
         }
 
         {
@@ -332,7 +344,7 @@ fn render_nested_tight_list<'a>(
         for (idx, child) in item_children.iter().enumerate() {
             match child {
                 Block::Paragraph { raw } => {
-                    parse_inline_pass(out, raw, refs, opts, bufs);
+                    parse_inline_pass(out, raw, inline.refs, inline.opts, bufs);
                     prev_was_para = true;
                 }
                 _ => {
@@ -375,12 +387,12 @@ fn render_tight_list_item<'a>(
     out.push_str("<li>");
     emit_checkbox(out, *checked);
 
-    if children.len() == 1 {
-        if let Block::Paragraph { raw } = &children[0] {
-            parse_inline_pass(out, raw, refs, opts, bufs);
-            out.push_str("</li>\n");
-            return;
-        }
+    if children.len() == 1
+        && let Block::Paragraph { raw } = &children[0]
+    {
+        parse_inline_pass(out, raw, refs, opts, bufs);
+        out.push_str("</li>\n");
+        return;
     }
 
     stack.push(Work::CloseTag("</li>\n"));

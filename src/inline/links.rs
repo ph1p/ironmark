@@ -298,21 +298,20 @@ impl<'a> InlineScanner<'a> {
 
         {
             let eb = content.as_bytes();
-            if let Some(at) = eb.iter().position(|&b| b == b'@') {
-                if at > 0
-                    && at + 1 < eb.len()
-                    && eb[..at].iter().all(|&b| is_email_local_char(b))
-                    && eb[at + 1..]
-                        .iter()
-                        .all(|&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
-                {
-                    self.items.push(InlineItem::Autolink(
-                        content_start as u32,
-                        self.pos as u32 - 1,
-                        true,
-                    ));
-                    return true;
-                }
+            if let Some(at) = eb.iter().position(|&b| b == b'@')
+                && at > 0
+                && at + 1 < eb.len()
+                && eb[..at].iter().all(|&b| is_email_local_char(b))
+                && eb[at + 1..]
+                    .iter()
+                    .all(|&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+            {
+                self.items.push(InlineItem::Autolink(
+                    content_start as u32,
+                    self.pos as u32 - 1,
+                    true,
+                ));
+                return true;
             }
         }
 
@@ -331,34 +330,36 @@ impl<'a> InlineScanner<'a> {
         let rest = &self.input[self.pos..];
         let bytes = rest.as_bytes();
 
-        if rest.starts_with("<!--") {
+        if let Some(rest2) = rest.strip_prefix("<!--") {
             if rest.starts_with("<!-->") {
                 return self.emit_raw_html(5);
             }
             if rest.starts_with("<!--->") {
                 return self.emit_raw_html(6);
             }
-            if let Some(end) = rest[4..].find("-->") {
+            if let Some(end) = rest2.find("-->") {
                 return self.emit_raw_html(end + 7);
             }
         }
 
-        if rest.starts_with("<?") {
-            if let Some(end) = rest[2..].find("?>") {
-                return self.emit_raw_html(end + 4);
-            }
+        if let Some(rest2) = rest.strip_prefix("<?")
+            && let Some(end) = rest2.find("?>")
+        {
+            return self.emit_raw_html(end + 4);
         }
 
-        if rest.starts_with("<![CDATA[") {
-            if let Some(end) = rest[9..].find("]]>") {
-                return self.emit_raw_html(end + 12);
-            }
+        if let Some(rest2) = rest.strip_prefix("<![CDATA[")
+            && let Some(end) = rest2.find("]]>")
+        {
+            return self.emit_raw_html(end + 12);
         }
 
-        if bytes.len() > 2 && bytes[1] == b'!' && bytes[2].is_ascii_alphabetic() {
-            if let Some(end) = rest.find('>') {
-                return self.emit_raw_html(end + 1);
-            }
+        if bytes.len() > 2
+            && bytes[1] == b'!'
+            && bytes[2].is_ascii_alphabetic()
+            && let Some(end) = rest.find('>')
+        {
+            return self.emit_raw_html(end + 1);
         }
 
         if bytes.len() < 3 {
@@ -500,7 +501,7 @@ impl<'a> InlineScanner<'a> {
             } else {
                 while self.pos < len {
                     let b = bytes[self.pos];
-                    if b < b'0' || b > b'9' {
+                    if !b.is_ascii_digit() {
                         break;
                     }
                     cp = cp.wrapping_mul(10).wrapping_add((b - b'0') as u32);
@@ -551,10 +552,10 @@ impl<'a> InlineScanner<'a> {
                 if let Some(c) = char::from_u32(cp1) {
                     off += c.encode_utf8(&mut buf[off..]).len();
                 }
-                if cp2 != 0 {
-                    if let Some(c) = char::from_u32(cp2) {
-                        off += c.encode_utf8(&mut buf[off..]).len();
-                    }
+                if cp2 != 0
+                    && let Some(c) = char::from_u32(cp2)
+                {
+                    off += c.encode_utf8(&mut buf[off..]).len();
                 }
                 Some(off as u8)
             } else {

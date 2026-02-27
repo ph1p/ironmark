@@ -391,12 +391,12 @@ impl<'a> InlineScanner<'a> {
                 if okind != ckind || !ocan_open || ocount == 0 {
                     continue;
                 }
-                if matches!(ckind, b'*' | b'_') {
-                    if (ocan_close || ccan_open) && (ocount + ccount) % 3 == 0 {
-                        if ocount % 3 != 0 || ccount % 3 != 0 {
-                            continue;
-                        }
-                    }
+                if matches!(ckind, b'*' | b'_')
+                    && (ocan_close || ccan_open)
+                    && (ocount + ccount) % 3 == 0
+                    && (ocount % 3 != 0 || ccount % 3 != 0)
+                {
+                    continue;
                 }
                 if matches!(ckind, b'~' | b'=' | b'+') && (ocount < 2 || ccount < 2) {
                     continue;

@@ -341,8 +341,8 @@ pub(super) fn parse_list_marker(line: &str) -> Option<ListMarkerInfo> {
             if i + 1 >= bytes.len() || bytes[i + 1] == b' ' || bytes[i + 1] == b'\t' {
                 let num = if i <= 4 {
                     let mut n = 0u32;
-                    for j in 0..i {
-                        n = n * 10 + (bytes[j] - b'0') as u32;
+                    for &digit in bytes.iter().take(i) {
+                        n = n * 10 + (digit - b'0') as u32;
                     }
                     n
                 } else {

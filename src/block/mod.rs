@@ -359,16 +359,15 @@ impl<'a> BlockParser<'a> {
             let line = Line::new(raw_line);
             self.process_line(line);
 
-            if self.open.len() == 2 {
-                if let OpenBlockType::FencedCode(ref fc_data) = self.open[1].block_type {
-                    if fc_data.fence_indent == 0 {
-                        let fc = fc_data.fence_char;
-                        let fl = fc_data.fence_len;
-                        start = end + 1;
-                        start = self.bulk_scan_fenced_code(input, bytes, start, len, fc, fl);
-                        continue;
-                    }
-                }
+            if self.open.len() == 2
+                && let OpenBlockType::FencedCode(ref fc_data) = self.open[1].block_type
+                && fc_data.fence_indent == 0
+            {
+                let fc = fc_data.fence_char;
+                let fl = fc_data.fence_len;
+                start = end + 1;
+                start = self.bulk_scan_fenced_code(input, bytes, start, len, fc, fl);
+                continue;
             }
 
             start = end + 1;

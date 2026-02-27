@@ -149,10 +149,10 @@ fn push_codepoints(out: &mut String, cp1: u32, cp2: u32) {
     if let Some(c) = char::from_u32(cp1) {
         out.push(c);
     }
-    if cp2 != 0 {
-        if let Some(c) = char::from_u32(cp2) {
-            out.push(c);
-        }
+    if cp2 != 0
+        && let Some(c) = char::from_u32(cp2)
+    {
+        out.push(c);
     }
 }
 

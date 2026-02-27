@@ -25,7 +25,7 @@ pub(crate) fn normalize_reference_label(label: &str) -> Cow<'_, str> {
         let mut simple = true;
         let mut prev_space = false;
         for &b in bytes {
-            if b >= b'A' && b <= b'Z' {
+            if b.is_ascii_uppercase() {
                 simple = false;
                 break;
             }
@@ -60,7 +60,7 @@ pub(crate) fn normalize_reference_label(label: &str) -> Cow<'_, str> {
                 }
                 i += 1;
             } else {
-                out.push(if b >= b'A' && b <= b'Z' {
+                out.push(if b.is_ascii_uppercase() {
                     (b + 32) as char
                 } else {
                     b as char
@@ -230,8 +230,8 @@ fn process_em_delims(delims: &mut [EmDelim]) {
                 continue;
             }
             if (delims[oi].can_close || delims[closer_idx].can_open)
-                && (ocount + ccount) % 3 == 0
-                && (ocount % 3 != 0 || ccount % 3 != 0)
+                && (ocount + ccount).is_multiple_of(3)
+                && (!ocount.is_multiple_of(3) || !ccount.is_multiple_of(3))
             {
                 continue;
             }
@@ -252,8 +252,8 @@ fn process_em_delims(delims: &mut [EmDelim]) {
                 delims[closer_idx].close_em_len += 1;
             }
 
-            for k in (oi + 1)..closer_idx {
-                delims[k].active = false;
+            for delim in delims.iter_mut().take(closer_idx).skip(oi + 1) {
+                delim.active = false;
             }
 
             if delims[oi].cur_end == delims[oi].cur_start {

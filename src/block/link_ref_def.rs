@@ -50,18 +50,19 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
 
     let mut title = None;
 
-    if title_start < bytes.len() && title_start > before_title {
-        if let Some((t, t_end)) = parse_link_title(bytes, title_start) {
-            let after = skip_line_spaces(bytes, t_end);
-            if after >= bytes.len() || bytes[after] == b'\n' {
-                title = Some(t);
-                let consumed = if after < bytes.len() {
-                    after + 1
-                } else {
-                    after
-                };
-                return Some((label, dest, title, consumed));
-            }
+    if title_start < bytes.len()
+        && title_start > before_title
+        && let Some((t, t_end)) = parse_link_title(bytes, title_start)
+    {
+        let after = skip_line_spaces(bytes, t_end);
+        if after >= bytes.len() || bytes[after] == b'\n' {
+            title = Some(t);
+            let consumed = if after < bytes.len() {
+                after + 1
+            } else {
+                after
+            };
+            return Some((label, dest, title, consumed));
         }
     }
 
@@ -212,7 +213,7 @@ pub(super) fn parse_link_destination(bytes: &[u8], start: usize) -> Option<(Stri
         let mut dest = String::new();
         while i < bytes.len() {
             let b = bytes[i];
-            if b == b' ' || b == b'\t' || b == b'\n' || (b < 0x20 && b != b'\t') {
+            if b <= b' ' {
                 break;
             }
             if b == b'(' {

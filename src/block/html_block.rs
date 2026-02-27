@@ -110,10 +110,13 @@ pub(super) fn parse_html_block_start(line: &str, in_paragraph: bool) -> Option<H
         return Some(HtmlBlockEnd::ProcessingInstruction);
     }
 
-    if bytes.len() >= 2 && bytes[0] == b'<' && bytes[1] == b'!' {
-        if bytes.len() > 2 && bytes[2].is_ascii_alphabetic() {
-            return Some(HtmlBlockEnd::Declaration);
-        }
+    if bytes.len() >= 2
+        && bytes[0] == b'<'
+        && bytes[1] == b'!'
+        && bytes.len() > 2
+        && bytes[2].is_ascii_alphabetic()
+    {
+        return Some(HtmlBlockEnd::Declaration);
     }
 
     if bytes.len() >= 9 && &bytes[..9] == b"<![CDATA[" {
@@ -124,10 +127,8 @@ pub(super) fn parse_html_block_start(line: &str, in_paragraph: bool) -> Option<H
         return Some(HtmlBlockEnd::BlankLine);
     }
 
-    if !in_paragraph {
-        if is_html_block_type7(line) {
-            return Some(HtmlBlockEnd::BlankLine);
-        }
+    if !in_paragraph && is_html_block_type7(line) {
+        return Some(HtmlBlockEnd::BlankLine);
     }
 
     None

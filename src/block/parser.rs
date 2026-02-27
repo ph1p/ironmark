@@ -151,227 +151,137 @@ impl<'a> BlockParser<'a> {
                 | OpenBlockType::Table(..)
         );
 
-        if matched == num_open || (matched == num_open - 1 && tip_is_leaf) {
-            if tip_is_leaf && matched >= num_open - 1 {
-                match &self.open[tip_idx].block_type {
-                    OpenBlockType::FencedCode(fc_data) => {
-                        let fc = fc_data.fence_char;
-                        let fl = fc_data.fence_len;
-                        let fi = fc_data.fence_indent;
-                        if is_closing_fence(line.remainder().as_bytes(), fc, fl) {
-                            self.close_top_block();
-                            return;
-                        }
-                        if fi > 0 {
-                            let _ = line.skip_indent(fi);
-                        }
-                        if line.partial_spaces > 0 {
-                            let content = line.remainder_with_partial();
-                            self.open[tip_idx].content.push_str(&content);
-                        } else {
-                            self.open[tip_idx].content.push_str(line.remainder());
-                        }
-                        self.open[tip_idx].content.push('\n');
-                        return;
-                    }
-                    OpenBlockType::IndentedCode => {
-                        if line.is_blank() {
-                            let _ = line.skip_indent(4);
-                            let rest = line.remainder_with_partial();
-                            if !self.open[tip_idx].content.is_empty() {
-                                self.open[tip_idx].content.push('\n');
-                            }
-                            self.open[tip_idx].content.push_str(&rest);
-                            self.mark_blank_on_list_items();
-                            return;
-                        }
-                        let (ic, _, _) = line.peek_nonspace_col();
-                        if ic - line.col_offset >= 4 {
-                            let _ = line.skip_indent(4);
-                            let rest = line.remainder_with_partial();
-                            if !self.open[tip_idx].content.is_empty() {
-                                self.open[tip_idx].content.push('\n');
-                            }
-                            self.open[tip_idx].content.push_str(&rest);
-                            return;
-                        }
+        if (matched == num_open - 1 || matched == num_open) && tip_is_leaf {
+            match &self.open[tip_idx].block_type {
+                OpenBlockType::FencedCode(fc_data) => {
+                    let fc = fc_data.fence_char;
+                    let fl = fc_data.fence_len;
+                    let fi = fc_data.fence_indent;
+                    if is_closing_fence(line.remainder().as_bytes(), fc, fl) {
                         self.close_top_block();
-                        self.open_new_blocks(line);
                         return;
                     }
-                    OpenBlockType::HtmlBlock { end_condition } => {
-                        let end_condition = *end_condition;
-                        if end_condition == HtmlBlockEnd::BlankLine && line.is_blank() {
-                            self.close_top_block();
-                            return;
-                        }
+                    if fi > 0 {
+                        let _ = line.skip_indent(fi);
+                    }
+                    if line.partial_spaces > 0 {
+                        let content = line.remainder_with_partial();
+                        self.open[tip_idx].content.push_str(&content);
+                    } else {
+                        self.open[tip_idx].content.push_str(line.remainder());
+                    }
+                    self.open[tip_idx].content.push('\n');
+                    return;
+                }
+                OpenBlockType::IndentedCode => {
+                    if line.is_blank() {
+                        let _ = line.skip_indent(4);
+                        let rest = line.remainder_with_partial();
                         if !self.open[tip_idx].content.is_empty() {
                             self.open[tip_idx].content.push('\n');
                         }
-                        self.open[tip_idx].content.push_str(line.remainder());
-                        if html_block_ends(&end_condition, line.remainder()) {
-                            self.close_top_block();
-                        }
+                        self.open[tip_idx].content.push_str(&rest);
+                        self.mark_blank_on_list_items();
                         return;
                     }
-                    OpenBlockType::Table(..) => {
-                        if line.is_blank() {
-                            self.close_top_block();
-                            self.mark_blank_on_list_items();
-                            return;
+                    let (ic, _, _) = line.peek_nonspace_col();
+                    if ic - line.col_offset >= 4 {
+                        let _ = line.skip_indent(4);
+                        let rest = line.remainder_with_partial();
+                        if !self.open[tip_idx].content.is_empty() {
+                            self.open[tip_idx].content.push('\n');
                         }
-                        let (_, ro, _) = line.peek_nonspace_col();
-                        let rest = if ro >= line.raw.len() {
-                            ""
-                        } else {
-                            &line.raw[ro..]
-                        };
-                        if let OpenBlockType::Table(td) = &mut self.open[tip_idx].block_type {
-                            let num_cols = td.alignments.len();
-                            let row = parse_table_row(rest, num_cols);
-                            td.rows.push(row);
-                        }
+                        self.open[tip_idx].content.push_str(&rest);
                         return;
                     }
-                    OpenBlockType::Paragraph => {
-                        let (ns_col, ns_off, ns_byte) = line.peek_nonspace_col();
-                        let indent = ns_col - line.col_offset;
-                        let is_blank = ns_byte == 0 && ns_off >= line.raw.len();
+                    self.close_top_block();
+                    self.open_new_blocks(line);
+                    return;
+                }
+                OpenBlockType::HtmlBlock { end_condition } => {
+                    let end_condition = *end_condition;
+                    if end_condition == HtmlBlockEnd::BlankLine && line.is_blank() {
+                        self.close_top_block();
+                        return;
+                    }
+                    if !self.open[tip_idx].content.is_empty() {
+                        self.open[tip_idx].content.push('\n');
+                    }
+                    self.open[tip_idx].content.push_str(line.remainder());
+                    if html_block_ends(&end_condition, line.remainder()) {
+                        self.close_top_block();
+                    }
+                    return;
+                }
+                OpenBlockType::Table(..) => {
+                    if line.is_blank() {
+                        self.close_top_block();
+                        self.mark_blank_on_list_items();
+                        return;
+                    }
+                    let (_, ro, _) = line.peek_nonspace_col();
+                    let rest = if ro >= line.raw.len() {
+                        ""
+                    } else {
+                        &line.raw[ro..]
+                    };
+                    if let OpenBlockType::Table(td) = &mut self.open[tip_idx].block_type {
+                        let num_cols = td.alignments.len();
+                        let row = parse_table_row(rest, num_cols);
+                        td.rows.push(row);
+                    }
+                    return;
+                }
+                OpenBlockType::Paragraph => {
+                    let (ns_col, ns_off, ns_byte) = line.peek_nonspace_col();
+                    let indent = ns_col - line.col_offset;
+                    let is_blank = ns_byte == 0 && ns_off >= line.raw.len();
 
-                        if is_blank {
-                            self.close_top_block();
-                            self.mark_blank_on_list_items();
+                    if is_blank {
+                        self.close_top_block();
+                        self.mark_blank_on_list_items();
+                        return;
+                    }
+
+                    let rest = if ns_off >= line.raw.len() {
+                        ""
+                    } else {
+                        &line.raw[ns_off..]
+                    };
+
+                    if self.enable_tables
+                        && !self.open[tip_idx].content_has_newline
+                        && let Some(alignments) = parse_table_separator(rest)
+                    {
+                        let num_cols = alignments.len();
+                        let header = parse_table_row(&self.open[tip_idx].content, num_cols);
+                        if header.len() == num_cols {
+                            self.open.pop();
+                            self.open.push(OpenBlock::new(OpenBlockType::Table(Box::new(
+                                TableData {
+                                    alignments,
+                                    header,
+                                    rows: Vec::with_capacity(16),
+                                },
+                            ))));
                             return;
                         }
-
-                        let rest = if ns_off >= line.raw.len() {
-                            ""
-                        } else {
-                            &line.raw[ns_off..]
-                        };
-
-                        if self.enable_tables && !self.open[tip_idx].content_has_newline {
-                            if let Some(alignments) = parse_table_separator(rest) {
-                                let num_cols = alignments.len();
-                                let header = parse_table_row(&self.open[tip_idx].content, num_cols);
-                                if header.len() == num_cols {
-                                    self.open.pop();
-                                    self.open.push(OpenBlock::new(OpenBlockType::Table(Box::new(
-                                        TableData {
-                                            alignments,
-                                            header,
-                                            rows: Vec::with_capacity(16),
-                                        },
-                                    ))));
-                                    return;
-                                }
-                            }
-                        }
-                        if indent > 3
-                            || !matches!(
-                                ns_byte,
-                                b'=' | b'-'
-                                    | b'*'
-                                    | b'_'
-                                    | b'#'
-                                    | b'`'
-                                    | b'~'
-                                    | b'<'
-                                    | b'>'
-                                    | b'+'
-                                    | b'0'..=b'9' | b'|' | b':'
-                            )
-                        {
-                            line.advance_to_nonspace();
-                            let rem = line.remainder();
-                            let tip = &mut self.open[tip_idx];
-                            tip.content.reserve(1 + rem.len());
-                            tip.content.push('\n');
-                            tip.content_has_newline = true;
-                            tip.content.push_str(rem);
-                            return;
-                        }
-                        if indent <= 3 {
-                            if let Some(level) = parse_setext_underline(rest) {
-                                let content = std::mem::take(&mut self.open[tip_idx].content);
-                                let remaining = self.extract_ref_defs(&content);
-                                if remaining.is_empty() {
-                                    self.open.pop();
-                                    let mut para = OpenBlock::with_content_capacity(
-                                        OpenBlockType::Paragraph,
-                                        128,
-                                    );
-                                    para.content.push_str(rest);
-                                    self.open.push(para);
-                                    return;
-                                }
-                                let mut raw = remaining;
-                                let trimmed_len = raw.trim_end().len();
-                                raw.truncate(trimmed_len);
-                                self.open.pop();
-                                let heading = Block::Heading { level, raw };
-                                let parent = self.open.last_mut().unwrap();
-                                parent.children.push(heading);
-                                return;
-                            }
-                            if is_thematic_break(rest) {
-                                self.close_top_block();
-                                let parent = self.open.last_mut().unwrap();
-                                parent.children.push(Block::ThematicBreak);
-                                return;
-                            }
-                            if let Some((level, content)) = parse_atx_heading(rest) {
-                                self.close_top_block();
-                                let parent = self.open.last_mut().unwrap();
-                                parent.children.push(Block::Heading {
-                                    level,
-                                    raw: content.to_string(),
-                                });
-                                return;
-                            }
-                            if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
-                                self.close_top_block();
-                                self.open.push(OpenBlock::with_content_capacity(
-                                    OpenBlockType::FencedCode(Box::new(FencedCodeData {
-                                        fence_char,
-                                        fence_len,
-                                        fence_indent: indent,
-                                        info: resolve_entities_and_escapes(info).into_owned(),
-                                    })),
-                                    256,
-                                ));
-                                return;
-                            }
-                            if let Some(end_condition) = parse_html_block_start(rest, true) {
-                                self.close_top_block();
-                                let mut block = OpenBlock::with_content_capacity(
-                                    OpenBlockType::HtmlBlock { end_condition },
-                                    128,
-                                );
-                                block.content.push_str(line.remainder());
-                                if html_block_ends(&end_condition, line.remainder()) {
-                                    let parent = self.open.last_mut().unwrap();
-                                    parent.children.push(Block::HtmlBlock {
-                                        literal: block.content,
-                                    });
-                                } else {
-                                    self.open.push(block);
-                                }
-                                return;
-                            }
-                            if ns_byte == b'>' {
-                                self.close_top_block();
-                                self.open_new_blocks(line);
-                                return;
-                            }
-                            if let Some(marker) = parse_list_marker(rest) {
-                                if can_interrupt_paragraph(&marker) {
-                                    self.close_top_block();
-                                    self.open_new_blocks(line);
-                                    return;
-                                }
-                            }
-                        }
+                    }
+                    if indent > 3
+                        || !matches!(
+                            ns_byte,
+                            b'=' | b'-'
+                                | b'*'
+                                | b'_'
+                                | b'#'
+                                | b'`'
+                                | b'~'
+                                | b'<'
+                                | b'>'
+                                | b'+'
+                                | b'0'..=b'9' | b'|' | b':'
+                        )
+                    {
                         line.advance_to_nonspace();
                         let rem = line.remainder();
                         let tip = &mut self.open[tip_idx];
@@ -381,8 +291,95 @@ impl<'a> BlockParser<'a> {
                         tip.content.push_str(rem);
                         return;
                     }
-                    _ => {}
+                    if indent <= 3 {
+                        if let Some(level) = parse_setext_underline(rest) {
+                            let content = std::mem::take(&mut self.open[tip_idx].content);
+                            let remaining = self.extract_ref_defs(&content);
+                            if remaining.is_empty() {
+                                self.open.pop();
+                                let mut para =
+                                    OpenBlock::with_content_capacity(OpenBlockType::Paragraph, 128);
+                                para.content.push_str(rest);
+                                self.open.push(para);
+                                return;
+                            }
+                            let mut raw = remaining;
+                            let trimmed_len = raw.trim_end().len();
+                            raw.truncate(trimmed_len);
+                            self.open.pop();
+                            let heading = Block::Heading { level, raw };
+                            let parent = self.open.last_mut().unwrap();
+                            parent.children.push(heading);
+                            return;
+                        }
+                        if is_thematic_break(rest) {
+                            self.close_top_block();
+                            let parent = self.open.last_mut().unwrap();
+                            parent.children.push(Block::ThematicBreak);
+                            return;
+                        }
+                        if let Some((level, content)) = parse_atx_heading(rest) {
+                            self.close_top_block();
+                            let parent = self.open.last_mut().unwrap();
+                            parent.children.push(Block::Heading {
+                                level,
+                                raw: content.to_string(),
+                            });
+                            return;
+                        }
+                        if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
+                            self.close_top_block();
+                            self.open.push(OpenBlock::with_content_capacity(
+                                OpenBlockType::FencedCode(Box::new(FencedCodeData {
+                                    fence_char,
+                                    fence_len,
+                                    fence_indent: indent,
+                                    info: resolve_entities_and_escapes(info).into_owned(),
+                                })),
+                                256,
+                            ));
+                            return;
+                        }
+                        if let Some(end_condition) = parse_html_block_start(rest, true) {
+                            self.close_top_block();
+                            let mut block = OpenBlock::with_content_capacity(
+                                OpenBlockType::HtmlBlock { end_condition },
+                                128,
+                            );
+                            block.content.push_str(line.remainder());
+                            if html_block_ends(&end_condition, line.remainder()) {
+                                let parent = self.open.last_mut().unwrap();
+                                parent.children.push(Block::HtmlBlock {
+                                    literal: block.content,
+                                });
+                            } else {
+                                self.open.push(block);
+                            }
+                            return;
+                        }
+                        if ns_byte == b'>' {
+                            self.close_top_block();
+                            self.open_new_blocks(line);
+                            return;
+                        }
+                        if let Some(marker) = parse_list_marker(rest)
+                            && can_interrupt_paragraph(&marker)
+                        {
+                            self.close_top_block();
+                            self.open_new_blocks(line);
+                            return;
+                        }
+                    }
+                    line.advance_to_nonspace();
+                    let rem = line.remainder();
+                    let tip = &mut self.open[tip_idx];
+                    tip.content.reserve(1 + rem.len());
+                    tip.content.push('\n');
+                    tip.content_has_newline = true;
+                    tip.content.push_str(rem);
+                    return;
                 }
+                _ => {}
             }
         }
 
@@ -414,9 +411,7 @@ impl<'a> BlockParser<'a> {
                         matches!(self.open[idx].block_type, OpenBlockType::ListItem { .. })
                     });
                     let should_break = (has_unmatched_list && marker.is_some())
-                        || marker
-                            .as_ref()
-                            .map_or(false, |m| can_interrupt_paragraph(m));
+                        || marker.as_ref().is_some_and(can_interrupt_paragraph);
                     if !should_break {
                         line.advance_to_nonspace();
                         let rem = line.remainder();
@@ -459,7 +454,7 @@ impl<'a> BlockParser<'a> {
                     if parent
                         .children
                         .last()
-                        .map_or(false, |c| matches!(c, Block::List { .. }))
+                        .is_some_and(|c| matches!(c, Block::List { .. }))
                     {
                         parent.list_has_blank_between = true;
                     }
@@ -650,10 +645,11 @@ impl<'a> BlockParser<'a> {
                 };
                 let parent = self.open.last_mut().unwrap();
 
-                if had_blank && !blank_between_children {
-                    if matches!(parent.block_type, OpenBlockType::ListItem { .. }) {
-                        parent.had_blank_in_item = true;
-                    }
+                if had_blank
+                    && !blank_between_children
+                    && matches!(parent.block_type, OpenBlockType::ListItem { .. })
+                {
+                    parent.had_blank_in_item = true;
                 }
 
                 if let Some(Block::List {
@@ -662,20 +658,19 @@ impl<'a> BlockParser<'a> {
                     tight,
                     ..
                 }) = parent.children.last_mut()
+                    && *lk == kind
                 {
-                    if *lk == kind {
-                        if parent.list_has_blank_between {
-                            *tight = false;
-                        }
-                        if blank_between_children {
-                            *tight = false;
-                        }
-                        items.push(item);
-                        if had_blank {
-                            parent.list_has_blank_between = true;
-                        }
-                        return None;
+                    if parent.list_has_blank_between {
+                        *tight = false;
                     }
+                    if blank_between_children {
+                        *tight = false;
+                    }
+                    items.push(item);
+                    if had_blank {
+                        parent.list_has_blank_between = true;
+                    }
+                    return None;
                 }
 
                 parent.list_has_blank_between = had_blank;
@@ -686,7 +681,7 @@ impl<'a> BlockParser<'a> {
                     tight: !blank_between_children,
                     children: vec![item],
                 };
-                return Some(list);
+                Some(list)
             }
             OpenBlockType::FencedCode(fc_data) => Some(Block::CodeBlock {
                 info: fc_data.info,
