@@ -40,13 +40,15 @@ export function SplitPanels({
         <div className="hidden md:block px-4 pt-2.5 pb-2 text-xs font-medium text-zinc-400 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
           Markdown
         </div>
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <MarkdownEditor
-            value={markdown}
-            onValueChange={onMarkdownValueChange}
-            onDocChange={onMarkdownDocChange}
-            onEditorReady={onEditorReady}
-          />
+        <div className="flex-1 min-h-0 overflow-hidden relative">
+          <div className="absolute inset-0">
+            <MarkdownEditor
+              value={markdown}
+              onValueChange={onMarkdownValueChange}
+              onDocChange={onMarkdownDocChange}
+              onEditorReady={onEditorReady}
+            />
+          </div>
         </div>
       </div>
       <div

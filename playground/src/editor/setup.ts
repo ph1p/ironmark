@@ -14,6 +14,7 @@ const baseTheme = EditorView.theme({
   ".cm-scroller": {
     fontFamily: '"JetBrains Mono", ui-monospace, monospace',
     lineHeight: "1.625",
+    overflow: "auto",
   },
   ".cm-gutters": { paddingRight: "4px" },
   ".cm-lineNumbers .cm-gutterElement": {
