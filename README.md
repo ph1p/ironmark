@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ph1p/ironmark/actions/workflows/ci.yml/badge.svg)](https://github.com/ph1p/ironmark/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/ironmark)](https://www.npmjs.com/package/ironmark) [![crates.io](https://img.shields.io/crates/v/ironmark)](https://crates.io/crates/ironmark)
 
-Fast Markdown-to-HTML parser written in Rust with **zero third-party** parsing dependencies. Fully compliant with [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) (652/652 spec tests pass). Available as a Rust crate and as an npm package via WebAssembly.
+Fast Markdown-to-HTML parser written in Rust with **zero third-party** parsing dependencies. Fully compliant with [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) (652/652 spec tests pass). Available as a Rust crate and as an npm package via WebAssembly, with both HTML and AST output APIs.
 
 ## Options
 
@@ -35,6 +35,19 @@ import { parse } from "ironmark";
 
 const html = parse("# Hello\n\nThis is **fast**.");
 ```
+
+### AST Output
+
+Use `parseToAst()` when you need the block-level document structure instead of rendered HTML.
+
+```ts
+import { parseToAst } from "ironmark";
+
+const astJson = parseToAst("# Hello\n\n- [x] done");
+const ast = JSON.parse(astJson);
+```
+
+`parseToAst()` returns a JSON string for portability across JS runtimes and WASM boundaries.
 
 ### Browser / Bundler
 
@@ -80,6 +93,32 @@ fn main() {
     });
 }
 ```
+
+### AST Output
+
+`parse_to_ast()` returns the typed Rust AST (`Block`) directly:
+
+```rust
+use ironmark::{Block, ParseOptions, parse_to_ast};
+
+fn main() {
+    let ast = parse_to_ast("# Hello", &ParseOptions::default());
+
+    match ast {
+        Block::Document { children } => {
+            println!("top-level blocks: {}", children.len());
+        }
+        _ => unreachable!("root node is always Document"),
+    }
+}
+```
+
+Exported AST types:
+
+- `Block`
+- `ListKind`
+- `TableData`
+- `TableAlignment`
 
 ## Development
 
