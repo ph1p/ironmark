@@ -6,7 +6,6 @@ import { json as langJson } from "@codemirror/lang-json";
 import { indentWithTab } from "@codemirror/commands";
 import { cmThemeExtension } from "./theme";
 
-export const editorThemeCompartment = new Compartment();
 export const htmlThemeCompartment = new Compartment();
 export const astThemeCompartment = new Compartment();
 
@@ -27,6 +26,13 @@ const baseTheme = EditorView.theme({
 const readonlyTheme = EditorView.theme({
   ".cm-cursor": { display: "none !important" },
 });
+
+export const markdownEditorExtensions = [
+  markdown(),
+  baseTheme,
+  lineNumbers(),
+  keymap.of([indentWithTab]),
+];
 
 export function createHtmlView(parent: HTMLElement): EditorView {
   return new EditorView({
@@ -58,35 +64,6 @@ export function createAstView(parent: HTMLElement): EditorView {
         astThemeCompartment.of(cmThemeExtension()),
         EditorState.readOnly.of(true),
         EditorView.editable.of(false),
-      ],
-    }),
-    parent,
-  });
-}
-
-export function createEditorView(
-  parent: HTMLElement,
-  doc: string,
-  onDocChanged: (doc: string) => void,
-): EditorView {
-  let timer: ReturnType<typeof setTimeout>;
-  return new EditorView({
-    state: EditorState.create({
-      doc,
-      extensions: [
-        markdown(),
-        baseTheme,
-        lineNumbers(),
-        editorThemeCompartment.of(cmThemeExtension()),
-        keymap.of([indentWithTab]),
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            clearTimeout(timer);
-            timer = setTimeout(() => {
-              requestAnimationFrame(() => onDocChanged(update.state.doc.toString()));
-            }, 50);
-          }
-        }),
       ],
     }),
     parent,

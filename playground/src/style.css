@@ -96,3 +96,13 @@
 .prose tbody tr:hover {
   @apply bg-zinc-50 dark:bg-zinc-800/25;
 }
+
+@media (min-width: 48rem) {
+  #main-split > #panel-editor,
+  #main-split > #panel-output {
+    flex: 0 0 50% !important;
+    width: 50%;
+    max-width: 50%;
+    min-width: 0;
+  }
+}

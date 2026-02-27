@@ -6,6 +6,35 @@ export const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
 export const isDark = () => darkQuery.matches;
 
+type ThemeListener = () => void;
+
+export function subscribeThemeChange(listener: ThemeListener): () => void {
+  const onChange = () => listener();
+  const onWindowSync = () => listener();
+
+  window.addEventListener("focus", onWindowSync);
+  window.addEventListener("pageshow", onWindowSync);
+  document.addEventListener("visibilitychange", onWindowSync);
+
+  if (typeof darkQuery.addEventListener === "function") {
+    darkQuery.addEventListener("change", onChange);
+    return () => {
+      darkQuery.removeEventListener("change", onChange);
+      window.removeEventListener("focus", onWindowSync);
+      window.removeEventListener("pageshow", onWindowSync);
+      document.removeEventListener("visibilitychange", onWindowSync);
+    };
+  }
+
+  darkQuery.addListener(onChange);
+  return () => {
+    darkQuery.removeListener(onChange);
+    window.removeEventListener("focus", onWindowSync);
+    window.removeEventListener("pageshow", onWindowSync);
+    document.removeEventListener("visibilitychange", onWindowSync);
+  };
+}
+
 const darkThemeExt = [
   syntaxHighlighting(oneDarkHighlightStyle),
   EditorView.theme(
