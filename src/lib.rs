@@ -33,14 +33,15 @@
 //! | bare URLs | `<a>` | `enable_autolink` |
 //! | newlines | `<br />` | `hard_breaks` |
 
-mod ast;
+pub mod ast;
 mod block;
 mod entities;
 mod html;
 mod inline;
 mod render;
 
-pub use block::parse;
+pub use ast::{Block, ListKind, TableAlignment, TableData};
+pub use block::{parse, parse_to_ast};
 
 #[inline(always)]
 pub(crate) fn is_ascii_punctuation(b: u8) -> bool {

@@ -2,13 +2,16 @@ import type { EditorView } from "@codemirror/view";
 import {
   previewPanel,
   htmlPanel,
+  astPanel,
   tabPreview,
   tabHtml,
+  tabAst,
   panelEditor,
   panelOutput,
   mobileTabEditor,
   mobileTabPreview,
   mobileTabHtml,
+  mobileTabAst,
 } from "./app";
 import { formatHtml } from "../util/format-html";
 
@@ -25,24 +28,37 @@ function setActiveTab(btn: HTMLButtonElement, siblings: HTMLButtonElement[]) {
 }
 
 let htmlView: EditorView;
-let state: { dirty: boolean; lastHtml: string };
+let astView: EditorView;
+let state: { dirty: boolean; lastHtml: string; astDirty: boolean; lastAst: string };
 
-function setOutputTab(tab: "preview" | "html") {
-  const isPreview = tab === "preview";
-  previewPanel.classList.toggle("hidden", !isPreview);
-  htmlPanel.classList.toggle("hidden", isPreview);
-  setActiveTab(isPreview ? tabPreview : tabHtml, [tabPreview, tabHtml]);
+type OutputTab = "preview" | "html" | "ast";
 
-  if (!isPreview && state.dirty) {
+function setOutputTab(tab: OutputTab) {
+  const desktopTabs = [tabPreview, tabHtml, tabAst];
+  previewPanel.classList.toggle("hidden", tab !== "preview");
+  htmlPanel.classList.toggle("hidden", tab !== "html");
+  astPanel.classList.toggle("hidden", tab !== "ast");
+
+  const activeBtn = tab === "preview" ? tabPreview : tab === "html" ? tabHtml : tabAst;
+  setActiveTab(activeBtn, desktopTabs);
+
+  if (tab === "html" && state.dirty) {
     state.dirty = false;
     htmlView.dispatch({
       changes: { from: 0, to: htmlView.state.doc.length, insert: formatHtml(state.lastHtml) },
     });
   }
+
+  if (tab === "ast" && state.astDirty) {
+    state.astDirty = false;
+    astView.dispatch({
+      changes: { from: 0, to: astView.state.doc.length, insert: state.lastAst },
+    });
+  }
 }
 
-function setMobilePanel(panel: "editor" | "preview" | "html") {
-  const tabs = [mobileTabEditor, mobileTabPreview, mobileTabHtml];
+function setMobilePanel(panel: "editor" | "preview" | "html" | "ast") {
+  const tabs = [mobileTabEditor, mobileTabPreview, mobileTabHtml, mobileTabAst];
   panelEditor.classList.toggle("hidden", panel !== "editor");
   panelEditor.classList.toggle("flex", panel === "editor");
   panelOutput.classList.toggle("hidden", panel === "editor");
@@ -52,18 +68,28 @@ function setMobilePanel(panel: "editor" | "preview" | "html") {
   else if (panel === "preview") {
     setActiveTab(mobileTabPreview, tabs);
     setOutputTab("preview");
-  } else {
+  } else if (panel === "html") {
     setActiveTab(mobileTabHtml, tabs);
     setOutputTab("html");
+  } else {
+    setActiveTab(mobileTabAst, tabs);
+    setOutputTab("ast");
   }
 }
 
-export function initTabs(view: EditorView, dirtyRef: { dirty: boolean; lastHtml: string }) {
-  htmlView = view;
+export function initTabs(
+  hView: EditorView,
+  aView: EditorView,
+  dirtyRef: { dirty: boolean; lastHtml: string; astDirty: boolean; lastAst: string },
+) {
+  htmlView = hView;
+  astView = aView;
   state = dirtyRef;
   tabPreview.addEventListener("click", () => setOutputTab("preview"));
   tabHtml.addEventListener("click", () => setOutputTab("html"));
+  tabAst.addEventListener("click", () => setOutputTab("ast"));
   mobileTabEditor.addEventListener("click", () => setMobilePanel("editor"));
   mobileTabPreview.addEventListener("click", () => setMobilePanel("preview"));
   mobileTabHtml.addEventListener("click", () => setMobilePanel("html"));
+  mobileTabAst.addEventListener("click", () => setMobilePanel("ast"));
 }

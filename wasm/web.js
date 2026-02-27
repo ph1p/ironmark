@@ -1,5 +1,9 @@
-import { __wbg_set_wasm, parse as wasmParse } from "./pkg/ironmark_bg.js";
-import { createParse } from "./shared.js";
+import {
+  __wbg_set_wasm,
+  parse as wasmParse,
+  parseToAst as wasmParseToAst,
+} from "./pkg/ironmark_bg.js";
+import { createParse, createParseToAst } from "./shared.js";
 
 let initialized = false;
 
@@ -23,3 +27,4 @@ export async function init(input) {
 }
 
 export const parse = createParse(wasmParse);
+export const parseToAst = createParseToAst(wasmParseToAst);

@@ -42,3 +42,12 @@ export declare function init(input?: string | URL | WebAssembly.Module): Promise
  * @returns HTML string.
  */
 export declare function parse(markdown: MarkdownInput, options?: ParseOptions): string;
+
+/**
+ * Parse Markdown and return the block-level AST as a JSON string.
+ *
+ * @param markdown - Markdown source (string or binary).
+ * @param options - Optional parsing options.
+ * @returns JSON string representing the AST.
+ */
+export declare function parseToAst(markdown: MarkdownInput, options?: ParseOptions): string;

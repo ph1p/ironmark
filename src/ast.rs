@@ -1,5 +1,6 @@
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Block {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Block {
     Document {
         children: Vec<Block>,
     },
@@ -35,20 +36,23 @@ pub(crate) enum Block {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct TableData {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct TableData {
     pub alignments: Vec<TableAlignment>,
     pub header: Vec<String>,
     pub rows: Vec<Vec<String>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ListKind {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ListKind {
     Bullet(u8),  // marker character: b'-', b'*', b'+'
     Ordered(u8), // delimiter: b'.' or b')'
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TableAlignment {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum TableAlignment {
     None,
     Left,
     Center,

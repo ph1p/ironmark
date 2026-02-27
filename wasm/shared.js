@@ -11,17 +11,27 @@ function toStr(markdown) {
   throw new TypeError("markdown must be a string, Uint8Array, ArrayBuffer, or Buffer");
 }
 
+function optionArgs(markdown, options) {
+  return [
+    toStr(markdown),
+    options?.hardBreaks ?? undefined,
+    options?.enableHighlight ?? undefined,
+    options?.enableStrikethrough ?? undefined,
+    options?.enableUnderline ?? undefined,
+    options?.enableTables ?? undefined,
+    options?.enableAutolink ?? undefined,
+    options?.enableTaskLists ?? undefined,
+  ];
+}
+
 export function createParse(wasmParse) {
   return function parse(markdown, options) {
-    return wasmParse(
-      toStr(markdown),
-      options?.hardBreaks ?? undefined,
-      options?.enableHighlight ?? undefined,
-      options?.enableStrikethrough ?? undefined,
-      options?.enableUnderline ?? undefined,
-      options?.enableTables ?? undefined,
-      options?.enableAutolink ?? undefined,
-      options?.enableTaskLists ?? undefined,
-    );
+    return wasmParse(...optionArgs(markdown, options));
+  };
+}
+
+export function createParseToAst(wasmParseToAst) {
+  return function parseToAst(markdown, options) {
+    return wasmParseToAst(...optionArgs(markdown, options));
   };
 }

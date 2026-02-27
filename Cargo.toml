@@ -26,9 +26,13 @@ exclude = [
 [lib]
 crate-type = ["rlib"]
 
+[features]
+serde = ["dep:serde"]
+
 [dependencies]
 memchr = "2"
 rustc-hash = "2"
+serde = { version = "1", features = ["derive"], optional = true }
 
 [workspace]
 members = ["wasm"]

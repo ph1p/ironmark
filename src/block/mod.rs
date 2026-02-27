@@ -35,6 +35,29 @@ pub fn parse(markdown: &str, options: &ParseOptions) -> String {
     out
 }
 
+/// Parse a Markdown string and return the block-level AST.
+///
+/// This returns the raw AST without rendering to HTML, useful for
+/// programmatic inspection or transformation of the document structure.
+///
+/// # Examples
+///
+/// ```
+/// use ironmark::{parse_to_ast, ParseOptions, Block};
+///
+/// let ast = parse_to_ast("# Hello", &ParseOptions::default());
+/// match &ast {
+///     Block::Document { children } => {
+///         assert_eq!(children.len(), 1);
+///     }
+///     _ => panic!("expected Document"),
+/// }
+/// ```
+pub fn parse_to_ast(markdown: &str, options: &ParseOptions) -> Block {
+    let mut parser = BlockParser::new(markdown, options.enable_tables, options.enable_task_lists);
+    parser.parse()
+}
+
 #[derive(Clone, Debug)]
 struct Line<'a> {
     raw: &'a str,

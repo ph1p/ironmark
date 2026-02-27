@@ -28,6 +28,7 @@ app.innerHTML = `
       <button id="mobile-tab-editor" class="mobile-tab flex-1 px-4 py-2 text-xs font-medium uppercase tracking-wider text-zinc-900 dark:text-zinc-100 border-b-2 border-zinc-900 dark:border-zinc-100">Editor</button>
       <button id="mobile-tab-preview" class="mobile-tab flex-1 px-4 py-2 text-xs font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500 border-b-2 border-transparent hover:text-zinc-600 dark:hover:text-zinc-300">Preview</button>
       <button id="mobile-tab-html" class="mobile-tab flex-1 px-4 py-2 text-xs font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500 border-b-2 border-transparent hover:text-zinc-600 dark:hover:text-zinc-300">HTML</button>
+      <button id="mobile-tab-ast" class="mobile-tab flex-1 px-4 py-2 text-xs font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500 border-b-2 border-transparent hover:text-zinc-600 dark:hover:text-zinc-300">AST</button>
     </div>
     <div id="main-split" class="flex flex-col md:flex-row flex-1 min-h-0">
       <div id="panel-editor" class="flex-1 flex flex-col md:border-r border-zinc-200 dark:border-zinc-800 min-h-0">
@@ -38,12 +39,16 @@ app.innerHTML = `
         <div class="hidden md:flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
           <button id="tab-preview" class="tab-btn px-4 py-2 text-xs font-medium uppercase tracking-wider text-zinc-900 dark:text-zinc-100 border-b-2 border-zinc-900 dark:border-zinc-100">Preview</button>
           <button id="tab-html" class="tab-btn px-4 py-2 text-xs font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500 border-b-2 border-transparent hover:text-zinc-600 dark:hover:text-zinc-300">HTML</button>
+          <button id="tab-ast" class="tab-btn px-4 py-2 text-xs font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500 border-b-2 border-transparent hover:text-zinc-600 dark:hover:text-zinc-300">AST</button>
         </div>
         <div id="preview-panel" class="flex-1 overflow-auto p-3 md:p-5">
           <div id="preview" class="prose"></div>
         </div>
         <div id="html-panel" class="flex-1 min-h-0 overflow-hidden hidden">
           <div id="html-source" class="h-full"></div>
+        </div>
+        <div id="ast-panel" class="flex-1 min-h-0 overflow-hidden hidden">
+          <div id="ast-source" class="h-full"></div>
         </div>
       </div>
     </div>
@@ -58,10 +63,14 @@ export const htmlSourceContainer = $<HTMLDivElement>("#html-source");
 export const status = $<HTMLDivElement>("#status");
 export const previewPanel = $<HTMLDivElement>("#preview-panel");
 export const htmlPanel = $<HTMLDivElement>("#html-panel");
+export const astPanel = $<HTMLDivElement>("#ast-panel");
+export const astSourceContainer = $<HTMLDivElement>("#ast-source");
 export const panelEditor = $<HTMLDivElement>("#panel-editor");
 export const panelOutput = $<HTMLDivElement>("#panel-output");
 export const tabPreview = $<HTMLButtonElement>("#tab-preview");
 export const tabHtml = $<HTMLButtonElement>("#tab-html");
+export const tabAst = $<HTMLButtonElement>("#tab-ast");
 export const mobileTabEditor = $<HTMLButtonElement>("#mobile-tab-editor");
 export const mobileTabPreview = $<HTMLButtonElement>("#mobile-tab-preview");
 export const mobileTabHtml = $<HTMLButtonElement>("#mobile-tab-html");
+export const mobileTabAst = $<HTMLButtonElement>("#mobile-tab-ast");

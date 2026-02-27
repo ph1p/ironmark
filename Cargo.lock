@@ -468,6 +468,7 @@ name = "ironmark-wasm"
 version = "0.1.0"
 dependencies = [
  "ironmark",
+ "serde_json",
  "wasm-bindgen",
 ]
 
