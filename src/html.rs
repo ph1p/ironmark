@@ -5,52 +5,41 @@ pub(crate) fn escape_html(input: &str) -> String {
     out
 }
 
-/// Push the segment `input[last..end]`, escaping any `"` found within.
-#[inline(always)]
-fn push_segment_escaping_quotes(
-    out: &mut String,
-    input: &str,
-    bytes: &[u8],
-    last: &mut usize,
-    end: usize,
-) {
-    let mut pos = *last;
-    while pos < end {
-        if let Some(q) = memchr::memchr(b'"', &bytes[pos..end]) {
-            let q = pos + q;
-            if pos < q {
-                out.push_str(unsafe { input.get_unchecked(pos..q) });
-            }
-            out.push_str("&quot;");
-            pos = q + 1;
-        } else {
-            out.push_str(unsafe { input.get_unchecked(pos..end) });
-            pos = end;
-        }
-    }
-    *last = end;
-}
+/// Lookup table: maps byte → escape string index (0 = no escape needed).
+static HTML_ESCAPE: [u8; 256] = {
+    let mut t = [0u8; 256];
+    t[b'&' as usize] = 1;
+    t[b'<' as usize] = 2;
+    t[b'>' as usize] = 3;
+    t[b'"' as usize] = 4;
+    t
+};
+
+static HTML_ESCAPE_STRS: [&str; 5] = ["", "&amp;", "&lt;", "&gt;", "&quot;"];
 
 #[inline]
 pub(crate) fn escape_html_into(out: &mut String, input: &str) {
     let bytes = input.as_bytes();
     let len = bytes.len();
+
+    if memchr::memchr3(b'&', b'<', b'>', bytes).is_none() && memchr::memchr(b'"', bytes).is_none() {
+        out.push_str(input);
+        return;
+    }
+
     let mut last = 0;
-    while last < len {
-        if let Some(off) = memchr::memchr3(b'&', b'<', b'>', &bytes[last..]) {
-            let i = last + off;
-            // Flush text before this hit, escaping any quotes within.
-            push_segment_escaping_quotes(out, input, bytes, &mut last, i);
-            out.push_str(match bytes[i] {
-                b'&' => "&amp;",
-                b'<' => "&lt;",
-                _ => "&gt;",
-            });
+    for i in 0..len {
+        let idx = HTML_ESCAPE[bytes[i] as usize];
+        if idx != 0 {
+            if last < i {
+                out.push_str(unsafe { input.get_unchecked(last..i) });
+            }
+            out.push_str(HTML_ESCAPE_STRS[idx as usize]);
             last = i + 1;
-        } else {
-            // No more &<> — flush remaining, escaping quotes.
-            push_segment_escaping_quotes(out, input, bytes, &mut last, len);
         }
+    }
+    if last < len {
+        out.push_str(unsafe { input.get_unchecked(last..len) });
     }
 }
 

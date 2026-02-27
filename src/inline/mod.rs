@@ -128,12 +128,11 @@ pub(crate) fn parse_inline_pass(
 ) {
     let bytes = raw.as_bytes();
 
-    // Fast check: find first complex byte (not * or _) using memchr3 on the most
-    // common complex triggers. If none found, we only need emphasis-only or plain.
-    let first_complex = memchr::memchr3(b'[', b'`', b'<', bytes)
-        .or_else(|| memchr::memchr3(b'&', b'!', b'~', bytes))
-        .or_else(|| memchr::memchr3(b'=', b'+', b':', bytes))
-        .or_else(|| memchr::memchr(b'@', bytes));
+    // Fast check: find first complex byte (not * or _) using the SPECIAL table.
+    // Single pass instead of 4 sequential memchr calls.
+    let first_complex = bytes
+        .iter()
+        .position(|&b| SPECIAL[b as usize] & SPECIAL_COMPLEX != 0);
 
     let has_newline_or_backslash = if first_complex.is_none() {
         memchr::memchr2(b'\n', b'\\', bytes)
@@ -395,6 +394,12 @@ fn emit_text_with_breaks(
     let mut seg_start = *text_pos;
     let mut i = *text_pos;
     while i < end {
+        // Jump to next interesting byte using memchr2.
+        let off = memchr::memchr2(b'\n', b'\\', &bytes[i..end]);
+        match off {
+            None => break,
+            Some(off) => i += off,
+        }
         let b = bytes[i];
         if b == b'\n' {
             let mut text_end = i;
@@ -417,30 +422,33 @@ fn emit_text_with_breaks(
             }
             i += 1;
             seg_start = i;
-        } else if b == b'\\' && i + 1 < end {
-            let next = bytes[i + 1];
-            if next == b'\n' {
-                i += 1;
-                continue;
-            }
-            if crate::is_ascii_punctuation(next) {
-                if seg_start < i {
-                    escape_html_into(out, &raw[seg_start..i]);
+        } else {
+            // b == b'\\'
+            if i + 1 < end {
+                let next = bytes[i + 1];
+                if next == b'\n' {
+                    i += 1;
+                    continue;
                 }
-                match next {
-                    b'&' => out.push_str("&amp;"),
-                    b'<' => out.push_str("&lt;"),
-                    b'>' => out.push_str("&gt;"),
-                    b'"' => out.push_str("&quot;"),
-                    _ => out.push_str(&raw[i + 1..i + 2]),
+                if crate::is_ascii_punctuation(next) {
+                    if seg_start < i {
+                        escape_html_into(out, &raw[seg_start..i]);
+                    }
+                    match next {
+                        b'&' => out.push_str("&amp;"),
+                        b'<' => out.push_str("&lt;"),
+                        b'>' => out.push_str("&gt;"),
+                        b'"' => out.push_str("&quot;"),
+                        _ => out.push_str(&raw[i + 1..i + 2]),
+                    }
+                    i += 2;
+                    seg_start = i;
+                } else {
+                    i += 1;
                 }
-                i += 2;
-                seg_start = i;
             } else {
                 i += 1;
             }
-        } else {
-            i += 1;
         }
     }
     if seg_start < end {
