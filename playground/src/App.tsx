@@ -24,7 +24,9 @@ export function App() {
   const [statusText, setStatusText] = useState("loading wasm...");
   const [outputTab, setOutputTab] = useState<OutputTab>(() => readOutputTab());
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>(() => readMobilePanel());
-  const [markdown, setMarkdown] = useState(() => localStorage.getItem(MARKDOWN_STORAGE_KEY) ?? DEFAULT_MARKDOWN);
+  const [markdown, setMarkdown] = useState(
+    () => localStorage.getItem(MARKDOWN_STORAGE_KEY) ?? DEFAULT_MARKDOWN,
+  );
   const outputTabRef = useRef(outputTab);
   const controllerRef = useRef<PlaygroundController | null>(null);
   const pendingEditorRef = useRef<EditorView | null>(null);
