@@ -160,7 +160,7 @@ pub(super) fn is_closing_fence(line: &[u8], fence_char: u8, fence_len: usize) ->
 }
 
 pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
-    let trimmed = line.trim();
+    let trimmed = trim_space_tab(line);
     if trimmed.is_empty() {
         return None;
     }
@@ -168,7 +168,7 @@ pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = inner.strip_suffix('|').unwrap_or(inner);
 
-    if inner.trim().is_empty() {
+    if trim_space_tab(inner).is_empty() {
         return None;
     }
 
@@ -178,7 +178,7 @@ pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
 
     let mut alignments = Vec::new();
     for cell in inner.split('|') {
-        let c = cell.trim();
+        let c = trim_space_tab(cell);
         if c.is_empty() {
             return None;
         }
@@ -210,7 +210,7 @@ pub(super) fn parse_table_separator(line: &str) -> Option<Vec<TableAlignment>> {
 }
 
 pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
-    let trimmed = line.trim();
+    let trimmed = trim_space_tab(line);
 
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = inner.strip_suffix('|').unwrap_or(inner);
@@ -237,16 +237,18 @@ pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
             match memchr::memchr(b'|', &bytes[start..]) {
                 Some(offset) => {
                     let end = start + offset;
-                    cells.push(inner[start..end].trim().to_string());
+                    cells.push(trim_space_tab(&inner[start..end]).to_string());
                     start = end + 1;
                 }
                 None => {
-                    cells.push(inner[start..].trim().to_string());
+                    cells.push(trim_space_tab(&inner[start..]).to_string());
                     break;
                 }
             }
         }
-        cells.resize(num_cols, String::new());
+        while cells.len() < num_cols {
+            cells.push(String::new());
+        }
         return cells;
     }
 
@@ -254,25 +256,44 @@ pub(super) fn parse_table_row(line: &str, num_cols: usize) -> Vec<String> {
     let mut current = String::new();
     let bytes = inner.as_bytes();
     let mut i = 0;
+    let mut seg_start = 0;
     while i < bytes.len() {
         if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] == b'|' {
-            current.push('\\');
-            current.push('|');
+            current.push_str(&inner[seg_start..i + 2]);
             i += 2;
+            seg_start = i;
         } else if bytes[i] == b'|' {
-            cells.push(current.trim().to_string());
+            current.push_str(&inner[seg_start..i]);
+            cells.push(trim_space_tab(&current).to_string());
             current.clear();
             i += 1;
+            seg_start = i;
         } else {
-            current.push(bytes[i] as char);
             i += 1;
         }
     }
-    cells.push(current.trim().to_string());
+    current.push_str(&inner[seg_start..]);
+    cells.push(trim_space_tab(&current).to_string());
 
-    cells.resize(num_cols, String::new());
+    while cells.len() < num_cols {
+        cells.push(String::new());
+    }
     cells.truncate(num_cols);
     cells
+}
+
+#[inline(always)]
+fn trim_space_tab(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    let mut start = 0;
+    let mut end = bytes.len();
+    while start < end && (bytes[start] == b' ' || bytes[start] == b'\t') {
+        start += 1;
+    }
+    while end > start && (bytes[end - 1] == b' ' || bytes[end - 1] == b'\t') {
+        end -= 1;
+    }
+    &s[start..end]
 }
 
 #[inline(always)]

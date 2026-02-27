@@ -128,32 +128,51 @@ pub(crate) fn parse_inline_pass(
 ) {
     let bytes = raw.as_bytes();
 
-    // Fast check: find first complex byte (not * or _) using the SPECIAL table.
-    // Single pass instead of 4 sequential memchr calls.
-    let first_complex = bytes
-        .iter()
-        .position(|&b| SPECIAL[b as usize] & SPECIAL_COMPLEX != 0);
-
-    let has_newline_or_backslash = if first_complex.is_none() {
-        memchr::memchr2(b'\n', b'\\', bytes)
-    } else {
-        None
-    };
-
-    if first_complex.is_none() && has_newline_or_backslash.is_none() {
-        // No complex bytes. Check if there are emphasis markers at all.
-        if let Some(first_em) = memchr::memchr2(b'*', b'_', bytes) {
-            emit_emphasis_only(out, raw, bytes, &mut bufs.em_delims);
-            let _ = first_em;
-            return;
+    // Single-pass classification for the common "mostly plain text" case.
+    // This avoids constructing/scanning full inline state when no markdown syntax applies.
+    let mut has_emphasis = false;
+    let mut has_breaks = false;
+    let mut needs_html_escape = false;
+    let mut requires_full_inline = false;
+    for &b in bytes {
+        match b {
+            b'*' | b'_' => has_emphasis = true,
+            b'\\' | b'\n' => has_breaks = true,
+            b'>' | b'"' => needs_html_escape = true,
+            b'`' | b'!' | b'[' | b']' | b'<' | b'&' => {
+                requires_full_inline = true;
+                break;
+            }
+            b'~' if opts.enable_strikethrough => {
+                requires_full_inline = true;
+                break;
+            }
+            b'=' if opts.enable_highlight => {
+                requires_full_inline = true;
+                break;
+            }
+            b'+' if opts.enable_underline => {
+                requires_full_inline = true;
+                break;
+            }
+            b':' | b'@' if opts.enable_autolink => {
+                requires_full_inline = true;
+                break;
+            }
+            _ => {}
         }
-        escape_html_into(out, raw);
-        return;
     }
 
-    if first_complex.is_none() {
-        // Only \n and/or \\ — breaks + emphasis path.
-        emit_breaks_and_emphasis(out, raw, bytes, opts, &mut bufs.em_delims);
+    if !requires_full_inline {
+        if has_breaks {
+            emit_breaks_and_emphasis(out, raw, bytes, opts, &mut bufs.em_delims);
+        } else if has_emphasis {
+            emit_emphasis_only(out, raw, bytes, &mut bufs.em_delims);
+        } else if needs_html_escape {
+            escape_html_into(out, raw);
+        } else {
+            out.push_str(raw);
+        }
         return;
     }
 

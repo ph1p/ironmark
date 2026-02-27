@@ -95,7 +95,11 @@ impl<'a> InlineScanner<'a> {
             if b <= 0x20 {
                 break;
             }
-            if b == b')' || b == b'(' || b == b'\\' || b == b'&' {
+            // ')' ends an inline destination but does not require the slow path.
+            if b == b')' {
+                break;
+            }
+            if b == b'(' || b == b'\\' || b == b'&' {
                 has_special = true;
                 break;
             }
