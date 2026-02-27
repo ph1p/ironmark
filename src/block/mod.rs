@@ -429,8 +429,10 @@ impl<'a> BlockParser<'a> {
     fn push_bulk_content(&mut self, input: &str, start: usize, end: usize, has_cr: bool) {
         let content = &mut self.open[1].content;
         if !has_cr {
+            // SAFETY: `start..end` comes from newline scanning over `input` and is in-bounds.
             content.push_str(unsafe { input.get_unchecked(start..end) });
         } else {
+            // SAFETY: same bounds guarantee as above.
             let s = unsafe { input.get_unchecked(start..end) };
             content.reserve(s.len());
             for chunk in s.split('\r') {

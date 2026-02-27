@@ -1,3 +1,5 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 //! # ironmark
 //!
 //! A fast, CommonMark 0.31.2 compliant Markdown-to-HTML parser with extensions.

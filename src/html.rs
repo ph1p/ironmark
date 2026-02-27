@@ -32,6 +32,8 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
         let idx = HTML_ESCAPE[bytes[i] as usize];
         if idx != 0 {
             if last < i {
+                // SAFETY: `last` and `i` are loop-derived byte offsets within `input`
+                // and only advanced forward, so the subslice is in-bounds.
                 out.push_str(unsafe { input.get_unchecked(last..i) });
             }
             out.push_str(HTML_ESCAPE_STRS[idx as usize]);
@@ -39,6 +41,7 @@ pub(crate) fn escape_html_into(out: &mut String, input: &str) {
         }
     }
     if last < len {
+        // SAFETY: `last <= len` and both are computed from `input.len()`.
         out.push_str(unsafe { input.get_unchecked(last..len) });
     }
 }
@@ -108,6 +111,7 @@ pub(crate) fn encode_url_escaped_into(out: &mut String, url: &str) {
                     HEX_CHARS[(b & 0xF) as usize],
                 ];
 
+                // SAFETY: `enc` is always ASCII (`%` + hex digits), therefore valid UTF-8.
                 out.push_str(unsafe { std::str::from_utf8_unchecked(&enc) });
             }
         }

@@ -57,7 +57,7 @@
     "lint": "oxlint",
     "release": "semantic-release",
     "release:dry": "semantic-release --dry-run",
-    "setup:wasm": "PATH=\"$HOME/.cargo/bin:$PATH\" rustup target add wasm32-unknown-unknown && TMPDIR=/tmp PATH=\"$HOME/.cargo/bin:$PATH\" cargo install wasm-bindgen-cli --locked --root .wasm-tools",
+    "setup:wasm": "PATH=\"$HOME/.cargo/bin:$PATH\" rustup target add wasm32-unknown-unknown && TMPDIR=/tmp PATH=\"$HOME/.cargo/bin:$PATH\" cargo install wasm-bindgen-cli --version 0.2.113 --locked --root .wasm-tools",
     "bench": "cargo bench && node benchmark/report.mjs",
     "test": "cargo test --offline"
   },

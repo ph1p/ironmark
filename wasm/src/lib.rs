@@ -56,7 +56,7 @@ pub fn parse_to_ast(
     enable_tables: Option<bool>,
     enable_autolink: Option<bool>,
     enable_task_lists: Option<bool>,
-) -> String {
+) -> Result<String, JsValue> {
     let ast = ironmark_parse_to_ast(
         markdown,
         &build_options(
@@ -69,5 +69,6 @@ pub fn parse_to_ast(
             enable_task_lists,
         ),
     );
-    serde_json::to_string(&ast).unwrap_or_default()
+    serde_json::to_string(&ast)
+        .map_err(|err| JsValue::from_str(&format!("AST serialization failed: {err}")))
 }
