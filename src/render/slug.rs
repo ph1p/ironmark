@@ -11,12 +11,16 @@ pub(crate) fn heading_slug_into(slug: &mut String, raw: &str) {
     if len <= 64 {
         let mut is_safe = true;
         let mut has_content = false;
-        for (idx, &b) in bytes.iter().enumerate() {
-            if b.is_ascii_alphanumeric() {
+        let mut all_lower = true;
+        for &b in bytes {
+            if b.is_ascii_lowercase() {
                 has_content = true;
+            } else if b.is_ascii_uppercase() {
+                has_content = true;
+                all_lower = false;
             } else if b == b'-' {
-                // Dash is ok if not leading/trailing and has content
-                if idx == 0 || idx == len - 1 || !has_content {
+                // A dash before any content (i.e. leading) is not slug-safe.
+                if !has_content {
                     is_safe = false;
                     break;
                 }
@@ -25,21 +29,11 @@ pub(crate) fn heading_slug_into(slug: &mut String, raw: &str) {
                 break;
             }
         }
-        if is_safe && has_content {
-            // Still need to lowercase
-            let mut all_lower = true;
-            for &b in bytes {
-                if b.is_ascii_uppercase() {
-                    all_lower = false;
-                    break;
-                }
-            }
-            if all_lower {
-                slug.push_str(raw);
-                return;
-            }
+        if is_safe && has_content && bytes[len - 1] != b'-' {
             slug.push_str(raw);
-            slug.make_ascii_lowercase();
+            if !all_lower {
+                slug.make_ascii_lowercase();
+            }
             return;
         }
     }

@@ -45,7 +45,7 @@ pub fn render_html(markdown: &str, options: &ParseOptions) -> String {
     };
     let mut parser = BlockParser::new(markdown, options);
     parser.render_mode = true;
-    parser.code_src_ranges = Vec::with_capacity(estimate_block_count(markdown.len()));
+    parser.src_ranges = Vec::with_capacity(estimate_block_count(markdown.len()));
     let doc = parser.parse();
     let mut out = if markdown.len() <= 256 {
         String::with_capacity(markdown.len() + 32)
@@ -53,7 +53,7 @@ pub fn render_html(markdown: &str, options: &ParseOptions) -> String {
         String::with_capacity(markdown.len() * 2)
     };
     let refs = parser.ref_defs;
-    let code_src_ranges = parser.code_src_ranges;
+    let src_ranges = parser.src_ranges;
     let mut bufs = InlineBuffers::new();
     bufs.prepare(options);
     render_block(
@@ -63,7 +63,7 @@ pub fn render_html(markdown: &str, options: &ParseOptions) -> String {
         options,
         &mut bufs,
         markdown,
-        &code_src_ranges,
+        &src_ranges,
     );
     out
 }
@@ -113,7 +113,7 @@ pub fn benchmark_render_html_parse_phase(
     let mut parser = BlockParser::new(markdown, options);
     parser.render_mode = true;
     let doc = parser.parse();
-    let ranges = parser.code_src_ranges;
+    let ranges = parser.src_ranges;
     (doc, ranges)
 }
 
@@ -352,17 +352,18 @@ enum HtmlBlockEnd {
 struct OpenBlock {
     block_type: OpenBlockType,
     content: String,
-    children: SmallVec<[Block; 4]>,
+    children: Vec<Block>,
     had_blank_in_item: bool,
     list_has_blank_between: bool,
     content_has_newline: bool,
     checked: Option<bool>,
     list_start: u32,
     list_kind: Option<ListKind>,
-    /// For fenced code blocks with no indent stripping and no CR: the byte range
-    /// in the source string that contains the literal content. When set, `content`
-    /// is left empty and the range is used directly at render time to avoid copying.
-    code_src_range: Option<(u32, u32)>,
+    /// Render-mode deferred text: the byte range in the source string holding this
+    /// block's literal content (fenced code with no indent stripping/CR, or a
+    /// paragraph's pending text). When set, `content` is left empty and the range
+    /// is used directly at render time to avoid copying.
+    src_range: Option<(u32, u32)>,
 }
 
 impl OpenBlock {
@@ -371,14 +372,14 @@ impl OpenBlock {
         Self {
             block_type,
             content: String::new(),
-            children: SmallVec::new(),
+            children: Vec::new(),
             had_blank_in_item: false,
             list_has_blank_between: false,
             content_has_newline: false,
             checked: None,
             list_start: 0,
             list_kind: None,
-            code_src_range: None,
+            src_range: None,
         }
     }
 
@@ -398,14 +399,14 @@ impl OpenBlock {
                 started_blank,
             },
             content: String::new(),
-            children: SmallVec::new(),
+            children: Vec::new(),
             had_blank_in_item: false,
             list_has_blank_between: false,
             content_has_newline: false,
             checked: None,
             list_start: 0,
             list_kind: None,
-            code_src_range: None,
+            src_range: None,
         }
     }
 }
@@ -428,11 +429,12 @@ pub(crate) struct BlockParser<'a> {
     enable_indented_code_blocks: bool,
     permissive_atx_headers: bool,
     no_html_blocks: bool,
-    /// Source ranges for fenced code blocks that were stored by range instead of copied.
-    /// Each entry is `(start, end)` into `self.input`. The `literal` in the corresponding
-    /// `Block::CodeBlock` will be empty; consumers check this vec via index.
-    /// Index corresponds to the order code blocks appear in the document.
-    pub(crate) code_src_ranges: Vec<(u32, u32)>,
+    /// Render-mode deferred-text stream, shared by code blocks, paragraphs, and
+    /// headings. Each entry is `(start, end)` into `self.input`, pushed in document
+    /// order by `defer_raw`/`finalize_block`. The corresponding `literal`/`raw` is
+    /// the empty sentinel String; the renderer consumes exactly one entry per empty
+    /// sentinel, so every render-mode empty sentinel MUST have pushed a range.
+    pub(crate) src_ranges: Vec<(u32, u32)>,
     /// When `true`, fenced code blocks with no CR/indent can store a source range
     /// instead of copying the literal content. Used only by `render_html`; the public
     /// `parse_markdown` API always copies so callers get a fully-populated AST.
@@ -442,7 +444,7 @@ pub(crate) struct BlockParser<'a> {
 impl<'a> BlockParser<'a> {
     pub fn new(input: &'a str, options: &ParseOptions) -> Self {
         let mut doc = OpenBlock::new(OpenBlockType::Document);
-        doc.children = SmallVec::with_capacity(estimate_block_count(input.len()));
+        doc.children = Vec::with_capacity(estimate_block_count(input.len()));
         let mut open = Vec::with_capacity(16);
         open.push(doc);
         Self {
@@ -458,7 +460,7 @@ impl<'a> BlockParser<'a> {
             enable_indented_code_blocks: options.enable_indented_code_blocks,
             permissive_atx_headers: options.permissive_atx_headers,
             no_html_blocks: options.no_html_blocks || options.disable_raw_html,
-            code_src_ranges: Vec::new(),
+            src_ranges: Vec::new(),
             render_mode: false,
         }
     }
@@ -493,7 +495,7 @@ impl<'a> BlockParser<'a> {
         }
         let doc = self.open.pop().unwrap();
         Block::Document {
-            children: doc.children.into_vec(),
+            children: doc.children,
         }
     }
 
@@ -508,39 +510,68 @@ impl<'a> BlockParser<'a> {
         fence_len: usize,
     ) -> usize {
         let content_start = start;
-        let mut pos = start;
-        let mut has_cr = false;
 
-        while pos < len {
-            let line_end = memchr_newline(bytes, pos);
-            let check_end = if line_end > pos && bytes[line_end - 1] == b'\r' {
-                has_cr = true;
-                line_end - 1
-            } else {
-                line_end
+        // Scan for the fence char directly instead of walking line by line:
+        // content lines rarely contain it, so one SIMD pass usually jumps
+        // straight to the closing fence. A closing fence is a whole line
+        // (≤3 leading spaces, then only fence chars + trailing ws); tabs in
+        // the indent always exceed 3 columns and can never start one.
+        let mut search = start;
+        while search < len {
+            let Some(off) = memchr::memchr(fence_char, &bytes[search..len]) else {
+                break;
             };
-
-            if is_closing_fence(&bytes[pos..check_end], fence_char, fence_len) {
-                if pos > content_start {
-                    if !has_cr {
-                        // Fast path: content is a direct slice of source — record range, skip copy.
-                        self.open[1].code_src_range = Some((content_start as u32, pos as u32));
-                    } else {
-                        self.push_bulk_content(input, content_start, pos, has_cr);
-                    }
-                }
-                self.close_top_block();
-                return line_end + 1;
+            let i = search + off;
+            let mut ls = i;
+            while ls > content_start && i - ls < 3 && bytes[ls - 1] == b' ' {
+                ls -= 1;
             }
-
-            pos = line_end + 1;
+            if ls == content_start || bytes[ls - 1] == b'\n' {
+                let line_end = memchr_newline(bytes, i);
+                let check_end = if line_end > ls && bytes[line_end - 1] == b'\r' {
+                    line_end - 1
+                } else {
+                    line_end
+                };
+                if is_closing_fence(&bytes[ls..check_end], fence_char, fence_len) {
+                    if ls > content_start {
+                        // A line ending in `\r\n` requires CR stripping; detect it
+                        // once over the content region (single-byte scan first —
+                        // `\r` is absent from almost all inputs).
+                        let region = &bytes[content_start..ls];
+                        let has_cr = memchr::memchr(b'\r', region).is_some()
+                            && memchr::memmem::find(region, b"\r\n").is_some();
+                        if !has_cr {
+                            // Fast path: content is a direct slice of source — record
+                            // range, skip copy.
+                            self.open[1].src_range = Some((content_start as u32, ls as u32));
+                        } else {
+                            self.push_bulk_content(input, content_start, ls, has_cr);
+                        }
+                    }
+                    self.close_top_block();
+                    return line_end + 1;
+                }
+                // Not a closing fence — nothing else on this line can be one.
+                search = line_end + 1;
+            } else {
+                // Mid-line fence char — skip the whole run.
+                let mut j = i + 1;
+                while j < len && bytes[j] == fence_char {
+                    j += 1;
+                }
+                search = j;
+            }
         }
 
         if len > content_start {
+            let region = &bytes[content_start..len];
+            let has_cr = memchr::memchr(b'\r', region).is_some()
+                && (memchr::memmem::find(region, b"\r\n").is_some() || bytes[len - 1] == b'\r');
             if !has_cr && bytes[len - 1] == b'\n' {
                 // Fast path: source ends with '\n' — content is a direct slice of source,
                 // no copy needed.
-                self.open[1].code_src_range = Some((content_start as u32, len as u32));
+                self.open[1].src_range = Some((content_start as u32, len as u32));
             } else {
                 // Either has CR escaping or the source doesn't end with '\n', so we must
                 // copy and ensure a trailing newline.
@@ -551,7 +582,7 @@ impl<'a> BlockParser<'a> {
                 }
             }
         }
-        pos
+        len
     }
 
     #[inline]

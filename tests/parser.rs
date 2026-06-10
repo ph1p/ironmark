@@ -1078,3 +1078,155 @@ fn math_inline_no_newline() {
         "inline math should not span newlines"
     );
 }
+
+// --- Render-mode source-range bookkeeping (zero-copy paragraphs/headings/code) ---
+
+#[test]
+fn empty_code_block_does_not_steal_next_range() {
+    let opts = ParseOptions::default();
+    // Top level
+    let html = render_html("```\n```\n\n```\nxyz\n```\n", &opts);
+    assert_eq!(
+        html,
+        "<pre><code></code></pre>\n<pre><code>xyz\n</code></pre>\n"
+    );
+    // Inside blockquote
+    let html = render_html("> ```\n> ```\n\n```\nabc\n```\n", &opts);
+    assert!(html.starts_with("<blockquote>\n<pre><code></code></pre>\n</blockquote>"));
+    assert!(html.contains("<pre><code>abc\n</code></pre>"));
+    // Inside list item
+    let html = render_html("- ```\n  ```\n\n```\nqqq\n```\n", &opts);
+    assert!(html.contains("<li>\n<pre><code></code></pre>\n</li>"));
+    assert!(html.ends_with("<pre><code>qqq\n</code></pre>\n"));
+}
+
+#[test]
+fn zero_copy_paragraph_range_sync() {
+    let opts = ParseOptions {
+        hard_breaks: false,
+        ..Default::default()
+    };
+    // Mixed paragraphs, headings, and code blocks must each get their own text.
+    let html = render_html(
+        "first para\n\n# Head\n\n```\ncode\n```\n\nsecond para\nwith continuation\n\n## Tail\n",
+        &opts,
+    );
+    assert!(html.contains("<p>first para</p>"));
+    assert!(html.contains(">Head<"));
+    assert!(html.contains("<pre><code>code\n</code></pre>"));
+    assert!(html.contains("<p>second para\nwith continuation</p>"));
+    assert!(html.contains(">Tail<"));
+}
+
+#[test]
+fn empty_atx_heading_keeps_ranges_in_sync() {
+    let opts = ParseOptions::default();
+    let html = render_html("#\n\npara\n\n## x\n", &opts);
+    assert!(html.contains("<h1></h1>"));
+    assert!(html.contains("<p>para</p>"));
+    assert!(html.contains(">x<"));
+}
+
+#[test]
+fn paragraph_trailing_whitespace_trimmed_hard_break_kept() {
+    let opts = ParseOptions {
+        hard_breaks: false,
+        ..Default::default()
+    };
+    // Inner trailing two spaces = hard break; paragraph-final trailing ws trimmed.
+    let html = render_html("foo  \nbar   \n\nnext\n", &opts);
+    assert!(
+        html.contains("<br />"),
+        "inner hard break must survive: {html}"
+    );
+    assert!(
+        html.contains("bar</p>"),
+        "final trailing ws must be trimmed: {html}"
+    );
+    assert!(html.contains("<p>next</p>"));
+}
+
+#[test]
+fn setext_heading_from_zero_copy_paragraph() {
+    let opts = ParseOptions::default();
+    let html = render_html("Title\n=====\n\npara\n\nSub\n---\n", &opts);
+    assert!(html.contains(">Title<"));
+    assert!(html.contains("<p>para</p>"));
+    assert!(html.contains(">Sub<"));
+}
+
+#[test]
+fn setext_heading_after_ref_def_paragraph() {
+    let opts = ParseOptions::default();
+    let html = render_html("[r]: /url\nTitle\n=====\n\n[r]\n", &opts);
+    assert!(html.contains(">Title<"), "{html}");
+    assert!(html.contains("<a href=\"/url\">r</a>"), "{html}");
+}
+
+#[test]
+fn table_from_zero_copy_paragraph_header() {
+    let opts = ParseOptions::default();
+    let html = render_html("a | b\n--- | ---\n1 | 2\n\npara\n", &opts);
+    assert!(html.contains("<th>a</th>"), "{html}");
+    assert!(html.contains("<td>2</td>"), "{html}");
+    assert!(html.contains("<p>para</p>"), "{html}");
+}
+
+#[test]
+fn ref_def_only_paragraph_emits_nothing_but_resolves() {
+    let opts = ParseOptions::default();
+    let html = render_html("[foo]: /bar\n\n[foo]\n\n# H\n", &opts);
+    assert!(html.contains("<a href=\"/bar\">foo</a>"), "{html}");
+    assert!(!html.contains("[foo]:"), "{html}");
+    assert!(html.contains(">H<"), "{html}");
+}
+
+#[test]
+fn bracket_paragraph_not_a_ref_def() {
+    let opts = ParseOptions::default();
+    let html = render_html("[notadef] text\n\nnext\n", &opts);
+    assert!(html.contains("<p>[notadef] text</p>"), "{html}");
+    assert!(html.contains("<p>next</p>"), "{html}");
+}
+
+#[test]
+fn crlf_paragraph_continuation() {
+    let opts = ParseOptions {
+        hard_breaks: false,
+        ..Default::default()
+    };
+    let html = render_html("alpha\r\nbeta\r\n\r\ngamma\r\n", &opts);
+    assert!(html.contains("<p>alpha\nbeta</p>"), "{html}");
+    assert!(html.contains("<p>gamma</p>"), "{html}");
+}
+
+#[test]
+fn lazy_continuation_into_blockquote_paragraph() {
+    let opts = ParseOptions {
+        hard_breaks: false,
+        ..Default::default()
+    };
+    let html = render_html("> quoted\nlazy\n\nafter\n", &opts);
+    assert!(html.contains("<p>quoted\nlazy</p>"), "{html}");
+    assert!(html.contains("<p>after</p>"), "{html}");
+}
+
+#[test]
+fn heading_ids_from_zero_copy_raw() {
+    let opts = ParseOptions {
+        enable_heading_ids: true,
+        ..Default::default()
+    };
+    let html = render_html("# My Heading\n\npara\n\nSetext Head\n===\n", &opts);
+    assert!(html.contains("id=\"my-heading\""), "{html}");
+    assert!(html.contains("id=\"setext-head\""), "{html}");
+}
+
+#[test]
+fn indented_paragraph_with_leading_ws_and_brackets() {
+    let opts = ParseOptions::default();
+    // Leading-whitespace slice path in finalize (starts with space after marker handling)
+    let html = render_html("   spaced para\n\n   [x] not a def\n", &opts);
+    assert!(html.contains("<p>spaced para</p>"), "{html}");
+    assert!(html.contains("<p>[x] not a def</p>"), "{html}");
+}

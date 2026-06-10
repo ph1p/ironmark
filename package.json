@@ -61,7 +61,7 @@
     "lint": "oxlint",
     "release": "semantic-release",
     "release:dry": "semantic-release --dry-run",
-    "setup:wasm": "PATH=\"$HOME/.cargo/bin:$PATH\" rustup target add wasm32-unknown-unknown && TMPDIR=/tmp PATH=\"$HOME/.cargo/bin:$PATH\" cargo install wasm-bindgen-cli --version 0.2.114 --locked --root .wasm-tools",
+    "setup:wasm": "PATH=\"$HOME/.cargo/bin:$PATH\" rustup target add wasm32-unknown-unknown && TMPDIR=/tmp PATH=\"$HOME/.cargo/bin:$PATH\" cargo install wasm-bindgen-cli --version 0.2.123 --locked --root .wasm-tools",
     "bench": "cargo bench --features bench-md4c && node benchmark/report.mjs",
     "test": "cargo test --offline"
   },
@@ -69,15 +69,15 @@
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^12.0.6",
+    "@semantic-release/github": "^12.0.8",
     "@semantic-release/npm": "^13.1.5",
-    "@semantic-release/release-notes-generator": "^14.1.0",
+    "@semantic-release/release-notes-generator": "^14.1.1",
     "conventional-changelog-conventionalcommits": "^9.3.1",
     "markdown-wasm": "^1.2.0",
     "md4w": "^0.2.7",
-    "oxfmt": "^0.45.0",
-    "oxlint": "^1.60.0",
-    "semantic-release": "^25.0.3"
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
+    "semantic-release": "^25.0.5"
   },
   "engines": {
     "node": ">=18"

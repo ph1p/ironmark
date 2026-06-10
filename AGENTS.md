@@ -50,10 +50,11 @@ Two-phase pipeline: **block parsing → inline parsing → HTML rendering**.
 - `links.rs` — link/image bracket matching, reference resolution
 - `render.rs` — inline content → HTML string output
 
-### HTML rendering (`src/render.rs`)
+### HTML rendering (`src/render/`)
 
-- Stack-based block renderer that calls inline parsing for leaf block content
-- Receives `&ParseOptions` to control extension behavior
+- `mod.rs` — stack-based block renderer that calls inline parsing for leaf block content; receives `&ParseOptions` to control extension behavior
+- `slug.rs` — heading slug/anchor id generation
+- Render mode defers leaf text (paragraphs, ATX/setext headings, fenced code) as source byte ranges (`code_src_ranges`) instead of copying into the AST; the renderer resolves them in document order. Every render-mode empty-literal code block and empty-raw heading must push a range (even an empty one) to keep that index in sync.
 
 ### ANSI terminal rendering (`src/ansi/`)
 

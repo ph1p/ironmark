@@ -276,21 +276,17 @@ pub(super) fn contains_ci(haystack: &[u8], needle: &[u8]) -> bool {
     if needle.len() > haystack.len() {
         return false;
     }
-    let first_lower = needle[0];
-    let first_upper = first_lower.to_ascii_uppercase();
+    let first = needle[0];
     let mut pos = 0;
     let end = haystack.len() - needle.len() + 1;
     while pos < end {
-        let next = if first_lower == first_upper {
-            memchr::memchr(first_lower, &haystack[pos..end])
-        } else {
-            memchr::memchr2(first_lower, first_upper, &haystack[pos..end])
-        };
+        let next = memchr::memchr(first, &haystack[pos..end]);
         let Some(off) = next else { return false };
         let i = pos + off;
+        // Fast-path: leading byte passed; check the rest. Needle is already lowercase.
         let mut matched = true;
         for j in 1..needle.len() {
-            if haystack[i + j].to_ascii_lowercase() != needle[j] {
+            if haystack[i + j] | 0x20 != needle[j] {
                 matched = false;
                 break;
             }

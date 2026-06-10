@@ -25,6 +25,90 @@ fn advance_past_blockquote_marker(line: &mut Line) {
 }
 
 impl<'a> BlockParser<'a> {
+    /// Byte range of `s` within `self.input`. `s` MUST be a subslice of the
+    /// input (all `Line.raw` slices are) and non-empty — `Line::remainder()`
+    /// returns a static `""` past the end, which has no input-relative address.
+    #[inline]
+    fn src_range_of(&self, s: &str) -> (u32, u32) {
+        debug_assert!(!s.is_empty());
+        let base = self.input.as_ptr() as usize;
+        let start = s.as_ptr() as usize - base;
+        debug_assert!(start + s.len() <= self.input.len());
+        (start as u32, (start + s.len()) as u32)
+    }
+
+    /// Defer leaf text for the renderer. `s` MUST be a direct source slice.
+    ///
+    /// This is the ONE producer of the deferred-range protocol: in render mode
+    /// it pushes the source range of `s` (an empty range when `s` is empty —
+    /// the renderer consumes exactly one range per empty `raw`/`literal`, so
+    /// skipping the push would desync every later block) and returns the empty
+    /// sentinel String. In AST mode it returns an owned copy.
+    #[inline]
+    fn defer_raw(&mut self, s: &str) -> String {
+        if self.render_mode {
+            let rng = if s.is_empty() {
+                (0, 0)
+            } else {
+                self.src_range_of(s)
+            };
+            self.src_ranges.push(rng);
+            String::new()
+        } else {
+            s.to_string()
+        }
+    }
+
+    /// If the paragraph at `idx` holds a deferred source range (render mode),
+    /// copy the bytes into `content` so callers can read/extend it as a String.
+    #[inline]
+    fn materialize_paragraph(&mut self, idx: usize) {
+        debug_assert!(matches!(
+            self.open[idx].block_type,
+            OpenBlockType::Paragraph
+        ));
+        if let Some((s, e)) = self.open[idx].src_range.take() {
+            let input = self.input;
+            let block = &mut self.open[idx];
+            debug_assert!(block.content.is_empty());
+            block.content.push_str(&input[s as usize..e as usize]);
+        }
+    }
+
+    /// Append a continuation line to the paragraph at `tip_idx`. In render mode
+    /// a paragraph may be a deferred source range; if the new line directly
+    /// follows it in the source (separated by exactly one `\n`, nothing
+    /// stripped), extend the range instead of copying.
+    #[inline]
+    fn append_paragraph_line(&mut self, tip_idx: usize, rem: &str) {
+        if let Some((s, e)) = self.open[tip_idx].src_range {
+            if !rem.is_empty() {
+                let (rs, re) = self.src_range_of(rem);
+                if rs == e + 1 {
+                    let tip = &mut self.open[tip_idx];
+                    tip.src_range = Some((s, re));
+                    tip.content_has_newline = true;
+                    return;
+                }
+            }
+            self.materialize_paragraph(tip_idx);
+        }
+        let tip = &mut self.open[tip_idx];
+        tip.content.reserve(1 + rem.len());
+        tip.content.push('\n');
+        tip.content_has_newline = true;
+        tip.content.push_str(rem);
+    }
+
+    /// Build a heading block; text is deferred via [`Self::defer_raw`].
+    #[inline]
+    fn make_heading(&mut self, level: u8, content: &str) -> Block {
+        Block::Heading {
+            level,
+            raw: self.defer_raw(content),
+        }
+    }
+
     #[inline(never)]
     pub(super) fn process_line(&mut self, mut line: Line<'a>) {
         let num_open = self.open.len();
@@ -253,6 +337,7 @@ impl<'a> BlockParser<'a> {
                         && !self.open[tip_idx].content_has_newline
                         && let Some(alignments) = parse_table_separator(rest)
                     {
+                        self.materialize_paragraph(tip_idx);
                         let num_cols = alignments.len();
                         let paragraph_len = self.open[tip_idx].content.len();
                         let header = parse_table_row(&self.open[tip_idx].content, num_cols);
@@ -285,17 +370,19 @@ impl<'a> BlockParser<'a> {
                     {
                         line.advance_to_nonspace();
                         let rem = line.remainder();
-                        let tip = &mut self.open[tip_idx];
-                        tip.content.reserve(1 + rem.len());
-                        tip.content.push('\n');
-                        tip.content_has_newline = true;
-                        tip.content.push_str(rem);
+                        self.append_paragraph_line(tip_idx, rem);
                         return;
                     }
                     if indent <= 3 {
                         if let Some(level) = parse_setext_underline(rest) {
+                            let tip_range = self.open[tip_idx].src_range.take();
+                            let input = self.input;
                             let content = std::mem::take(&mut self.open[tip_idx].content);
-                            let remaining = self.extract_ref_defs(&content);
+                            let content_str: &str = match tip_range {
+                                Some((s, e)) => &input[s as usize..e as usize],
+                                None => &content,
+                            };
+                            let remaining = self.extract_ref_defs(content_str);
                             if remaining.is_empty() {
                                 self.open.pop();
                                 let mut para =
@@ -304,19 +391,23 @@ impl<'a> BlockParser<'a> {
                                 self.open.push(para);
                                 return;
                             }
-                            let raw = match remaining {
-                                Cow::Borrowed(s) => {
-                                    let trimmed = s.trim_end();
-                                    trimmed.to_string()
+                            let heading = match remaining {
+                                Cow::Borrowed(s) if tip_range.is_some() => {
+                                    // Borrowed from the source input (tip_range is only set
+                                    // in render mode) — defer instead of copying.
+                                    self.make_heading(level, s.trim_end())
                                 }
+                                Cow::Borrowed(s) => Block::Heading {
+                                    level,
+                                    raw: s.trim_end().to_string(),
+                                },
                                 Cow::Owned(mut s) => {
                                     let trimmed_len = s.trim_end().len();
                                     s.truncate(trimmed_len);
-                                    s
+                                    Block::Heading { level, raw: s }
                                 }
                             };
                             self.open.pop();
-                            let heading = Block::Heading { level, raw };
                             let parent = self.open.last_mut().unwrap();
                             parent.children.push(heading);
                             return;
@@ -331,11 +422,9 @@ impl<'a> BlockParser<'a> {
                             parse_atx_heading(rest, self.permissive_atx_headers)
                         {
                             self.close_top_block();
+                            let heading = self.make_heading(level, content);
                             let parent = self.open.last_mut().unwrap();
-                            parent.children.push(Block::Heading {
-                                level,
-                                raw: content.to_string(),
-                            });
+                            parent.children.push(heading);
                             return;
                         }
                         if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
@@ -391,11 +480,7 @@ impl<'a> BlockParser<'a> {
                     }
                     line.advance_to_nonspace();
                     let rem = line.remainder();
-                    let tip = &mut self.open[tip_idx];
-                    tip.content.reserve(1 + rem.len());
-                    tip.content.push('\n');
-                    tip.content_has_newline = true;
-                    tip.content.push_str(rem);
+                    self.append_paragraph_line(tip_idx, rem);
                     return;
                 }
                 _ => {}
@@ -433,11 +518,7 @@ impl<'a> BlockParser<'a> {
                     if !should_break {
                         line.advance_to_nonspace();
                         let rem = line.remainder();
-                        let tip = &mut self.open[tip_idx];
-                        tip.content.reserve(1 + rem.len());
-                        tip.content.push('\n');
-                        tip.content_has_newline = true;
-                        tip.content.push_str(rem);
+                        self.append_paragraph_line(tip_idx, rem);
                         return;
                     }
                 }
@@ -528,11 +609,9 @@ impl<'a> BlockParser<'a> {
                 if let Some((level, content)) = parse_atx_heading(rest, self.permissive_atx_headers)
                 {
                     line.advance_to_nonspace();
+                    let heading = self.make_heading(level, content);
                     let parent = self.open.last_mut().unwrap();
-                    parent.children.push(Block::Heading {
-                        level,
-                        raw: content.to_string(),
-                    });
+                    parent.children.push(heading);
                     return;
                 }
                 if let Some((fence_char, fence_len, info)) = parse_fence_start(rest) {
@@ -596,8 +675,19 @@ impl<'a> BlockParser<'a> {
             }
 
             line.advance_to_nonspace();
-            let mut block = OpenBlock::with_content_capacity(OpenBlockType::Paragraph, 128);
-            block.content.push_str(line.remainder());
+            let rem = line.remainder();
+            let block = if self.render_mode && !rem.is_empty() {
+                // Render mode: defer the copy — record the source range and leave
+                // `content` empty. Materialised on demand (continuation lines,
+                // setext/table conversion) or resolved at render time.
+                let mut block = OpenBlock::new(OpenBlockType::Paragraph);
+                block.src_range = Some(self.src_range_of(rem));
+                block
+            } else {
+                let mut block = OpenBlock::with_content_capacity(OpenBlockType::Paragraph, 128);
+                block.content.push_str(rem);
+                block
+            };
             self.open.push(block);
             return;
         }
@@ -665,10 +755,10 @@ impl<'a> BlockParser<'a> {
     pub(super) fn finalize_block(&mut self, block: OpenBlock) -> Option<Block> {
         match block.block_type {
             OpenBlockType::Document => Some(Block::Document {
-                children: block.children.into_vec(),
+                children: block.children,
             }),
             OpenBlockType::BlockQuote => Some(Block::BlockQuote {
-                children: block.children.into_vec(),
+                children: block.children,
             }),
             OpenBlockType::ListItem { .. } => {
                 let had_blank = block.had_blank_in_item;
@@ -676,7 +766,7 @@ impl<'a> BlockParser<'a> {
                 let blank_between_children = had_blank && block.children.len() >= 2;
 
                 let item = Block::ListItem {
-                    children: block.children.into_vec(),
+                    children: block.children,
                     checked: block.checked,
                 };
                 let parent = self.open.last_mut().unwrap();
@@ -721,17 +811,18 @@ impl<'a> BlockParser<'a> {
             }
             OpenBlockType::FencedCode(fc_data) => {
                 if self.render_mode {
-                    if let Some(range) = block.code_src_range {
-                        // Render-mode fast path: content is a direct source slice — record
-                        // range and emit an empty literal. The renderer resolves it via the
-                        // `code_src_ranges` index at render time.
-                        self.code_src_ranges.push(range);
+                    // Render-mode fast path: content is a direct source slice (or empty) —
+                    // record the range and emit the empty-literal sentinel. The empty case
+                    // MUST also push (an empty range) or the renderer's index desyncs and
+                    // steals the next block's range.
+                    if block.src_range.is_some() || block.content.is_empty() {
+                        self.src_ranges.push(block.src_range.unwrap_or((0, 0)));
                         return Some(Block::CodeBlock {
                             info: fc_data.info,
                             literal: String::new(),
                         });
                     }
-                } else if let Some((start, end)) = block.code_src_range {
+                } else if let Some((start, end)) = block.src_range {
                     // AST mode (parse_markdown): always materialise the literal so callers
                     // get a fully-populated Block with no empty strings.
                     let content = &self.input[start as usize..end as usize];
@@ -773,6 +864,30 @@ impl<'a> BlockParser<'a> {
                 })))
             }
             OpenBlockType::Paragraph => {
+                if let Some((s, e)) = block.src_range {
+                    // Render-mode zero-copy paragraph (ranges are only set on
+                    // paragraphs in render mode).
+                    debug_assert!(self.render_mode);
+                    let input = self.input;
+                    let slice = &input[s as usize..e as usize];
+                    if !matches!(slice.as_bytes()[0], b' ' | b'\t' | b'\n' | b'\r' | b'[') {
+                        // No leading ws / no possible ref def: trim trailing ws by
+                        // shrinking the slice — defer_raw keeps it zero-copy.
+                        let trimmed = slice.trim_end_matches([' ', '\t', '\n', '\r']);
+                        return Some(Block::Paragraph {
+                            raw: self.defer_raw(trimmed),
+                        });
+                    }
+                    // Leading ws or '[': run ref-def extraction on the source slice.
+                    return match self.extract_ref_defs(slice) {
+                        // Still a direct source slice — keep zero-copy.
+                        Cow::Borrowed(t) if !t.is_empty() => Some(Block::Paragraph {
+                            raw: self.defer_raw(t),
+                        }),
+                        Cow::Owned(o) if !o.is_empty() => Some(Block::Paragraph { raw: o }),
+                        _ => None,
+                    };
+                }
                 if block.content.is_empty() {
                     return None;
                 }

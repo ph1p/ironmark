@@ -48,34 +48,31 @@ fn escape_html_short(out: &mut String, input: &str, bytes: &[u8], len: usize) {
 
 #[inline]
 fn escape_html_long(out: &mut String, input: &str, bytes: &[u8], len: usize) {
-    // Fast exit: if none of the four special chars exist, push the whole string.
-    if memchr::memchr3(b'&', b'<', b'>', bytes).is_none() && memchr::memchr(b'"', bytes).is_none() {
+    // Two scan cursors carried across iterations (nearest `&<>` hit and nearest
+    // `"` hit) so each byte region is scanned at most once per cursor — the
+    // initial probes double as the nothing-to-escape fast exit.
+    let mut next3 = memchr::memchr3(b'&', b'<', b'>', bytes);
+    let mut nextq = memchr::memchr(b'"', bytes);
+    if next3.is_none() && nextq.is_none() {
         out.push_str(input);
         return;
     }
     let mut last = 0;
-    let mut i = 0;
-    while i < len {
-        // Find the next special char using two parallel scans; take the closer hit.
-        let a = memchr::memchr3(b'&', b'<', b'>', &bytes[i..]);
-        let b_ = memchr::memchr(b'"', &bytes[i..]);
-        let advance = match (a, b_) {
-            (None, None) => {
-                out.push_str(&input[last..len]);
-                return;
-            }
-            (Some(x), None) => x,
-            (None, Some(y)) => y,
-            (Some(x), Some(y)) => x.min(y),
+    loop {
+        let i = match (next3, nextq) {
+            (Some(a), Some(q)) => a.min(q),
+            (Some(a), None) => a,
+            (None, Some(q)) => q,
+            (None, None) => break,
         };
-        i += advance;
-        let idx = HTML_ESCAPE[bytes[i] as usize];
-        if idx != 0 {
-            out.push_str(&input[last..i]);
-            out.push_str(HTML_ESCAPE_STRS[idx as usize]);
-            last = i + 1;
+        out.push_str(&input[last..i]);
+        out.push_str(HTML_ESCAPE_STRS[HTML_ESCAPE[bytes[i] as usize] as usize]);
+        last = i + 1;
+        if next3 == Some(i) {
+            next3 = memchr::memchr3(b'&', b'<', b'>', &bytes[last..]).map(|o| last + o);
+        } else {
+            nextq = memchr::memchr(b'"', &bytes[last..]).map(|o| last + o);
         }
-        i += 1;
     }
     out.push_str(&input[last..len]);
 }
@@ -246,17 +243,9 @@ pub(crate) fn gfm_tag_is_filtered(html: &str) -> bool {
         return false;
     }
     let name = &bytes[start..name_end];
-    for &tag in GFM_FILTERED_TAGS.iter() {
-        if name.len() == tag.len()
-            && name
-                .iter()
-                .zip(tag.iter())
-                .all(|(a, b)| a.to_ascii_lowercase() == *b)
-        {
-            return true;
-        }
-    }
-    false
+    GFM_FILTERED_TAGS
+        .iter()
+        .any(|tag| name.eq_ignore_ascii_case(tag))
 }
 
 /// Returns `true` if the URL uses a dangerous scheme (`javascript:`, `vbscript:`, `data:`).

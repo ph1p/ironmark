@@ -339,46 +339,51 @@ pub(super) fn find_simple_delim_close(
     None
 }
 
+/// Build a 256-entry byte lookup table marking each byte in `forbidden` true.
+const fn forbidden_table(forbidden: &[u8]) -> [bool; 256] {
+    let mut t = [false; 256];
+    let mut i = 0;
+    while i < forbidden.len() {
+        t[forbidden[i] as usize] = true;
+        i += 1;
+    }
+    t
+}
+
+/// Fast lookup: true for forbidden bytes in simple delimiter content.
+static SIMPLE_DELIM_FORBIDDEN: [bool; 256] = forbidden_table(br"\&<![]`*_~=+");
+
+/// Fast lookup: true for forbidden bytes in simple link labels
+/// (the delimiter set plus `:` `@` `$`).
+static SIMPLE_LABEL_FORBIDDEN: [bool; 256] = forbidden_table(br"\&<![]`*_~=+:@$");
+
+/// Fast lookup: true for forbidden bytes in simple link destinations.
+/// `$` is only meaningful when latex math is enabled — checked at the use site.
+static SIMPLE_DEST_FORBIDDEN: [bool; 256] = forbidden_table(b" \t\n<>&\\()$");
+
+#[inline]
 pub(super) fn is_simple_delim_content(content: &str) -> bool {
     !content.is_empty()
-        && !content.as_bytes().iter().any(|&b| {
-            matches!(
-                b,
-                b'\\' | b'&' | b'<' | b'!' | b'[' | b']' | b'`' | b'*' | b'_' | b'~' | b'=' | b'+'
-            )
-        })
+        && !content
+            .as_bytes()
+            .iter()
+            .any(|&b| SIMPLE_DELIM_FORBIDDEN[b as usize])
 }
 
+#[inline]
 pub(super) fn is_simple_link_label(label: &str) -> bool {
     !label.is_empty()
-        && !label.as_bytes().iter().any(|&b| {
-            matches!(
-                b,
-                b'\\'
-                    | b'&'
-                    | b'<'
-                    | b'!'
-                    | b'['
-                    | b']'
-                    | b'`'
-                    | b'*'
-                    | b'_'
-                    | b'~'
-                    | b'='
-                    | b'+'
-                    | b':'
-                    | b'@'
-                    | b'$'
-            )
-        })
+        && !label
+            .as_bytes()
+            .iter()
+            .any(|&b| SIMPLE_LABEL_FORBIDDEN[b as usize])
 }
 
+#[inline]
 pub(super) fn is_simple_link_dest(dest: &str, opts: &ParseOptions) -> bool {
     !dest.is_empty()
-        && !dest.as_bytes().iter().any(|&b| {
-            matches!(
-                b,
-                b' ' | b'\t' | b'\n' | b'<' | b'>' | b'&' | b'\\' | b'(' | b')'
-            ) || (opts.enable_latex_math && b == b'$')
-        })
+        && !dest
+            .as_bytes()
+            .iter()
+            .any(|&b| SIMPLE_DEST_FORBIDDEN[b as usize] && (b != b'$' || opts.enable_latex_math))
 }
