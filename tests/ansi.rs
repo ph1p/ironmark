@@ -50,6 +50,18 @@ fn none_ansi_opts_uses_defaults() {
     assert_eq!(with_none, with_default);
 }
 
+#[test]
+fn heading_underline_accounts_for_wide_chars() {
+    // Regression: CJK chars occupy 2 terminal columns, so the H1 underline must
+    // be 2× the char count (6 here), not the char count (3).
+    let out = plain("# 日本語");
+    let underline: &str = out
+        .lines()
+        .find(|l| l.starts_with('═'))
+        .expect("expected an underline row");
+    assert_eq!(underline.chars().filter(|&c| c == '═').count(), 6);
+}
+
 // ── headings ─────────────────────────────────────────────────────────────────
 
 #[test]

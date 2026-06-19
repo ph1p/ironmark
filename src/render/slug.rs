@@ -12,18 +12,24 @@ pub(crate) fn heading_slug_into(slug: &mut String, raw: &str) {
         let mut is_safe = true;
         let mut has_content = false;
         let mut all_lower = true;
+        let mut prev_dash = false;
         for &b in bytes {
             if b.is_ascii_lowercase() {
                 has_content = true;
+                prev_dash = false;
             } else if b.is_ascii_uppercase() {
                 has_content = true;
                 all_lower = false;
+                prev_dash = false;
             } else if b == b'-' {
-                // A dash before any content (i.e. leading) is not slug-safe.
-                if !has_content {
+                // A leading dash, or a run of consecutive dashes, is not slug-safe:
+                // the slow path collapses runs of separators to a single dash, so the
+                // fast path must defer to it to stay consistent.
+                if !has_content || prev_dash {
                     is_safe = false;
                     break;
                 }
+                prev_dash = true;
             } else {
                 is_safe = false;
                 break;

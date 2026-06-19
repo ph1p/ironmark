@@ -32,17 +32,30 @@ use crate::render::render_block;
 /// assert!(html.contains("<strong>bold</strong>"));
 /// ```
 #[cfg(feature = "html")]
+/// Truncate `s` to at most `limit` bytes, backing off to the nearest UTF-8 char
+/// boundary. A `limit` of 0 means unlimited and returns `s` unchanged.
+fn truncate_to_limit(s: &str, limit: usize) -> &str {
+    if limit == 0 || s.len() <= limit {
+        return s;
+    }
+    let mut end = limit;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 pub fn render_html(markdown: &str, options: &ParseOptions) -> String {
-    let markdown = if options.max_input_size > 0 && markdown.len() > options.max_input_size {
-        // Truncate at a valid UTF-8 boundary
-        let mut end = options.max_input_size;
-        while end > 0 && !markdown.is_char_boundary(end) {
-            end -= 1;
-        }
-        &markdown[..end]
-    } else {
-        markdown
+    // Source byte offsets are tracked as u32 in render mode (`src_ranges`), so the
+    // input is hard-capped at u32::MAX bytes to keep those casts from wrapping —
+    // a wrapped range would slice the source out of bounds and panic. This is below
+    // any user `max_input_size` and applies even when that limit is 0 (unlimited).
+    let u32_cap = u32::MAX as usize;
+    let effective_limit = match options.max_input_size {
+        0 => u32_cap,
+        n => n.min(u32_cap),
     };
+    let markdown = truncate_to_limit(markdown, effective_limit);
     let mut parser = BlockParser::new(markdown, options);
     parser.render_mode = true;
     parser.src_ranges = Vec::with_capacity(estimate_block_count(markdown.len()));
@@ -87,15 +100,7 @@ pub fn render_html(markdown: &str, options: &ParseOptions) -> String {
 /// }
 /// ```
 pub fn parse_markdown(markdown: &str, options: &ParseOptions) -> Block {
-    let markdown = if options.max_input_size > 0 && markdown.len() > options.max_input_size {
-        let mut end = options.max_input_size;
-        while end > 0 && !markdown.is_char_boundary(end) {
-            end -= 1;
-        }
-        &markdown[..end]
-    } else {
-        markdown
-    };
+    let markdown = truncate_to_limit(markdown, options.max_input_size);
     let mut parser = BlockParser::new(markdown, options);
     parser.parse()
 }

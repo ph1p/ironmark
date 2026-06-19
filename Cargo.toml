@@ -46,6 +46,11 @@ cli = []
 # Enable md4c as a benchmark competitor (requires system md4c: brew install md4c)
 bench-md4c = []
 
+# Run the extra diagnostic benchmark groups (pathological, large_lines, hotspots,
+# code_blocks_split). These are NOT exported to the history JSON, so routine trend
+# runs skip them by default to save wall-clock; enable for deep profiling.
+bench-extra = []
+
 # Rendering targets (can be disabled to reduce binary size)
 # markdown -> HTML rendering
 html = []

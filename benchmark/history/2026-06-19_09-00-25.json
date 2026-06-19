@@ -1,0 +1,842 @@
+{
+  "timestamp": "2026-06-19_09-00-25",
+  "date": "2026-06-19",
+  "rust": [
+    {
+      "title": "CommonMark Spec",
+      "benches": [
+        {
+          "name": "commonmark_spec",
+          "bytes": 15570,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 212859
+            },
+            "comrak": {
+              "median_ns": 586035
+            },
+            "md4c": {
+              "median_ns": 305324
+            },
+            "markdown_it": {
+              "median_ns": 2496749
+            },
+            "markdown_rs": {
+              "median_ns": 4950399
+            },
+            "ironmark": {
+              "median_ns": 178355
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "All Features",
+      "benches": [
+        {
+          "name": "all_features",
+          "bytes": 1692,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 11586
+            },
+            "comrak": {
+              "median_ns": 45599
+            },
+            "md4c": {
+              "median_ns": 17270
+            },
+            "markdown_it": {
+              "median_ns": 16105906
+            },
+            "markdown_rs": {
+              "median_ns": 209377
+            },
+            "ironmark": {
+              "median_ns": 9329
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Document Sizes",
+      "benches": [
+        {
+          "name": "1000000 bytes",
+          "bytes": 1000000,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 9897931
+            },
+            "comrak": {
+              "median_ns": 23879285
+            },
+            "md4c": {
+              "median_ns": 10999729
+            },
+            "markdown_it": {
+              "median_ns": 76119750
+            },
+            "markdown_rs": {
+              "median_ns": 357810750
+            },
+            "ironmark": {
+              "median_ns": 3265359
+            }
+          }
+        },
+        {
+          "name": "10000 bytes",
+          "bytes": 10000,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 83976
+            },
+            "comrak": {
+              "median_ns": 238874
+            },
+            "md4c": {
+              "median_ns": 112735
+            },
+            "markdown_it": {
+              "median_ns": 1241203
+            },
+            "markdown_rs": {
+              "median_ns": 1436366
+            },
+            "ironmark": {
+              "median_ns": 32855
+            }
+          }
+        },
+        {
+          "name": "100000 bytes",
+          "bytes": 100000,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 814502
+            },
+            "comrak": {
+              "median_ns": 2355167
+            },
+            "md4c": {
+              "median_ns": 1097691
+            },
+            "markdown_it": {
+              "median_ns": 6993160
+            },
+            "markdown_rs": {
+              "median_ns": 16623646
+            },
+            "ironmark": {
+              "median_ns": 339482
+            }
+          }
+        },
+        {
+          "name": "1000 bytes",
+          "bytes": 1000,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 8929
+            },
+            "comrak": {
+              "median_ns": 23992
+            },
+            "md4c": {
+              "median_ns": 12504
+            },
+            "markdown_it": {
+              "median_ns": 683218
+            },
+            "markdown_rs": {
+              "median_ns": 141957
+            },
+            "ironmark": {
+              "median_ns": 3525
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Block Types",
+      "benches": [
+        {
+          "name": "headings",
+          "bytes": 10584,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 39371
+            },
+            "comrak": {
+              "median_ns": 145234
+            },
+            "md4c": {
+              "median_ns": 51260
+            },
+            "markdown_it": {
+              "median_ns": 932572
+            },
+            "markdown_rs": {
+              "median_ns": 1080241
+            },
+            "ironmark": {
+              "median_ns": 23716
+            }
+          }
+        },
+        {
+          "name": "nested_lists",
+          "bytes": 2940,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 16385
+            },
+            "comrak": {
+              "median_ns": 76605
+            },
+            "md4c": {
+              "median_ns": 13434
+            },
+            "markdown_it": {
+              "median_ns": 673155
+            },
+            "markdown_rs": {
+              "median_ns": 783273
+            },
+            "ironmark": {
+              "median_ns": 10710
+            }
+          }
+        },
+        {
+          "name": "code_blocks",
+          "bytes": 5290,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 15645
+            },
+            "comrak": {
+              "median_ns": 65668
+            },
+            "md4c": {
+              "median_ns": 37273
+            },
+            "markdown_it": {
+              "median_ns": 26971854
+            },
+            "markdown_rs": {
+              "median_ns": 433994
+            },
+            "ironmark": {
+              "median_ns": 13449
+            }
+          }
+        },
+        {
+          "name": "table",
+          "bytes": 8234,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 50252
+            },
+            "comrak": {
+              "median_ns": 355042
+            },
+            "md4c": {
+              "median_ns": 103768
+            },
+            "markdown_it": {
+              "median_ns": 1220902
+            },
+            "markdown_rs": {
+              "median_ns": 279306
+            },
+            "ironmark": {
+              "median_ns": 27724
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Inline-heavy",
+      "benches": [
+        {
+          "name": "inline_heavy",
+          "bytes": 17090,
+          "results": {
+            "pulldown_cmark": {
+              "median_ns": 136418
+            },
+            "comrak": {
+              "median_ns": 394482
+            },
+            "md4c": {
+              "median_ns": 188723
+            },
+            "markdown_it": {
+              "median_ns": 1671491
+            },
+            "markdown_rs": {
+              "median_ns": 2483412
+            },
+            "ironmark": {
+              "median_ns": 55710
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "wasm": [
+    {
+      "title": "CommonMark Spec",
+      "benches": [
+        {
+          "name": "spec (all examples)",
+          "bytes": 15570,
+          "results": {
+            "ironmark": {
+              "median_ns": 299658.3499996632,
+              "mean_ns": 306344.7700000251
+            },
+            "markdown-wasm": {
+              "median_ns": 392204.14999945206,
+              "mean_ns": 394759.56050000223
+            },
+            "md4w": {
+              "median_ns": 385016.65000003413,
+              "mean_ns": 386285.3970000287
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "All Features",
+      "benches": [
+        {
+          "name": "all features",
+          "bytes": 1672,
+          "results": {
+            "ironmark": {
+              "median_ns": 15939.60000027437,
+              "mean_ns": 16695.25149997934
+            },
+            "markdown-wasm": {
+              "median_ns": 24885.450000147102,
+              "mean_ns": 25644.207999968796
+            },
+            "md4w": {
+              "median_ns": 24547.95000012382,
+              "mean_ns": 25004.433500005693
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Document Sizes",
+      "benches": [
+        {
+          "name": "mixed 1000 B",
+          "bytes": 594,
+          "results": {
+            "ironmark": {
+              "median_ns": 4920.899998978712,
+              "mean_ns": 5000.8120000129575
+            },
+            "markdown-wasm": {
+              "median_ns": 7949.999999254942,
+              "mean_ns": 8256.043999950634
+            },
+            "md4w": {
+              "median_ns": 9033.300000010058,
+              "mean_ns": 9302.813499954937
+            }
+          }
+        },
+        {
+          "name": "mixed 9.8 KB",
+          "bytes": 4454,
+          "results": {
+            "ironmark": {
+              "median_ns": 31314.600000041533,
+              "mean_ns": 32280.186499985568
+            },
+            "markdown-wasm": {
+              "median_ns": 41354.149999824585,
+              "mean_ns": 42260.06150007744
+            },
+            "md4w": {
+              "median_ns": 40866.70000033337,
+              "mean_ns": 41791.708000033366
+            }
+          }
+        },
+        {
+          "name": "mixed 97.7 KB",
+          "bytes": 44388,
+          "results": {
+            "ironmark": {
+              "median_ns": 324610.450000182,
+              "mean_ns": 327077.35500000115
+            },
+            "markdown-wasm": {
+              "median_ns": 398520.90000058524,
+              "mean_ns": 399296.08050000377
+            },
+            "md4w": {
+              "median_ns": 378258.349999669,
+              "mean_ns": 379322.001500026
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Block Types",
+      "benches": [
+        {
+          "name": "headings",
+          "bytes": 10580,
+          "results": {
+            "ironmark": {
+              "median_ns": 53587.54999906523,
+              "mean_ns": 54597.58049997614
+            },
+            "markdown-wasm": {
+              "median_ns": 92647.90000015637,
+              "mean_ns": 94005.5814999214
+            },
+            "md4w": {
+              "median_ns": 98999.9999976135,
+              "mean_ns": 101121.87599997557
+            }
+          }
+        },
+        {
+          "name": "nested lists",
+          "bytes": 2940,
+          "results": {
+            "ironmark": {
+              "median_ns": 15720.79999896232,
+              "mean_ns": 16038.994000031378
+            },
+            "markdown-wasm": {
+              "median_ns": 17968.800000380725,
+              "mean_ns": 18339.186499972144
+            },
+            "md4w": {
+              "median_ns": 17868.74999961583,
+              "mean_ns": 18242.313000053407
+            }
+          }
+        },
+        {
+          "name": "table (100×10)",
+          "bytes": 8234,
+          "results": {
+            "ironmark": {
+              "median_ns": 54495.85000023944,
+              "mean_ns": 56025.35650007483
+            },
+            "markdown-wasm": {
+              "median_ns": 148987.50000138534,
+              "mean_ns": 151121.26900005384
+            },
+            "md4w": {
+              "median_ns": 118497.89999978384,
+              "mean_ns": 120321.8724999315
+            }
+          }
+        },
+        {
+          "name": "code blocks",
+          "bytes": 5290,
+          "results": {
+            "ironmark": {
+              "median_ns": 29566.64999946952,
+              "mean_ns": 30315.537999864337
+            },
+            "markdown-wasm": {
+              "median_ns": 37943.74999997671,
+              "mean_ns": 38665.1670000283
+            },
+            "md4w": {
+              "median_ns": 39322.94999976875,
+              "mean_ns": 39944.64549997064
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Inline-heavy",
+      "benches": [
+        {
+          "name": "inline heavy",
+          "bytes": 17090,
+          "results": {
+            "ironmark": {
+              "median_ns": 138116.6499995743,
+              "mean_ns": 139373.43550001967
+            },
+            "markdown-wasm": {
+              "median_ns": 228785.44999985024,
+              "mean_ns": 230279.3775000901
+            },
+            "md4w": {
+              "median_ns": 225220.79999907874,
+              "mean_ns": 228436.29350000987
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "bun": [
+    {
+      "title": "CommonMark Spec",
+      "benches": [
+        {
+          "name": "spec (all examples)",
+          "bytes": 15570,
+          "results": {
+            "ironmark": {
+              "median_ns": 246383.3500000021,
+              "p95_ns": 324554.10000000027
+            },
+            "markdown-wasm": {
+              "median_ns": 357395.8500000003,
+              "p95_ns": 391429.1999999932
+            },
+            "md4w": {
+              "median_ns": 340560.3999999812,
+              "p95_ns": 392450.00000000803
+            },
+            "bun": {
+              "median_ns": 304441.6500000352,
+              "p95_ns": 331954.2000000183
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "All Features",
+      "benches": [
+        {
+          "name": "all features",
+          "bytes": 1672,
+          "results": {
+            "ironmark": {
+              "median_ns": 13354.150000031948,
+              "p95_ns": 18487.499999991996
+            },
+            "markdown-wasm": {
+              "median_ns": 25950.00000001164,
+              "p95_ns": 31812.499999978172
+            },
+            "md4w": {
+              "median_ns": 24564.60000003062,
+              "p95_ns": 32208.40000003591
+            },
+            "bun": {
+              "median_ns": 14475.000000038563,
+              "p95_ns": 16787.50000000946
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Document Sizes",
+      "benches": [
+        {
+          "name": "mixed 1000 B",
+          "bytes": 594,
+          "results": {
+            "ironmark": {
+              "median_ns": 3987.50000003929,
+              "p95_ns": 4758.399999991525
+            },
+            "markdown-wasm": {
+              "median_ns": 7283.2999999718595,
+              "p95_ns": 8412.500000031287
+            },
+            "md4w": {
+              "median_ns": 8879.099999967368,
+              "p95_ns": 10645.799999929295
+            },
+            "bun": {
+              "median_ns": 5337.4999999505235,
+              "p95_ns": 6258.400000024267
+            }
+          }
+        },
+        {
+          "name": "mixed 9.8 KB",
+          "bytes": 4454,
+          "results": {
+            "ironmark": {
+              "median_ns": 25862.499999993815,
+              "p95_ns": 31370.800000058804
+            },
+            "markdown-wasm": {
+              "median_ns": 39433.34999999024,
+              "p95_ns": 45008.40000000608
+            },
+            "md4w": {
+              "median_ns": 41220.80000001915,
+              "p95_ns": 48854.20000000522
+            },
+            "bun": {
+              "median_ns": 30470.850000028804,
+              "p95_ns": 35379.19999998849
+            }
+          }
+        },
+        {
+          "name": "mixed 97.7 KB",
+          "bytes": 44388,
+          "results": {
+            "ironmark": {
+              "median_ns": 259012.54999994306,
+              "p95_ns": 275979.20000007434
+            },
+            "markdown-wasm": {
+              "median_ns": 370885.35000002594,
+              "p95_ns": 388954.1000000463
+            },
+            "md4w": {
+              "median_ns": 371452.14999991364,
+              "p95_ns": 419062.49999992724
+            },
+            "bun": {
+              "median_ns": 296852.09999997827,
+              "p95_ns": 311137.50000004075
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Block Types",
+      "benches": [
+        {
+          "name": "headings",
+          "bytes": 10580,
+          "results": {
+            "ironmark": {
+              "median_ns": 44135.39999995919,
+              "p95_ns": 50541.70000003069
+            },
+            "markdown-wasm": {
+              "median_ns": 103689.55000003552,
+              "p95_ns": 115829.09999997355
+            },
+            "md4w": {
+              "median_ns": 91014.6000000168,
+              "p95_ns": 103608.29999990528
+            },
+            "bun": {
+              "median_ns": 58804.150000105445,
+              "p95_ns": 65975.0000000713
+            }
+          }
+        },
+        {
+          "name": "nested lists",
+          "bytes": 2940,
+          "results": {
+            "ironmark": {
+              "median_ns": 13379.20000005397,
+              "p95_ns": 14995.900000030815
+            },
+            "markdown-wasm": {
+              "median_ns": 16927.099999975326,
+              "p95_ns": 20283.300000119198
+            },
+            "md4w": {
+              "median_ns": 15752.100000008797,
+              "p95_ns": 18645.80000001297
+            },
+            "bun": {
+              "median_ns": 10170.800000014424,
+              "p95_ns": 11545.8000000217
+            }
+          }
+        },
+        {
+          "name": "table (100×10)",
+          "bytes": 8234,
+          "results": {
+            "ironmark": {
+              "median_ns": 42025.00000010332,
+              "p95_ns": 48837.50000008149
+            },
+            "markdown-wasm": {
+              "median_ns": 160804.20000007507,
+              "p95_ns": 172524.99999995052
+            },
+            "md4w": {
+              "median_ns": 125185.40000000938,
+              "p95_ns": 137095.8999999857
+            },
+            "bun": {
+              "median_ns": 64245.850000042985,
+              "p95_ns": 71808.29999997513
+            }
+          }
+        },
+        {
+          "name": "code blocks",
+          "bytes": 5290,
+          "results": {
+            "ironmark": {
+              "median_ns": 21210.399999927176,
+              "p95_ns": 25066.700000024866
+            },
+            "markdown-wasm": {
+              "median_ns": 36164.54999992129,
+              "p95_ns": 42070.79999996495
+            },
+            "md4w": {
+              "median_ns": 36272.89999994901,
+              "p95_ns": 42591.70000004815
+            },
+            "bun": {
+              "median_ns": 41368.79999987286,
+              "p95_ns": 50587.500000256114
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Inline-heavy",
+      "benches": [
+        {
+          "name": "inline heavy",
+          "bytes": 17090,
+          "results": {
+            "ironmark": {
+              "median_ns": 84991.69999995502,
+              "p95_ns": 97737.49999985739
+            },
+            "markdown-wasm": {
+              "median_ns": 211368.79999994562,
+              "p95_ns": 225549.99999993015
+            },
+            "md4w": {
+              "median_ns": 223695.84999996732,
+              "p95_ns": 240645.7999997656
+            },
+            "bun": {
+              "median_ns": 163402.10000016668,
+              "p95_ns": 177174.99999998836
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Pathological",
+      "benches": [
+        {
+          "name": "backticks ×500",
+          "bytes": 125750,
+          "results": {
+            "ironmark": {
+              "median_ns": 223564.59999991785,
+              "p95_ns": 246287.50000010768
+            },
+            "markdown-wasm": {
+              "median_ns": 254416.7000000016,
+              "p95_ns": 277466.6999997862
+            },
+            "md4w": {
+              "median_ns": 308189.5999997869,
+              "p95_ns": 377270.9000000759
+            },
+            "bun": {
+              "median_ns": 33751570.84999991,
+              "p95_ns": 34347158.3999999
+            }
+          }
+        },
+        {
+          "name": "emphasis ×10k",
+          "bytes": 30000,
+          "results": {
+            "ironmark": {
+              "median_ns": 238970.8000002429,
+              "p95_ns": 253320.7999993465
+            },
+            "markdown-wasm": {
+              "median_ns": 405020.8500004373,
+              "p95_ns": 414516.69999951264
+            },
+            "md4w": {
+              "median_ns": 399458.34999962244,
+              "p95_ns": 415950.00000088476
+            },
+            "bun": {
+              "median_ns": 521920.8499998787,
+              "p95_ns": 537354.200000118
+            }
+          }
+        },
+        {
+          "name": "table 1k rows",
+          "bytes": 91034,
+          "results": {
+            "ironmark": {
+              "median_ns": 434727.09999987273,
+              "p95_ns": 458762.50000001164
+            },
+            "markdown-wasm": {
+              "median_ns": 1621972.8999996735,
+              "p95_ns": 1671029.2000003392
+            },
+            "md4w": {
+              "median_ns": 1236597.94999985,
+              "p95_ns": 1312612.4999995227
+            },
+            "bun": {
+              "median_ns": 683172.8999997722,
+              "p95_ns": 711887.5000000116
+            }
+          }
+        },
+        {
+          "name": "ref links ×1k",
+          "bytes": 41052,
+          "results": {
+            "ironmark": {
+              "median_ns": 567637.4499998929,
+              "p95_ns": 604479.2000000598
+            },
+            "markdown-wasm": {
+              "median_ns": 1332547.9000006453,
+              "p95_ns": 1373054.0999997174
+            },
+            "md4w": {
+              "median_ns": 1651281.2499997383,
+              "p95_ns": 1734254.1999998502
+            },
+            "bun": {
+              "median_ns": 1168466.6999994079,
+              "p95_ns": 1193929.099998786
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,7 +1,10 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use ironmark::{ParseOptions, render_html};
+// Hotspot/diagnostic entry points are only used by the `bench-extra` groups.
+#[cfg(feature = "bench-extra")]
 use ironmark::{
     __benchmark_heading_slug, __benchmark_parse_inline, __benchmark_parse_table_row,
-    __benchmark_render_html_parse_phase, ParseOptions, parse_markdown, render_html,
+    __benchmark_render_html_parse_phase, parse_markdown,
 };
 use std::hint::black_box;
 
@@ -145,6 +148,7 @@ fn gen_all_features_doc() -> &'static str {
     include_str!("all_features.md")
 }
 
+#[cfg(feature = "bench-extra")]
 fn gen_mixed_doc(lines: usize) -> String {
     let mut s = String::new();
     let mut line = 0;
@@ -212,14 +216,17 @@ fn gen_mixed_doc(lines: usize) -> String {
     s
 }
 
+#[cfg(feature = "bench-extra")]
 fn gen_pathological_backticks(n: usize) -> String {
     (1..=n).map(|i| "`".repeat(i) + " ").collect()
 }
 
+#[cfg(feature = "bench-extra")]
 fn gen_pathological_emphasis(n: usize) -> String {
     "*a ".repeat(n)
 }
 
+#[cfg(feature = "bench-extra")]
 fn gen_many_ref_links(n: usize) -> String {
     let mut s = String::from("[refdef]: http://example.com/very/long/url \"Title\"\n\n");
     for _ in 0..n {
@@ -308,6 +315,7 @@ const SLOW: TimingConfig = TimingConfig {
     measure_ms: 3000,
     sample_size: 50,
 };
+#[cfg(feature = "bench-extra")]
 const PATHOLOGICAL: TimingConfig = TimingConfig {
     warmup_ms: 300,
     measure_ms: 1000,
@@ -371,6 +379,7 @@ fn bench_inline(c: &mut Criterion) {
     bench_group(c, "inline_heavy", &gen_inline_heavy());
 }
 
+#[cfg(feature = "bench-extra")]
 fn bench_pathological(c: &mut Criterion) {
     let cases: &[BenchCase] = &[
         ("backticks_500", || gen_pathological_backticks(500)),
@@ -383,6 +392,7 @@ fn bench_pathological(c: &mut Criterion) {
     }
 }
 
+#[cfg(feature = "bench-extra")]
 fn bench_large_lines(c: &mut Criterion) {
     let input = gen_mixed_doc(10_000);
     bench_group_cfg(c, "large_lines/10000", &input, &SLOW);
@@ -392,6 +402,7 @@ fn bench_all_features(c: &mut Criterion) {
     bench_group(c, "all_features", gen_all_features_doc());
 }
 
+#[cfg(feature = "bench-extra")]
 fn bench_code_blocks_split(c: &mut Criterion) {
     let input = gen_code_blocks(100);
     let opts = ParseOptions::default();
@@ -411,6 +422,7 @@ fn bench_code_blocks_split(c: &mut Criterion) {
     group.finish();
 }
 
+#[cfg(feature = "bench-extra")]
 fn bench_hotspots(c: &mut Criterion) {
     let opts = ParseOptions {
         enable_heading_ids: true,
@@ -588,6 +600,20 @@ fn export_csv(c: &mut Criterion) {
     }
 }
 
+// Core groups: exported to the history JSON, always run.
+#[cfg(not(feature = "bench-extra"))]
+criterion_group!(
+    benches,
+    bench_spec,
+    bench_sizes,
+    bench_block_types,
+    bench_inline,
+    bench_all_features,
+    export_csv,
+);
+
+// With `bench-extra`: also run the diagnostic groups (not exported to history).
+#[cfg(feature = "bench-extra")]
 criterion_group!(
     benches,
     bench_spec,

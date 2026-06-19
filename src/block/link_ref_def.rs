@@ -31,7 +31,10 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
             i += ch_len;
         }
     }
-    if !found_close || label.trim().is_empty() || label.len() > 999 {
+    // CommonMark limits labels to 999 characters. char count <= byte count, so only
+    // pay the O(n) char walk when the byte length already exceeds the limit.
+    if !found_close || label.trim().is_empty() || (label.len() > 999 && label.chars().count() > 999)
+    {
         return None;
     }
 

@@ -105,6 +105,20 @@ fn parses_reference_style_links_and_shortcuts() {
 }
 
 #[test]
+fn reference_label_limit_counts_chars_not_bytes() {
+    // CommonMark limits link labels to 999 *characters*. A multibyte (CJK) label
+    // of 500 chars is 1500 bytes — it must still resolve, not be rejected by a
+    // byte-length check.
+    let label: String = "あ".repeat(500);
+    let md = format!("[text][{label}]\n\n[{label}]: https://example.com");
+    let html = ironmark::render_html(&md, &ParseOptions::default());
+    assert!(
+        html.contains("<a href=\"https://example.com\">text</a>"),
+        "expected the long CJK label to resolve, got: {html}"
+    );
+}
+
+#[test]
 fn parses_reference_style_images() {
     assert_html(
         "![Logo][brand]\n\n[brand]: https://img.test/logo.png \"Logo title\"",
@@ -910,6 +924,58 @@ fn heading_id_special_chars() {
         render_html("# Hello, World!", &opts),
         "<h1 id=\"hello-world\">Hello, World!</h1>\n"
     );
+}
+
+#[test]
+fn heading_id_consecutive_dashes_collapse() {
+    // Regression: the slug fast-path must collapse runs of dashes the same way the
+    // slow path collapses runs of spaces, so the two never disagree.
+    let opts = ParseOptions {
+        hard_breaks: false,
+        enable_heading_ids: true,
+        ..Default::default()
+    };
+    assert_eq!(render_html("# a--b", &opts), "<h1 id=\"a-b\">a--b</h1>\n");
+    assert_eq!(render_html("# a  b", &opts), "<h1 id=\"a-b\">a  b</h1>\n");
+    assert_eq!(
+        render_html("# foo--bar", &opts),
+        "<h1 id=\"foo-bar\">foo--bar</h1>\n"
+    );
+}
+
+#[test]
+fn slug_dash_invariant_holds_across_both_paths() {
+    // Guardrail for the dual fast/slow slug paths: whichever path fires, a slug
+    // must never contain a run of dashes nor a leading/trailing dash. These inputs
+    // straddle the fast-path classifier (pure ASCII+dash) and the slow path
+    // (spaces, dots, punctuation, multibyte) so both are exercised.
+    let cases = [
+        "a-b",
+        "a--b",
+        "a---b",
+        "a  b",
+        "a..b",
+        "-leading",
+        "trailing-",
+        "foo-bar-baz",
+        "Hello World",
+        "a - b - c",
+        "**bold** text",
+        "café—dash",
+        "x_y_z",
+        "MixedCase--Words",
+    ];
+    for raw in cases {
+        let slug = ironmark::__benchmark_heading_slug(raw);
+        assert!(
+            !slug.contains("--"),
+            "slug for {raw:?} has consecutive dashes: {slug:?}"
+        );
+        assert!(
+            !slug.starts_with('-') && !slug.ends_with('-'),
+            "slug for {raw:?} has a leading/trailing dash: {slug:?}"
+        );
+    }
 }
 
 #[test]

@@ -96,8 +96,9 @@ pub(super) fn wrap_ansi(text: &str, max_cols: usize, indent: &str) -> String {
                     break;
                 }
                 let char_len = crate::utf8_char_len(bytes[j]);
+                let c = text[j..].chars().next().unwrap_or('\u{FFFD}');
                 w.push_str(&text[j..j + char_len]);
-                vis += 1;
+                vis += char_width(c);
                 j += char_len;
             }
         }
@@ -178,8 +179,9 @@ pub(super) fn wrap_ansi(text: &str, max_cols: usize, indent: &str) -> String {
             } else {
                 maybe_wrap(out, line_cols, line_has_ansi, ansi_state, indent_cols);
                 let char_len = crate::utf8_char_len(wb[j]);
+                let c = word[j..].chars().next().unwrap_or('\u{FFFD}');
                 out.push_str(&word[j..j + char_len]);
-                *line_cols += 1;
+                *line_cols += char_width(c);
                 j += char_len;
             }
         }
@@ -327,7 +329,8 @@ pub(super) fn visible_len(s: &str) -> usize {
             i += 1;
         } else if bytes[i] >= 0x80 {
             let char_len = crate::utf8_char_len(bytes[i]);
-            col += 1;
+            let c = s[i..].chars().next().unwrap_or('\u{FFFD}');
+            col += char_width(c);
             i += char_len;
         } else {
             col += 1;
@@ -335,4 +338,53 @@ pub(super) fn visible_len(s: &str) -> usize {
         }
     }
     col
+}
+
+/// Terminal column width of a single `char`.
+///
+/// Returns 0 for combining marks and zero-width characters, 2 for East-Asian
+/// wide / fullwidth characters and most emoji, and 1 otherwise. This is a
+/// dependency-free approximation of Unicode East Asian Width (UAX #11) covering
+/// the ranges that matter for CJK text and common emoji.
+pub(super) fn char_width(c: char) -> usize {
+    let cp = c as u32;
+    // Everything below U+0300 is single-width (callers already handle ASCII, so this
+    // covers Latin-1 supplement / Latin Extended): skip the range chains entirely.
+    if cp < 0x0300 {
+        return 1;
+    }
+    // Zero-width: combining marks, ZWJ/ZWNJ, ZWSP, variation selectors, BOM.
+    if cp == 0x200B
+        || cp == 0x200C
+        || cp == 0x200D
+        || cp == 0xFEFF
+        || (0x0300..=0x036F).contains(&cp)
+        || (0x1AB0..=0x1AFF).contains(&cp)
+        || (0x1DC0..=0x1DFF).contains(&cp)
+        || (0x20D0..=0x20FF).contains(&cp)
+        || (0xFE00..=0xFE0F).contains(&cp)
+        || (0xFE20..=0xFE2F).contains(&cp)
+    {
+        return 0;
+    }
+    // Wide / fullwidth (UAX #11 W and F). Common CJK ranges are listed first.
+    if (0x4E00..=0x9FFF).contains(&cp)   // CJK Unified
+        || (0xAC00..=0xD7A3).contains(&cp)   // Hangul syllables
+        || (0x1100..=0x115F).contains(&cp)   // Hangul Jamo
+        || (0x2E80..=0x303E).contains(&cp)   // CJK radicals, Kangxi, symbols
+        || (0x3041..=0x33FF).contains(&cp)   // Hiragana..CJK compatibility
+        || (0x3400..=0x4DBF).contains(&cp)   // CJK Ext A
+        || (0xA000..=0xA4CF).contains(&cp)   // Yi
+        || (0xF900..=0xFAFF).contains(&cp)   // CJK compatibility ideographs
+        || (0xFE10..=0xFE19).contains(&cp)   // vertical forms
+        || (0xFE30..=0xFE6F).contains(&cp)   // CJK compatibility forms
+        || (0xFF00..=0xFF60).contains(&cp)   // fullwidth forms
+        || (0xFFE0..=0xFFE6).contains(&cp)   // fullwidth signs
+        || (0x1F300..=0x1FAFF).contains(&cp) // emoji / symbols & pictographs
+        || (0x20000..=0x3FFFD).contains(&cp)
+    // CJK Ext B+ (supplementary ideographic)
+    {
+        return 2;
+    }
+    1
 }
