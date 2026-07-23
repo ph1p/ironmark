@@ -240,9 +240,12 @@ impl<'a> InlineParser<'a> {
         while let Some(token) = self.tokenizer.next_token() {
             match token {
                 HtmlToken::Text(text) => {
-                    // Normalize whitespace
-                    let normalized = normalize_whitespace(&text);
-                    if !normalized.is_empty() {
+                    if !text.is_empty() {
+                        // Reuse the token's buffer when already normalized.
+                        let normalized = match normalize_whitespace(&text) {
+                            Cow::Owned(s) => s,
+                            Cow::Borrowed(_) => text.into_owned(),
+                        };
                         elements.push(InlineElement::Text(normalized));
                     }
                 }
@@ -278,32 +281,20 @@ impl<'a> InlineParser<'a> {
         attrs: &[(Cow<'_, str>, Cow<'_, str>)],
         self_closing: bool,
     ) -> Option<InlineElement> {
+        // Emphasis-style wrappers differ only in the variant constructor.
+        let wrapper: Option<fn(Vec<InlineElement>) -> InlineElement> = match name {
+            "strong" | "b" => Some(InlineElement::Bold),
+            "em" | "i" => Some(InlineElement::Italic),
+            "del" | "s" | "strike" => Some(InlineElement::Strike),
+            "mark" => Some(InlineElement::Highlight),
+            "u" | "ins" => Some(InlineElement::Underline),
+            _ => None,
+        };
+        if let Some(ctor) = wrapper {
+            return Some(ctor(self.parse_until(Some(name))));
+        }
+
         match name {
-            // Bold
-            "strong" | "b" => {
-                let children = self.parse_until(Some(name));
-                Some(InlineElement::Bold(children))
-            }
-            // Italic
-            "em" | "i" => {
-                let children = self.parse_until(Some(name));
-                Some(InlineElement::Italic(children))
-            }
-            // Strikethrough
-            "del" | "s" | "strike" => {
-                let children = self.parse_until(Some(name));
-                Some(InlineElement::Strike(children))
-            }
-            // Highlight
-            "mark" => {
-                let children = self.parse_until(Some(name));
-                Some(InlineElement::Highlight(children))
-            }
-            // Underline
-            "u" | "ins" => {
-                let children = self.parse_until(Some(name));
-                Some(InlineElement::Underline(children))
-            }
             // Inline code
             "code" => {
                 let content = self.collect_text_until(name);
@@ -334,25 +325,7 @@ impl<'a> InlineParser<'a> {
                 if self_closing {
                     None
                 } else {
-                    let children = self.parse_until(Some(name));
-                    // Flatten children into parent
-                    if children.len() == 1 {
-                        Some(children.into_iter().next().unwrap())
-                    } else if children.is_empty() {
-                        None
-                    } else {
-                        // Return first element if multiple (simplified)
-                        Some(InlineElement::Text(
-                            children
-                                .into_iter()
-                                .map(|e| {
-                                    let mut s = String::new();
-                                    e.write_markdown(&mut s);
-                                    s
-                                })
-                                .collect(),
-                        ))
-                    }
+                    self.flatten_children(name)
                 }
             }
             // Unknown inline elements
@@ -362,52 +335,44 @@ impl<'a> InlineParser<'a> {
                         if self_closing {
                             None
                         } else {
-                            // Parse children and flatten
-                            let children = self.parse_until(Some(name));
-                            if children.len() == 1 {
-                                Some(children.into_iter().next().unwrap())
-                            } else if children.is_empty() {
-                                None
-                            } else {
-                                // Collect as text
-                                let text: String = children
-                                    .into_iter()
-                                    .map(|e| {
-                                        let mut s = String::new();
-                                        e.write_markdown(&mut s);
-                                        s
-                                    })
-                                    .collect();
-                                Some(InlineElement::Text(text))
-                            }
+                            self.flatten_children(name)
                         }
                     }
                     UnknownInlineHandling::PreserveAsHtml => {
                         // Reconstruct the HTML tag
-                        let mut html = String::from("<");
-                        html.push_str(name);
-                        for (k, v) in attrs {
-                            html.push(' ');
-                            html.push_str(k);
-                            html.push_str("=\"");
-                            html.push_str(v);
-                            html.push('"');
-                        }
-                        if self_closing {
-                            html.push_str(" />");
-                            Some(InlineElement::RawHtml(html))
-                        } else {
-                            html.push('>');
+                        let mut html = String::new();
+                        write_open_tag(&mut html, name, attrs, self_closing);
+                        if !self_closing {
                             let inner = self.collect_html_until(name);
                             html.push_str(&inner);
                             html.push_str("</");
                             html.push_str(name);
                             html.push('>');
-                            Some(InlineElement::RawHtml(html))
                         }
+                        Some(InlineElement::RawHtml(html))
                     }
                 }
             }
+        }
+    }
+
+    /// Parse children of a structurally-transparent tag and collapse them into
+    /// a single element (multiple children are re-serialized as text).
+    fn flatten_children(&mut self, name: &str) -> Option<InlineElement> {
+        let children = self.parse_until(Some(name));
+        match children.len() {
+            0 => None,
+            1 => Some(children.into_iter().next().unwrap()),
+            _ => Some(InlineElement::Text(
+                children
+                    .into_iter()
+                    .map(|e| {
+                        let mut s = String::new();
+                        e.write_markdown(&mut s);
+                        s
+                    })
+                    .collect(),
+            )),
         }
     }
 
@@ -439,22 +404,9 @@ impl<'a> InlineParser<'a> {
                     attrs,
                     self_closing,
                 } => {
-                    html.push('<');
-                    html.push_str(name);
-                    for (k, v) in attrs {
-                        html.push(' ');
-                        html.push_str(k);
-                        html.push_str("=\"");
-                        html.push_str(v);
-                        html.push('"');
-                    }
-                    if *self_closing {
-                        html.push_str(" />");
-                    } else {
-                        html.push('>');
-                        if name == end_tag {
-                            depth += 1;
-                        }
+                    write_open_tag(&mut html, name, attrs, *self_closing);
+                    if !self_closing && name == end_tag {
+                        depth += 1;
                     }
                 }
                 HtmlToken::EndTag { name } => {
@@ -484,31 +436,58 @@ impl<'a> InlineParser<'a> {
 }
 
 /// Find an attribute value by name.
-fn find_attr(attrs: &[(Cow<'_, str>, Cow<'_, str>)], name: &str) -> Option<String> {
+pub(super) fn find_attr(attrs: &[(Cow<'_, str>, Cow<'_, str>)], name: &str) -> Option<String> {
     attrs
         .iter()
         .find(|(k, _)| k == name)
         .map(|(_, v)| v.to_string())
 }
 
-/// Normalize whitespace in text (collapse runs of whitespace to single space).
-fn normalize_whitespace(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut prev_ws = false;
-
-    for ch in text.chars() {
-        if ch.is_whitespace() {
-            if !prev_ws {
-                result.push(' ');
-                prev_ws = true;
-            }
-        } else {
-            result.push(ch);
-            prev_ws = false;
-        }
+/// Serialize an opening tag `<name k="v" ...>` (or `<... />` when self-closing).
+pub(super) fn write_open_tag(
+    out: &mut String,
+    name: &str,
+    attrs: &[(Cow<'_, str>, Cow<'_, str>)],
+    self_closing: bool,
+) {
+    out.push('<');
+    out.push_str(name);
+    for (k, v) in attrs {
+        out.push(' ');
+        out.push_str(k);
+        out.push_str("=\"");
+        out.push_str(v);
+        out.push('"');
     }
+    out.push_str(if self_closing { " />" } else { ">" });
+}
 
-    result
+/// Normalize whitespace in text (collapse runs of whitespace to single space).
+/// Already-normalized text (the common case) is returned borrowed.
+fn normalize_whitespace(text: &str) -> Cow<'_, str> {
+    let mut prev_ws = false;
+    for (i, ch) in text.char_indices() {
+        if ch.is_whitespace() && (ch != ' ' || prev_ws) {
+            // First char needing rewriting: copy the clean prefix, then
+            // normalize the rest in the same pass.
+            let mut result = String::with_capacity(text.len());
+            result.push_str(&text[..i]);
+            for ch in text[i..].chars() {
+                if ch.is_whitespace() {
+                    if !prev_ws {
+                        result.push(' ');
+                        prev_ws = true;
+                    }
+                } else {
+                    result.push(ch);
+                    prev_ws = false;
+                }
+            }
+            return Cow::Owned(result);
+        }
+        prev_ws = ch.is_whitespace();
+    }
+    Cow::Borrowed(text)
 }
 
 #[cfg(test)]

@@ -9,7 +9,6 @@ use link_ref_def::*;
 
 use crate::ParseOptions;
 use crate::ast::{Block, ListKind, TableAlignment};
-use crate::entities;
 use crate::html::trim_cr;
 use compact_str::CompactString;
 use smallvec::SmallVec;

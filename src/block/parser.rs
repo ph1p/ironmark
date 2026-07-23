@@ -901,6 +901,18 @@ impl<'a> BlockParser<'a> {
     }
 
     pub(super) fn extract_ref_defs<'c>(&mut self, content: &'c str) -> Cow<'c, str> {
+        // Large def blocks (many `[label]: url` lines) would otherwise rehash the
+        // map ~log(n) times; count line-leading '[' once and reserve up front.
+        // Small blocks (a handful of defs) skip the extra scan — the threshold just
+        // needs to be past the size where a rehash outweighs one memchr pass.
+        if content.len() > 512 {
+            let bytes = content.as_bytes();
+            let defs = memchr::memchr_iter(b'\n', bytes)
+                .filter(|&p| bytes.get(p + 1) == Some(&b'['))
+                .count()
+                + 1;
+            self.ref_defs.reserve(defs);
+        }
         let mut pos = 0;
         loop {
             let trimmed = content[pos..].trim_start();
@@ -908,7 +920,7 @@ impl<'a> BlockParser<'a> {
                 break;
             }
             if let Some((label, href, title, consumed)) = parse_link_ref_def(trimmed) {
-                let key = crate::inline::normalize_reference_label(&label);
+                let key = crate::inline::normalize_reference_label(label);
                 if !self.ref_defs.contains_key(&*key) {
                     let resolved_href: std::rc::Rc<str> =
                         resolve_entities_and_escapes(&href).into();

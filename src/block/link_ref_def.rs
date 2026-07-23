@@ -1,40 +1,79 @@
 use super::*;
 use crate::{is_ascii_punctuation, utf8_char_len};
 
-pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<String>, usize)> {
+/// (label, destination, title, bytes consumed) — label/dest/title borrow from the input
+/// wherever no escape or entity rewriting was needed.
+pub(super) type LinkRefDefParts<'a> = (&'a str, Cow<'a, str>, Option<Cow<'a, str>>, usize);
+
+/// Builds a string that stays borrowed from `input` until the first rewrite,
+/// then switches to an owned buffer and bulk-copies the clean segments.
+struct CowBuilder<'a> {
+    input: &'a str,
+    seg_start: usize,
+    buf: Option<String>,
+}
+
+impl<'a> CowBuilder<'a> {
+    #[inline]
+    fn new(input: &'a str, start: usize) -> Self {
+        Self {
+            input,
+            seg_start: start,
+            buf: None,
+        }
+    }
+
+    /// Flush `[seg_start..seg_end)`, append `replacement`, resume at `resume`.
+    #[inline]
+    fn replace(&mut self, seg_end: usize, replacement: &str, resume: usize) {
+        let buf = self
+            .buf
+            .get_or_insert_with(|| String::with_capacity(seg_end - self.seg_start + 8));
+        buf.push_str(&self.input[self.seg_start..seg_end]);
+        buf.push_str(replacement);
+        self.seg_start = resume;
+    }
+
+    #[inline]
+    fn finish(self, end: usize) -> Cow<'a, str> {
+        match self.buf {
+            None => Cow::Borrowed(&self.input[self.seg_start..end]),
+            Some(mut b) => {
+                b.push_str(&self.input[self.seg_start..end]);
+                Cow::Owned(b)
+            }
+        }
+    }
+}
+
+pub(super) fn parse_link_ref_def(input: &str) -> Option<LinkRefDefParts<'_>> {
     let bytes = input.as_bytes();
     if bytes.is_empty() || bytes[0] != b'[' {
         return None;
     }
 
+    // The label is kept verbatim (escapes included), so it is exactly a subslice.
     let mut i = 1;
-    let mut label = String::new();
     let mut found_close = false;
     while i < bytes.len() {
-        if bytes[i] == b']' {
-            found_close = true;
-            i += 1;
-            break;
-        }
-        if bytes[i] == b'[' {
-            return None;
-        }
-        if bytes[i] == b'\\' && i + 1 < bytes.len() {
-            label.push('\\');
-            let ch_len = utf8_char_len(bytes[i + 1]);
-            label
-                .push_str(std::str::from_utf8(&bytes[i + 1..i + 1 + ch_len]).unwrap_or("\u{FFFD}"));
-            i += 1 + ch_len;
-        } else {
-            let ch_len = utf8_char_len(bytes[i]);
-            label.push_str(std::str::from_utf8(&bytes[i..i + ch_len]).unwrap_or("\u{FFFD}"));
-            i += ch_len;
+        match bytes[i] {
+            b']' => {
+                found_close = true;
+                i += 1;
+                break;
+            }
+            b'[' => return None,
+            b'\\' if i + 1 < bytes.len() => i += 2,
+            _ => i += 1,
         }
     }
+    if !found_close {
+        return None;
+    }
+    let label = &input[1..i - 1];
     // CommonMark limits labels to 999 characters. char count <= byte count, so only
     // pay the O(n) char walk when the byte length already exceeds the limit.
-    if !found_close || label.trim().is_empty() || (label.len() > 999 && label.chars().count() > 999)
-    {
+    if label.trim().is_empty() || (label.len() > 999 && label.chars().count() > 999) {
         return None;
     }
 
@@ -45,7 +84,7 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
 
     i = skip_spaces_and_optional_newline(bytes, i);
 
-    let (dest, dest_end) = parse_link_destination(bytes, i)?;
+    let (dest, dest_end) = parse_link_destination(input, i)?;
     i = dest_end;
 
     let before_title = i;
@@ -55,7 +94,7 @@ pub(super) fn parse_link_ref_def(input: &str) -> Option<(String, String, Option<
 
     if title_start < bytes.len()
         && title_start > before_title
-        && let Some((t, t_end)) = parse_link_title(bytes, title_start)
+        && let Some((t, t_end)) = parse_link_title(input, title_start)
     {
         let after = skip_line_spaces(bytes, t_end);
         if after >= bytes.len() || bytes[after] == b'\n' {
@@ -93,7 +132,7 @@ pub(super) fn resolve_entities_and_escapes(s: &str) -> std::borrow::Cow<'_, str>
             out.push(bytes[i + 1] as char);
             i += 2;
         } else if bytes[i] == b'&' {
-            if let Some(end) = resolve_entity_in_bytes(bytes, i, &mut out) {
+            if let Some(end) = crate::entities::resolve_entity_in_bytes(bytes, i, &mut out) {
                 i = end;
             } else {
                 out.push('&');
@@ -106,60 +145,6 @@ pub(super) fn resolve_entities_and_escapes(s: &str) -> std::borrow::Cow<'_, str>
         }
     }
     std::borrow::Cow::Owned(out)
-}
-
-pub(super) fn resolve_entity_in_bytes(
-    bytes: &[u8],
-    start: usize,
-    out: &mut String,
-) -> Option<usize> {
-    let mut i = start + 1;
-    if i >= bytes.len() {
-        return None;
-    }
-
-    if bytes[i] == b'#' {
-        i += 1;
-        let hex = i < bytes.len() && matches!(bytes[i], b'x' | b'X');
-        if hex {
-            i += 1;
-        }
-        let ns = i;
-        if hex {
-            while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
-                i += 1;
-            }
-        } else {
-            while i < bytes.len() && bytes[i].is_ascii_digit() {
-                i += 1;
-            }
-        }
-        if i == ns || i - ns > 7 || i >= bytes.len() || bytes[i] != b';' {
-            return None;
-        }
-        let value = std::str::from_utf8(&bytes[ns..i]).ok()?;
-        i += 1;
-        if entities::resolve_numeric_ref_into(value, hex, out) {
-            Some(i)
-        } else {
-            None
-        }
-    } else {
-        let ns = i;
-        while i < bytes.len() && bytes[i].is_ascii_alphanumeric() {
-            i += 1;
-        }
-        if i == ns || i >= bytes.len() || bytes[i] != b';' {
-            return None;
-        }
-        let name = std::str::from_utf8(&bytes[ns..i]).ok()?;
-        i += 1;
-        if entities::lookup_entity_into(name, out) {
-            Some(i)
-        } else {
-            None
-        }
-    }
 }
 
 pub(super) fn skip_spaces_and_optional_newline(bytes: &[u8], mut i: usize) -> usize {
@@ -182,38 +167,33 @@ pub(super) fn skip_line_spaces(bytes: &[u8], mut i: usize) -> usize {
     i
 }
 
-pub(super) fn parse_link_destination(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+pub(super) fn parse_link_destination(input: &str, start: usize) -> Option<(Cow<'_, str>, usize)> {
+    let bytes = input.as_bytes();
     if start >= bytes.len() {
         return None;
     }
 
     if bytes[start] == b'<' {
         let mut i = start + 1;
-        let mut dest = String::new();
+        let mut dest = CowBuilder::new(input, i);
         while i < bytes.len() {
-            if bytes[i] == b'>' {
-                return Some((dest, i + 1));
-            }
-            if bytes[i] == b'<' || bytes[i] == b'\n' {
-                return None;
-            }
-            if bytes[i] == b'\\' && i + 1 < bytes.len() {
-                let ch_len = utf8_char_len(bytes[i + 1]);
-                dest.push_str(
-                    std::str::from_utf8(&bytes[i + 1..i + 1 + ch_len]).unwrap_or("\u{FFFD}"),
-                );
-                i += 1 + ch_len;
-            } else {
-                let ch_len = utf8_char_len(bytes[i]);
-                dest.push_str(std::str::from_utf8(&bytes[i..i + ch_len]).unwrap_or("\u{FFFD}"));
-                i += ch_len;
+            match bytes[i] {
+                b'>' => return Some((dest.finish(i), i + 1)),
+                b'<' | b'\n' => return None,
+                b'\\' if i + 1 < bytes.len() => {
+                    // Drop the backslash, keep the escaped char.
+                    let ch_len = utf8_char_len(bytes[i + 1]);
+                    dest.replace(i, &input[i + 1..i + 1 + ch_len], i + 1 + ch_len);
+                    i += 1 + ch_len;
+                }
+                _ => i += 1,
             }
         }
         None
     } else {
         let mut i = start;
+        let mut dest = CowBuilder::new(input, start);
         let mut paren_depth = 0i32;
-        let mut dest = String::new();
         while i < bytes.len() {
             let b = bytes[i];
             if b <= b' ' {
@@ -224,35 +204,33 @@ pub(super) fn parse_link_destination(bytes: &[u8], start: usize) -> Option<(Stri
                 if paren_depth > 32 {
                     return None;
                 }
-                dest.push('(');
                 i += 1;
             } else if b == b')' {
                 if paren_depth == 0 {
                     break;
                 }
                 paren_depth -= 1;
-                dest.push(')');
                 i += 1;
             } else if b == b'\\' && i + 1 < bytes.len() && is_ascii_punctuation(bytes[i + 1]) {
-                dest.push(bytes[i + 1] as char);
+                dest.replace(i, &input[i + 1..i + 2], i + 2);
                 i += 2;
             } else {
-                let ch_start = i;
-                i += utf8_char_len(b);
-                dest.push_str(std::str::from_utf8(&bytes[ch_start..i]).unwrap_or("\u{FFFD}"));
+                i += 1;
             }
         }
         if paren_depth != 0 {
             return None;
         }
-        if dest.is_empty() && start < bytes.len() && bytes[start] != b'<' {
+        let out = dest.finish(i);
+        if out.is_empty() {
             return None;
         }
-        Some((dest, i))
+        Some((out, i))
     }
 }
 
-pub(super) fn parse_link_title(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+pub(super) fn parse_link_title(input: &str, start: usize) -> Option<(Cow<'_, str>, usize)> {
+    let bytes = input.as_bytes();
     if start >= bytes.len() {
         return None;
     }
@@ -264,24 +242,20 @@ pub(super) fn parse_link_title(bytes: &[u8], start: usize) -> Option<(String, us
         _ => return None,
     };
     let mut i = start + 1;
-    let mut title = String::new();
+    let mut title = CowBuilder::new(input, i);
     while i < bytes.len() {
-        if bytes[i] == close_quote {
-            return Some((title, i + 1));
+        let b = bytes[i];
+        if b == close_quote {
+            return Some((title.finish(i), i + 1));
         }
-        if bytes[i] == b'(' && quote == b'(' {
+        if b == b'(' && quote == b'(' {
             return None;
         }
-        if bytes[i] == b'\\' && i + 1 < bytes.len() && is_ascii_punctuation(bytes[i + 1]) {
-            title.push(bytes[i + 1] as char);
+        if b == b'\\' && i + 1 < bytes.len() && is_ascii_punctuation(bytes[i + 1]) {
+            title.replace(i, &input[i + 1..i + 2], i + 2);
             i += 2;
-        } else if bytes[i] == b'\n' {
-            title.push('\n');
-            i += 1;
         } else {
-            let ch_start = i;
-            i += utf8_char_len(bytes[i]);
-            title.push_str(std::str::from_utf8(&bytes[ch_start..i]).unwrap_or("\u{FFFD}"));
+            i += 1;
         }
     }
     None

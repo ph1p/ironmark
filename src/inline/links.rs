@@ -247,6 +247,10 @@ impl<'a> InlineScanner<'a> {
         text_pos: usize,
         close_pos: usize,
     ) -> Option<(LinkDest, Option<LinkTitle>)> {
+        // No definitions → nothing can resolve; skip label scanning + normalization.
+        if self.refs.is_empty() {
+            return None;
+        }
         let saved = self.pos;
         let raw_label = &self.input[text_pos..close_pos];
 
@@ -292,9 +296,6 @@ impl<'a> InlineScanner<'a> {
             self.pos = saved;
         }
 
-        if self.refs.is_empty() {
-            return None;
-        }
         let key = normalize_reference_label(raw_label);
         if let Some(r) = self.refs.get(&*key) {
             if self.pos + 1 < self.bytes.len()

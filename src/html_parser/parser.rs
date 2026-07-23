@@ -6,7 +6,7 @@ use compact_str::CompactString;
 
 use crate::ast::{Block, ListKind, TableAlignment, TableData};
 
-use super::inline::{inline_to_markdown, parse_inline_html};
+use super::inline::{find_attr, inline_to_markdown, parse_inline_html};
 use super::tokenizer::{HtmlToken, HtmlTokenizer};
 
 /// Options for HTML-to-AST parsing.
@@ -180,64 +180,26 @@ impl<'a> HtmlParser<'a> {
 
         match name {
             // Block elements
-            "p" => {
-                self.flush_text();
-                if self.can_open_block() {
-                    self.stack.push(OpenBlock::new("p"));
-                }
-            }
-            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                self.flush_text();
-                if self.can_open_block() {
-                    self.stack.push(OpenBlock::new(name));
-                }
-            }
-            "pre" => {
-                self.flush_text();
-                if self.can_open_block() {
-                    self.stack.push(OpenBlock::new("pre"));
-                }
-            }
-            "blockquote" => {
-                self.flush_text();
-                if self.can_open_block() {
-                    self.stack.push(OpenBlock::new("blockquote"));
-                }
+            "p" | "pre" | "blockquote" | "li" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                self.open_block(name);
             }
             "ul" => {
-                self.flush_text();
-                if self.can_open_block() {
-                    let mut block = OpenBlock::new("ul");
+                if let Some(block) = self.open_block("ul") {
                     block.list_kind = Some(ListKind::Bullet(b'-'));
-                    self.stack.push(block);
                 }
             }
             "ol" => {
-                self.flush_text();
-                if self.can_open_block() {
-                    let mut block = OpenBlock::new("ol");
-                    let start = find_attr(attrs, "start")
-                        .and_then(|s| s.parse().ok())
-                        .unwrap_or(1);
+                let start = find_attr(attrs, "start")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(1);
+                if let Some(block) = self.open_block("ol") {
                     block.list_kind = Some(ListKind::Ordered(b'.'));
                     block.list_start = start;
-                    self.stack.push(block);
-                }
-            }
-            "li" => {
-                self.flush_text();
-                if self.can_open_block() {
-                    let block = OpenBlock::new("li");
-                    // Check for task list checkbox in content (handled later)
-                    self.stack.push(block);
                 }
             }
             "table" => {
-                self.flush_text();
-                if self.can_open_block() {
-                    let mut block = OpenBlock::new("table");
+                if let Some(block) = self.open_block("table") {
                     block.table_state = Some(TableState::default());
-                    self.stack.push(block);
                 }
             }
             "thead" => {
@@ -300,10 +262,7 @@ impl<'a> HtmlParser<'a> {
             }
             "div" | "section" | "article" | "main" | "header" | "footer" | "nav" | "aside" => {
                 // Treat as generic block container
-                self.flush_text();
-                if self.can_open_block() {
-                    self.stack.push(OpenBlock::new(name));
-                }
+                self.open_block(name);
             }
             "input" => {
                 // Check for task list checkbox
@@ -323,20 +282,7 @@ impl<'a> HtmlParser<'a> {
             | "img" | "span" | "sub" | "sup" | "abbr" | "cite" | "q" | "small" | "time" | "kbd"
             | "var" | "samp" | "dfn" => {
                 let current = self.stack.last_mut().unwrap();
-                current.text_content.push('<');
-                current.text_content.push_str(name);
-                for (k, v) in attrs {
-                    current.text_content.push(' ');
-                    current.text_content.push_str(k);
-                    current.text_content.push_str("=\"");
-                    current.text_content.push_str(v);
-                    current.text_content.push('"');
-                }
-                if self_closing {
-                    current.text_content.push_str(" />");
-                } else {
-                    current.text_content.push('>');
-                }
+                super::inline::write_open_tag(&mut current.text_content, name, attrs, self_closing);
             }
             _ => {
                 // Unknown tag - ignore or handle based on options
@@ -443,11 +389,19 @@ impl<'a> HtmlParser<'a> {
                 // Close previous li if any
                 self.close_list_item();
             }
-            "tr" => {
-                // Close previous tr if any
-                // (handled by close_table_row)
-            }
             _ => {}
+        }
+    }
+
+    /// Flush pending text and push a new open block (depth-guarded).
+    /// Returns the new block so callers can set extra fields.
+    fn open_block(&mut self, tag: &str) -> Option<&mut OpenBlock> {
+        self.flush_text();
+        if self.can_open_block() {
+            self.stack.push(OpenBlock::new(tag));
+            self.stack.last_mut()
+        } else {
+            None
         }
     }
 
@@ -481,7 +435,7 @@ impl<'a> HtmlParser<'a> {
             return;
         }
 
-        let current = &self.stack.last().unwrap().tag.clone();
+        let current = self.stack.last().unwrap().tag.clone();
         match current.as_str() {
             "p" => self.close_paragraph(),
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => self.close_heading(),
@@ -675,13 +629,6 @@ impl<'a> HtmlParser<'a> {
 
 // Helper functions
 
-fn find_attr(attrs: &[(Cow<'_, str>, Cow<'_, str>)], name: &str) -> Option<String> {
-    attrs
-        .iter()
-        .find(|(k, _)| k == name)
-        .map(|(_, v)| v.to_string())
-}
-
 fn extract_language_from_class(class: &str) -> Option<String> {
     for part in class.split_whitespace() {
         if let Some(lang) = part.strip_prefix("language-") {
@@ -695,10 +642,10 @@ fn extract_language_from_class(class: &str) -> Option<String> {
 }
 
 fn parse_alignment(align: &str) -> Option<TableAlignment> {
-    match align.to_ascii_lowercase().as_str() {
-        "left" => Some(TableAlignment::Left),
-        "center" => Some(TableAlignment::Center),
-        "right" => Some(TableAlignment::Right),
+    match align {
+        a if a.eq_ignore_ascii_case("left") => Some(TableAlignment::Left),
+        a if a.eq_ignore_ascii_case("center") => Some(TableAlignment::Center),
+        a if a.eq_ignore_ascii_case("right") => Some(TableAlignment::Right),
         _ => None,
     }
 }

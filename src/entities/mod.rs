@@ -184,3 +184,61 @@ pub(crate) fn resolve_numeric_ref_into(value: &str, hex: bool, out: &mut String)
     out.push(c);
     true
 }
+
+/// Resolve one entity reference starting at the `&` at `bytes[start]`.
+/// On success appends the decoded text to `out` and returns the index just
+/// past the `;`. Returns None (appending nothing) when it isn't a valid entity.
+#[inline]
+pub(crate) fn resolve_entity_in_bytes(
+    bytes: &[u8],
+    start: usize,
+    out: &mut String,
+) -> Option<usize> {
+    let mut i = start + 1;
+    if i >= bytes.len() {
+        return None;
+    }
+
+    if bytes[i] == b'#' {
+        i += 1;
+        let hex = i < bytes.len() && matches!(bytes[i], b'x' | b'X');
+        if hex {
+            i += 1;
+        }
+        let ns = i;
+        if hex {
+            while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
+                i += 1;
+            }
+        } else {
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+        }
+        if i == ns || i - ns > 7 || i >= bytes.len() || bytes[i] != b';' {
+            return None;
+        }
+        let value = std::str::from_utf8(&bytes[ns..i]).ok()?;
+        i += 1;
+        if resolve_numeric_ref_into(value, hex, out) {
+            Some(i)
+        } else {
+            None
+        }
+    } else {
+        let ns = i;
+        while i < bytes.len() && bytes[i].is_ascii_alphanumeric() {
+            i += 1;
+        }
+        if i == ns || i >= bytes.len() || bytes[i] != b';' {
+            return None;
+        }
+        let name = std::str::from_utf8(&bytes[ns..i]).ok()?;
+        i += 1;
+        if lookup_entity_into(name, out) {
+            Some(i)
+        } else {
+            None
+        }
+    }
+}

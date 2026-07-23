@@ -19,12 +19,12 @@ pub fn render_markdown(root: &Block) -> String {
     let mut out = String::new();
     render_block(root, &mut out, 0, false);
     // Trim trailing whitespace but keep one final newline
-    let trimmed = out.trim_end();
-    if trimmed.is_empty() {
-        String::new()
-    } else {
-        format!("{}\n", trimmed)
+    let trimmed_len = out.trim_end().len();
+    out.truncate(trimmed_len);
+    if !out.is_empty() {
+        out.push('\n');
     }
+    out
 }
 
 fn render_block(block: &Block, out: &mut String, depth: usize, in_list_item: bool) {
@@ -103,7 +103,8 @@ fn render_block(block: &Block, out: &mut String, depth: usize, in_list_item: boo
                         out.push(' ');
                     }
                     ListKind::Ordered(delimiter) => {
-                        out.push_str(&num.to_string());
+                        use std::fmt::Write;
+                        let _ = write!(out, "{num}");
                         out.push(*delimiter as char);
                         out.push(' ');
                         num += 1;

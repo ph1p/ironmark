@@ -195,7 +195,7 @@ impl<'a> HtmlTokenizer<'a> {
         }
 
         Some(HtmlToken::EndTag {
-            name: Cow::Owned(name.to_ascii_lowercase()),
+            name: lowercase_cow(name),
         })
     }
 
@@ -246,20 +246,22 @@ impl<'a> HtmlTokenizer<'a> {
             }
         }
 
+        let name = lowercase_cow(name);
+
         // Void elements are always self-closing
         if is_void_element(&name) {
             self_closing = true;
         }
 
         Some(HtmlToken::StartTag {
-            name: Cow::Owned(name.to_ascii_lowercase()),
+            name,
             attrs,
             self_closing,
         })
     }
 
-    /// Parse a tag name.
-    fn parse_tag_name(&mut self) -> String {
+    /// Parse a tag name as a borrowed slice of the input.
+    fn parse_tag_name(&mut self) -> &'a str {
         let start = self.pos;
 
         while self.pos < self.bytes.len() {
@@ -271,7 +273,7 @@ impl<'a> HtmlTokenizer<'a> {
             }
         }
 
-        self.input[start..self.pos].to_string()
+        &self.input[start..self.pos]
     }
 
     /// Parse an attribute `name="value"` or `name='value'` or `name=value` or `name`.
@@ -305,7 +307,7 @@ impl<'a> HtmlTokenizer<'a> {
         // Check for =
         if self.pos >= self.bytes.len() || self.bytes[self.pos] != b'=' {
             // Boolean attribute (no value)
-            return Some((Cow::Owned(name.to_ascii_lowercase()), Cow::Borrowed("")));
+            return Some((lowercase_cow(name), Cow::Borrowed("")));
         }
 
         self.pos += 1; // Skip '='
@@ -346,7 +348,7 @@ impl<'a> HtmlTokenizer<'a> {
             Cow::Borrowed("")
         };
 
-        Some((Cow::Owned(name.to_ascii_lowercase()), value))
+        Some((lowercase_cow(name), value))
     }
 
     /// Skip whitespace characters.
@@ -357,10 +359,19 @@ impl<'a> HtmlTokenizer<'a> {
     }
 }
 
-/// Check if a tag name is a void element (self-closing).
+/// Lowercase a tag/attribute name, borrowing when it already is lowercase (the common case).
+fn lowercase_cow(name: &str) -> Cow<'_, str> {
+    if name.bytes().any(|b| b.is_ascii_uppercase()) {
+        Cow::Owned(name.to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(name)
+    }
+}
+
+/// Check if a (lowercase) tag name is a void element (self-closing).
 fn is_void_element(name: &str) -> bool {
     matches!(
-        name.to_ascii_lowercase().as_str(),
+        name,
         "area"
             | "base"
             | "br"
@@ -378,99 +389,30 @@ fn is_void_element(name: &str) -> bool {
     )
 }
 
-/// Decode HTML entities in a string.
+/// Decode HTML entities in a string, using the full HTML5 entity table.
+/// Clean runs between entities are bulk-copied; entity-free text stays borrowed.
 fn decode_entities(s: &str) -> Cow<'_, str> {
-    if !s.contains('&') {
+    let bytes = s.as_bytes();
+    if memchr::memchr(b'&', bytes).is_none() {
         return Cow::Borrowed(s);
     }
 
     let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '&' {
-            let mut entity = String::new();
-            let mut found_semi = false;
-
-            for ch in chars.by_ref() {
-                if ch == ';' {
-                    found_semi = true;
-                    break;
-                }
-                if entity.len() > 10 || (!ch.is_ascii_alphanumeric() && ch != '#') {
-                    // Not a valid entity
-                    break;
-                }
-                entity.push(ch);
-            }
-
-            if found_semi && let Some(decoded) = decode_entity(&entity) {
-                result.push(decoded);
-                continue;
-            }
-
-            // Not a valid entity, output as-is
+    let mut i = 0;
+    let mut seg_start = 0;
+    while let Some(off) = memchr::memchr(b'&', &bytes[i..]) {
+        let amp = i + off;
+        result.push_str(&s[seg_start..amp]);
+        if let Some(end) = crate::entities::resolve_entity_in_bytes(bytes, amp, &mut result) {
+            i = end;
+        } else {
             result.push('&');
-            result.push_str(&entity);
-            if found_semi {
-                result.push(';');
-            }
-        } else {
-            result.push(c);
+            i = amp + 1;
         }
+        seg_start = i;
     }
-
+    result.push_str(&s[seg_start..]);
     Cow::Owned(result)
-}
-
-/// Decode a single HTML entity (without the & and ;).
-fn decode_entity(entity: &str) -> Option<char> {
-    // Numeric entities
-    if let Some(rest) = entity.strip_prefix('#') {
-        let codepoint = if let Some(hex) = rest.strip_prefix('x').or_else(|| rest.strip_prefix('X'))
-        {
-            u32::from_str_radix(hex, 16).ok()?
-        } else {
-            rest.parse::<u32>().ok()?
-        };
-        return char::from_u32(codepoint);
-    }
-
-    // Named entities (common ones)
-    Some(match entity {
-        "amp" => '&',
-        "lt" => '<',
-        "gt" => '>',
-        "quot" => '"',
-        "apos" => '\'',
-        "nbsp" => '\u{00A0}',
-        "copy" => '\u{00A9}',
-        "reg" => '\u{00AE}',
-        "trade" => '\u{2122}',
-        "mdash" => '\u{2014}',
-        "ndash" => '\u{2013}',
-        "ldquo" => '\u{201C}',
-        "rdquo" => '\u{201D}',
-        "lsquo" => '\u{2018}',
-        "rsquo" => '\u{2019}',
-        "hellip" => '\u{2026}',
-        "bull" => '\u{2022}',
-        "middot" => '\u{00B7}',
-        "laquo" => '\u{00AB}',
-        "raquo" => '\u{00BB}',
-        "euro" => '\u{20AC}',
-        "pound" => '\u{00A3}',
-        "yen" => '\u{00A5}',
-        "cent" => '\u{00A2}',
-        "deg" => '\u{00B0}',
-        "plusmn" => '\u{00B1}',
-        "times" => '\u{00D7}',
-        "divide" => '\u{00F7}',
-        "frac12" => '\u{00BD}',
-        "frac14" => '\u{00BC}',
-        "frac34" => '\u{00BE}',
-        _ => return None,
-    })
 }
 
 #[cfg(test)]
