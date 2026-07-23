@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_run' && 'main' || github.ref }}
 
@@ -34,12 +34,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.125 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
 
       - name: Install binaryen
         run: |
-          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_126/binaryen-version_126-x86_64-linux.tar.gz | tar -xz
-          sudo cp binaryen-version_126/bin/* /usr/local/bin/
+          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_131/binaryen-version_131-x86_64-linux.tar.gz | tar -xz
+          sudo cp binaryen-version_131/bin/* /usr/local/bin/
 
       - name: Build WASM
         run: |
@@ -47,9 +47,9 @@ jobs:
           wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/release/ironmark.wasm
           wasm-opt --enable-bulk-memory -O3 wasm/pkg/ironmark_bg.wasm -o wasm/pkg/ironmark_bg.wasm
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -64,7 +64,7 @@ jobs:
           pnpm install --frozen-lockfile
           BASE_URL=/ironmark/ pnpm build
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: playground/dist
 
@@ -76,4 +76,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

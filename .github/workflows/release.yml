@@ -14,7 +14,7 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -25,7 +25,7 @@ jobs:
     name: WASM
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -34,12 +34,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.125 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
 
       - name: Install binaryen
         run: |
-          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_126/binaryen-version_126-x86_64-linux.tar.gz | tar -xz
-          sudo cp binaryen-version_126/bin/* /usr/local/bin/
+          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_131/binaryen-version_131-x86_64-linux.tar.gz | tar -xz
+          sudo cp binaryen-version_131/bin/* /usr/local/bin/
 
       - name: Build WASM
         run: |
@@ -48,7 +48,7 @@ jobs:
           wasm-opt --enable-bulk-memory -O3 wasm/pkg/ironmark_bg.wasm -o wasm/pkg/ironmark_bg.wasm
 
       - name: Upload WASM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wasm-pkg
           path: wasm/pkg/
@@ -66,20 +66,20 @@ jobs:
       new-release-published: ${{ steps.semantic.outputs.new_release_published }}
       new-release-version: ${{ steps.semantic.outputs.new_release_version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - run: pnpm install --frozen-lockfile
 
       - name: Download WASM artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: wasm-pkg
           path: wasm/pkg/
@@ -100,7 +100,7 @@ jobs:
     if: needs.release.outputs.new-release-published == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: main
 

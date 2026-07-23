@@ -60,7 +60,7 @@ ansi = []
 html-parser = []
 
 [dependencies]
-compact_str = { version = "0.9", features = ["serde"] }
+compact_str = { version = "0.10", features = ["serde"] }
 memchr = "2"
 rustc-hash = "2.1"
 smallvec = { version = "1", features = ["union"] }
@@ -72,7 +72,7 @@ members = ["wasm"]
 [build-dependencies]
 
 [dev-dependencies]
-comrak = { version = "0.52", default-features = false }
+comrak = { version = "0.54", default-features = false }
 criterion = { version = "0.8" }
 markdown = "1"
 markdown-it = "0.6"

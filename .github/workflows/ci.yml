@@ -11,7 +11,7 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -23,9 +23,9 @@ jobs:
     name: Lint & Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -37,7 +37,7 @@ jobs:
     name: WASM
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -46,12 +46,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.125 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
 
       - name: Install binaryen
         run: |
-          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_126/binaryen-version_126-x86_64-linux.tar.gz | tar -xz
-          sudo cp binaryen-version_126/bin/* /usr/local/bin/
+          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_131/binaryen-version_131-x86_64-linux.tar.gz | tar -xz
+          sudo cp binaryen-version_131/bin/* /usr/local/bin/
 
       - name: Build WASM
         run: |
@@ -59,7 +59,7 @@ jobs:
           wasm-bindgen --target bundler --out-dir wasm/pkg --out-name ironmark target/wasm32-unknown-unknown/release/ironmark.wasm
           wasm-opt --enable-bulk-memory -O3 wasm/pkg/ironmark_bg.wasm -o wasm/pkg/ironmark_bg.wasm
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
 
