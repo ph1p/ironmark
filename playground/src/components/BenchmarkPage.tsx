@@ -148,22 +148,83 @@ function BenchSectionView({ section }: { section: BenchSection }) {
 
 // ─── TrendChart ──────────────────────────────────────────────────────────────
 
+// CVD-validated trio for the dark surface (orange / aqua / blue).
+const TREND_COLORS = { wasm: "#d95926", bun: "#199e70", rust: "#3987e5" };
+
 const ABSOLUTE_TREND_SERIES: { key: keyof TrendPoint; label: string; color: string }[] = [
-  { key: "ironmark_wasm_ns", label: "WASM (Node)", color: "#e8590c" },
-  { key: "ironmark_bun_ns", label: "Bun", color: "#f4d9a0" },
-  { key: "ironmark_rust_ns", label: "Native Rust", color: "#1971c2" },
+  { key: "ironmark_wasm_ns", label: "WASM (Node)", color: TREND_COLORS.wasm },
+  { key: "ironmark_bun_ns", label: "Bun", color: TREND_COLORS.bun },
+  { key: "ironmark_rust_ns", label: "Native Rust", color: TREND_COLORS.rust },
 ];
 
 const RELATIVE_TREND_SERIES: { key: keyof TrendPoint; label: string; color: string }[] = [
-  { key: "ironmark_wasm_ratio", label: "WASM (Node)", color: "#e8590c" },
-  { key: "ironmark_bun_ratio", label: "Bun", color: "#f4d9a0" },
-  { key: "ironmark_rust_ratio", label: "Native Rust", color: "#1971c2" },
+  { key: "ironmark_wasm_ratio", label: "WASM (Node)", color: TREND_COLORS.wasm },
+  { key: "ironmark_bun_ratio", label: "Bun", color: TREND_COLORS.bun },
+  { key: "ironmark_rust_ratio", label: "Native Rust", color: TREND_COLORS.rust },
 ];
 
 type TrendMode = "absolute" | "relative";
 
 function fmtRatio(v: number): string {
   return `${v.toFixed(2)}x`;
+}
+
+/**
+ * Monotone cubic (Fritsch–Carlson) path through the points. Smooth like a
+ * spline but never overshoots — the curve stays within the data's range, so
+ * it can't fake a dip or spike between two benchmark runs.
+ */
+function monotonePath(pts: { x: number; y: number }[]): string {
+  const n = pts.length;
+  if (n === 0) return "";
+  if (n === 1) return `M${pts[0].x},${pts[0].y}`;
+  const dx: number[] = [];
+  const slope: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx.push(pts[i + 1].x - pts[i].x);
+    slope.push((pts[i + 1].y - pts[i].y) / dx[i]);
+  }
+  const tan = [slope[0]];
+  for (let i = 1; i < n - 1; i++) {
+    tan.push(slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2);
+  }
+  tan.push(slope[n - 2]);
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) {
+      tan[i] = 0;
+      tan[i + 1] = 0;
+      continue;
+    }
+    const a = tan[i] / slope[i];
+    const b = tan[i + 1] / slope[i];
+    const s = a * a + b * b;
+    if (s > 9) {
+      const f = 3 / Math.sqrt(s);
+      tan[i] = f * a * slope[i];
+      tan[i + 1] = f * b * slope[i];
+    }
+  }
+  let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i] / 3;
+    d += ` C${(pts[i].x + h).toFixed(1)},${(pts[i].y + tan[i] * h).toFixed(1)} ${(
+      pts[i + 1].x - h
+    ).toFixed(1)},${(pts[i + 1].y - tan[i + 1] * h).toFixed(1)} ${pts[i + 1].x.toFixed(1)},${pts[
+      i + 1
+    ].y.toFixed(1)}`;
+  }
+  return d;
+}
+
+/** Nudge overlapping end-of-line labels apart (min 12px vertical gap). */
+function spreadLabels(ys: number[], minGap = 12): number[] {
+  const order = ys.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y);
+  for (let k = 1; k < order.length; k++) {
+    if (order[k].y - order[k - 1].y < minGap) order[k].y = order[k - 1].y + minGap;
+  }
+  const out = [...ys];
+  for (const { y, i } of order) out[i] = y;
+  return out;
 }
 
 function TrendChart({ trend, mode }: { trend: TrendPoint[]; mode: TrendMode }) {
@@ -177,8 +238,8 @@ function TrendChart({ trend, mode }: { trend: TrendPoint[]; mode: TrendMode }) {
   }
 
   const W = 600;
-  const H = 200;
-  const PAD = { top: 16, right: 16, bottom: 36, left: 64 };
+  const H = 220;
+  const PAD = { top: 18, right: 96, bottom: 36, left: 64 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
@@ -186,14 +247,34 @@ function TrendChart({ trend, mode }: { trend: TrendPoint[]; mode: TrendMode }) {
   const allValues = trend.flatMap((t) =>
     series.map((s) => t[s.key] as number | undefined).filter((v): v is number => v != null),
   );
-  const minV = Math.min(...allValues);
-  const maxV = Math.max(...allValues);
-  const range = maxV - minV || 1;
+  // Relative mode always shows the 1.00x parity line for context, so the
+  // domain must include it; 8% headroom keeps curves off the frame.
+  let lo = Math.min(...allValues);
+  let hi = Math.max(...allValues);
+  if (mode === "relative") {
+    lo = Math.min(lo, 1);
+    hi = Math.max(hi, 1);
+  }
+  const headroom = (hi - lo || 1) * 0.08;
+  const minV = lo - headroom;
+  const maxV = hi + headroom;
+  const range = maxV - minV;
 
   const px = (i: number) => PAD.left + (i / (trend.length - 1)) * chartW;
   const py = (v: number) => PAD.top + chartH - ((v - minV) / range) * chartH;
 
   const activeSeries = series.filter((s) => trend.some((t) => t[s.key] != null));
+
+  // End-of-line labels, nudged apart when lines converge.
+  const endLabelYs = spreadLabels(
+    activeSeries.map((s) => {
+      for (let i = trend.length - 1; i >= 0; i--) {
+        const v = trend[i][s.key] as number | undefined;
+        if (v != null) return py(v);
+      }
+      return PAD.top + chartH;
+    }),
+  );
 
   return (
     <div className="space-y-3">
@@ -245,37 +326,86 @@ function TrendChart({ trend, mode }: { trend: TrendPoint[]; mode: TrendMode }) {
             {mode === "absolute" ? fmtNs(minV) : fmtRatio(minV)}
           </text>
 
+          {/* Reading direction: lower on the chart = faster. */}
+          <text x={PAD.left - 6} y={PAD.top + 16} textAnchor="end" fill="#555" fontSize="9">
+            slower ↑
+          </text>
+          <text x={PAD.left - 6} y={PAD.top + chartH - 8} textAnchor="end" fill="#888" fontSize="9">
+            faster ↓
+          </text>
+
+          {/* Parity with the fastest competitor (relative mode only). */}
+          {mode === "relative" && (
+            <g>
+              <line
+                x1={PAD.left}
+                y1={py(1)}
+                x2={PAD.left + chartW}
+                y2={py(1)}
+                stroke="#52525b"
+                strokeDasharray="5,4"
+              />
+              <text x={PAD.left + 4} y={py(1) - 4} fill="#71717a" fontSize="9" textAnchor="start">
+                1.00x = fastest rival
+              </text>
+            </g>
+          )}
+
           {activeSeries.map((s) => {
             const pts = trend
               .map((t, i) => {
                 const v = t[s.key] as number | undefined;
-                return v != null ? `${px(i).toFixed(1)},${py(v).toFixed(1)}` : null;
+                return v != null ? { x: px(i), y: py(v) } : null;
               })
-              .filter(Boolean)
-              .join(" ");
+              .filter((p): p is { x: number; y: number } => p != null);
             return (
-              <polyline
+              <path
                 key={s.key}
-                points={pts}
+                d={monotonePath(pts)}
                 fill="none"
                 stroke={s.color}
                 strokeWidth="2"
                 strokeLinejoin="round"
+                strokeLinecap="round"
               />
             );
           })}
+
+          {/* Direct end-of-line labels: identity readable without the legend. */}
+          {activeSeries.map((s, si) => (
+            <g key={`label-${s.key}`}>
+              <line
+                x1={PAD.left + chartW + 4}
+                y1={endLabelYs[si]}
+                x2={PAD.left + chartW + 14}
+                y2={endLabelYs[si]}
+                stroke={s.color}
+                strokeWidth="2"
+              />
+              <text x={PAD.left + chartW + 18} y={endLabelYs[si] + 3} fill="#a1a1aa" fontSize="9">
+                {s.label}
+              </text>
+            </g>
+          ))}
 
           {trend.map((t, i) =>
             activeSeries.map((s) => {
               const v = t[s.key] as number | undefined;
               if (v == null) return null;
               return (
-                <circle key={`${s.key}-${i}`} cx={px(i)} cy={py(v)} r="3.5" fill={s.color}>
-                  <title>
-                    {fmtDate(t.timestamp)} · {s.label}:{" "}
-                    {mode === "absolute" ? fmtNs(v) : `${fmtRatio(v)} vs fastest`}
-                  </title>
-                </circle>
+                // Invisible wide hit target carries the tooltip; the visible
+                // dot stays small so the curve reads clean.
+                <g key={`${s.key}-${i}`}>
+                  <circle cx={px(i)} cy={py(v)} r="9" fill="transparent">
+                    <title>
+                      {fmtDate(t.timestamp)} · {s.label}:{" "}
+                      {mode === "absolute"
+                        ? fmtNs(v)
+                        : `${fmtRatio(v)} vs fastest rival (${v < 1 ? "faster" : "slower"})`}
+                    </title>
+                  </circle>
+                  <circle cx={px(i)} cy={py(v)} r="3" fill={s.color} pointerEvents="none" />
+                </g>
               );
             }),
           )}
@@ -671,7 +801,7 @@ export function BenchmarkPage() {
                 <p className="text-xs text-zinc-500">
                   {trendMode === "absolute"
                     ? "ironmark — CommonMark Spec median parse time across runs. Lower is faster; this is absolute time."
-                    : "ironmark — CommonMark Spec slowdown vs the fastest competitor in the same runtime. 1.00x means ironmark was fastest."}
+                    : "ironmark — CommonMark Spec time vs the fastest competitor in the same runtime. Below 1.00x = ironmark faster than the best rival (0.60x = 40% faster)."}
                 </p>
                 <TrendChart trend={data.trend} mode={trendMode} />
               </div>

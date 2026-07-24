@@ -299,10 +299,27 @@ fn parse_markdown_it(input: &str) -> String {
 //   - fast groups (ironmark ~µs range): 300ms warmup + 1s measurement, 50 samples
 //   - slow groups (markdown_rs/markdown_it can hit ms range): capped at 10 samples
 
+#[derive(Clone, Copy)]
 struct TimingConfig {
     warmup_ms: u64,
     measure_ms: u64,
     sample_size: usize,
+}
+
+impl TimingConfig {
+    // BENCH_QUICK=1 shrinks warmup/measurement for a fast dev loop; numbers
+    // are noisier and must not be committed to history.
+    fn effective(self) -> TimingConfig {
+        if quick_mode() {
+            TimingConfig {
+                warmup_ms: 150,
+                measure_ms: 400,
+                sample_size: 10.max(self.sample_size / 5),
+            }
+        } else {
+            self
+        }
+    }
 }
 
 const NORMAL: TimingConfig = TimingConfig {
@@ -324,9 +341,14 @@ const PATHOLOGICAL: TimingConfig = TimingConfig {
 
 // --- Benchmark helper ---
 
+fn quick_mode() -> bool {
+    std::env::var_os("BENCH_QUICK").is_some_and(|v| v != "0")
+}
+
 fn bench_group_cfg(c: &mut Criterion, group_name: &str, input: &str, cfg: &TimingConfig) {
     let label = format!("{} bytes", input.len());
     let mut group = c.benchmark_group(group_name);
+    let cfg = cfg.effective();
     group.warm_up_time(std::time::Duration::from_millis(cfg.warmup_ms));
     group.measurement_time(std::time::Duration::from_millis(cfg.measure_ms));
     group.sample_size(cfg.sample_size);
@@ -571,6 +593,13 @@ fn export_csv(c: &mut Criterion) {
     // No measurement — just read what criterion already wrote.
     let _ = c;
 
+    // Quick-mode numbers are noisy and the run may be filtered to a subset of
+    // parsers — mixing them with stale full-run data would corrupt the CSV.
+    if quick_mode() {
+        println!("export_csv: skipped (BENCH_QUICK set)");
+        return;
+    }
+
     let manifest = env!("CARGO_MANIFEST_DIR");
     let history_dir = format!("{manifest}/benchmark/history");
     std::fs::create_dir_all(&history_dir).expect("create benchmark/history");
@@ -600,11 +629,18 @@ fn export_csv(c: &mut Criterion) {
     }
 }
 
+// Plot/report generation is pure overhead here — the history JSON is the
+// record of note, and 60+ per-bench HTML reports add minutes of wall time.
+fn config() -> Criterion {
+    Criterion::default().without_plots()
+}
+
 // Core groups: exported to the history JSON, always run.
 #[cfg(not(feature = "bench-extra"))]
 criterion_group!(
-    benches,
-    bench_spec,
+    name = benches;
+    config = config();
+    targets = bench_spec,
     bench_sizes,
     bench_block_types,
     bench_inline,
@@ -615,8 +651,9 @@ criterion_group!(
 // With `bench-extra`: also run the diagnostic groups (not exported to history).
 #[cfg(feature = "bench-extra")]
 criterion_group!(
-    benches,
-    bench_spec,
+    name = benches;
+    config = config();
+    targets = bench_spec,
     bench_sizes,
     bench_block_types,
     bench_inline,

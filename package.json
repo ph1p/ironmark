@@ -62,7 +62,9 @@
     "release": "semantic-release",
     "release:dry": "semantic-release --dry-run",
     "setup:wasm": "PATH=\"$HOME/.cargo/bin:$PATH\" rustup target add wasm32-unknown-unknown && TMPDIR=/tmp PATH=\"$HOME/.cargo/bin:$PATH\" cargo install wasm-bindgen-cli --version 0.2.126 --locked --root .wasm-tools",
-    "bench": "RUSTFLAGS=\"-C target-cpu=native\" cargo bench --features bench-md4c && node benchmark/report.mjs",
+    "bench": "pnpm bench:rust && node benchmark/report.mjs",
+    "bench:quick": "BENCH_QUICK=1 RUSTFLAGS=\"-C target-cpu=native\" cargo bench -- ironmark",
+    "bench:rust": "RUSTFLAGS=\"-C target-cpu=native\" cargo bench --features bench-md4c",
     "test": "cargo test --offline"
   },
   "devDependencies": {

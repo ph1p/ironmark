@@ -13,6 +13,8 @@ import {
   genTable,
   genCodeBlocks,
   genMixedDoc,
+  collectSamples,
+  median,
   writeHistoryJson,
 } from "./generators.mjs";
 
@@ -62,30 +64,15 @@ const wasmParsers = {
   md4w: (input) => mdToHtml(input),
 };
 
-function runWasmBench(name, input, iterations = 200) {
-  // Measure each parser independently so JIT state doesn't bleed across.
-  // Use batch timing: time N iterations in one `performance.now()` pair to
-  // avoid per-call measurement overhead dominating sub-100µs inputs.
-  const BATCH = 10;
+function runWasmBench(name, input) {
   const results = {};
   const bytes = Buffer.byteLength(input, "utf8");
   for (const [lib, fn] of Object.entries(wasmParsers)) {
-    // Warmup: let JIT stabilise before recording.
-    for (let i = 0; i < 100; i++) fn(input);
-    const samples = [];
-    for (let i = 0; i < iterations; i++) {
-      const start = performance.now();
-      for (let b = 0; b < BATCH; b++) fn(input);
-      samples.push((performance.now() - start) / BATCH);
-    }
-    samples.sort((a, b) => a - b);
-    const mid = Math.floor(samples.length / 2);
-    const median_ms =
-      samples.length % 2 === 0 ? (samples[mid - 1] + samples[mid]) / 2 : samples[mid];
-    const mean_ms = samples.reduce((a, b) => a + b, 0) / samples.length;
+    // Measure each parser independently so JIT state doesn't bleed across.
+    const samples = collectSamples(fn, input);
     results[lib] = {
-      median_ns: median_ms * 1e6,
-      mean_ns: mean_ms * 1e6,
+      median_ns: median(samples) * 1e6,
+      mean_ns: (samples.reduce((a, b) => a + b, 0) / samples.length) * 1e6,
     };
   }
   return { name, bytes, results };

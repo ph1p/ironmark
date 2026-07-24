@@ -135,6 +135,45 @@ export function loadAllFeatures() {
   return readFileSync(join(ROOT, "benchmark", "all_features.md"), "utf8");
 }
 
+/**
+ * Time-budgeted sampling shared by the Bun and Node (WASM) benchmark runners.
+ *
+ * Batch timing: time `batch` calls in one `performance.now()` pair to avoid
+ * per-call measurement overhead dominating sub-100µs inputs. Warmup runs until
+ * `warmupMs` elapses (capped at 100 calls) so the JIT stabilises. Sampling is
+ * budgeted: small inputs get up to `maxIterations` samples, big/slow inputs
+ * stop after `budgetMs` (but never below `minIterations`).
+ *
+ * Returns per-call millisecond samples, sorted ascending.
+ */
+export function collectSamples(
+  fn,
+  input,
+  { maxIterations = 500, minIterations = 30, budgetMs = 500, warmupMs = 150, batch = 10 } = {},
+) {
+  const warmupEnd = performance.now() + warmupMs;
+  for (let i = 0; i < 100 && performance.now() < warmupEnd; i++) fn(input);
+
+  const samples = [];
+  const budgetEnd = performance.now() + budgetMs;
+  while (
+    samples.length < maxIterations &&
+    (samples.length < minIterations || performance.now() < budgetEnd)
+  ) {
+    const start = performance.now();
+    for (let b = 0; b < batch; b++) fn(input);
+    samples.push((performance.now() - start) / batch);
+  }
+  samples.sort((a, b) => a - b);
+  return samples;
+}
+
+/** Median of an ascending-sorted sample array. */
+export function median(sorted) {
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
 export function fmtNs(ns) {
   if (ns < 1_000) return `${ns.toFixed(0)} ns`;
   if (ns < 1_000_000) return `${(ns / 1_000).toFixed(1)} µs`;
@@ -214,9 +253,9 @@ export function writePlaygroundData(latest = null) {
         if (wasmNs) point.ironmark_wasm_ns = wasmNs;
         if (bunNs) point.ironmark_bun_ns = bunNs;
         if (rustNs) point.ironmark_rust_ns = rustNs;
-        const wasmFastest = fastestMedian(wasmBench);
-        const bunFastest = fastestMedian(bunBench);
-        const rustFastest = fastestMedian(rustBench);
+        const wasmFastest = fastestCompetitorMedian(wasmBench);
+        const bunFastest = fastestCompetitorMedian(bunBench);
+        const rustFastest = fastestCompetitorMedian(rustBench);
         if (wasmNs && wasmFastest) point.ironmark_wasm_ratio = wasmNs / wasmFastest;
         if (bunNs && bunFastest) point.ironmark_bun_ratio = bunNs / bunFastest;
         if (rustNs && rustFastest) point.ironmark_rust_ratio = rustNs / rustFastest;
@@ -239,10 +278,15 @@ export function writePlaygroundData(latest = null) {
   console.log(`Playground data written to playground/public/benchmark-data.json`);
 }
 
-function fastestMedian(bench) {
+// Fastest median among the OTHER parsers. Including ironmark itself would
+// clamp the ratio to 1.00 whenever ironmark wins, flattening the trend into
+// a straight line — the ratio should track the margin vs the best rival
+// (<1.00 = ironmark faster).
+function fastestCompetitorMedian(bench) {
   if (!bench?.results) return undefined;
-  const values = Object.values(bench.results)
-    .map((r) => r?.median_ns)
+  const values = Object.entries(bench.results)
+    .filter(([lib]) => lib !== "ironmark")
+    .map(([, r]) => r?.median_ns)
     .filter((v) => typeof v === "number" && v > 0);
   return values.length > 0 ? Math.min(...values) : undefined;
 }

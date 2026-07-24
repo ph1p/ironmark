@@ -1,5 +1,8 @@
 allowBuilds:
   esbuild: true
+overrides:
+  "@codemirror/state": 6.7.1
+  "@codemirror/view": 6.43.6
 minimumReleaseAgeExclude:
   - "@typescript/typescript-aix-ppc64@7.0.2"
   - "@typescript/typescript-darwin-arm64@7.0.2"

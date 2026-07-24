@@ -15,6 +15,9 @@ cargo test --offline -- commonmark  # run only CommonMark spec tests
 cargo test --offline -- <name>      # run a specific test by name
 cargo bench                          # criterion benchmarks (benchmark/parse.rs)
 cargo bench --features bench-md4c   # include md4c (requires: brew install md4c)
+pnpm bench:quick                     # fast dev loop (~10s): BENCH_QUICK=1, ironmark only, no CSV/history
+                                     # (no md4c feature — first run after `pnpm bench`/`bench:rust` pays a full LTO recompile)
+BENCH_QUICK=1 cargo bench            # quick mode, all parsers (noisy — never commit these numbers)
 cargo fmt                     # format Rust code
 cargo clippy                  # lint (deny undocumented_unsafe_blocks)
 
@@ -29,6 +32,7 @@ pnpm fmt                      # cargo fmt && oxfmt --write
 pnpm lint                     # oxlint
 pnpm test                     # alias for cargo test --offline
 pnpm bench                    # full benchmark: Rust (md4c) + Bun + WASM → single history JSON (requires: brew install md4c)
+pnpm bench:rust               # Rust side only (skips WASM build + JS benches)
 ```
 
 ## Architecture
