@@ -481,15 +481,28 @@ impl<'a> BlockParser<'a> {
             let line = Line::new(raw_line);
             self.process_line(line);
 
-            if self.open.len() == 2
-                && let OpenBlockType::FencedCode(ref fc_data) = self.open[1].block_type
-                && fc_data.fence_indent == 0
+            let tip = self.open.len() - 1;
+            if tip > 0
+                && let OpenBlockType::FencedCode(ref fc_data) = self.open[tip].block_type
             {
                 let fc = fc_data.fence_char;
                 let fl = fc_data.fence_len;
-                start = end + 1;
-                start = self.bulk_scan_fenced_code(input, bytes, start, len, fc, fl);
-                continue;
+                let fi = fc_data.fence_indent;
+                if tip == 1 && fi == 0 {
+                    start = end + 1;
+                    start = self.bulk_scan_fenced_code(input, bytes, start, len, fc, fl);
+                    continue;
+                }
+                // A fence inside containers can still be bulk-scanned, but the
+                // shape test and the two scanners live behind one outlined call
+                // so this loop keeps the register/stack shape it has for the
+                // common top-level case above.
+                if let Some(next) =
+                    self.bulk_scan_container_fenced_code(bytes, end + 1, tip, fc, fl, fi)
+                {
+                    start = next;
+                    continue;
+                }
             }
 
             start = end + 1;
@@ -589,6 +602,193 @@ impl<'a> BlockParser<'a> {
         len
     }
 
+    /// Bulk-scan a fenced code block that sits inside containers, if the
+    /// container stack has a shape whose per-line prefix can be reproduced
+    /// without re-walking the stack.
+    ///
+    /// Only two shapes qualify: all list items (a fixed column indent) and all
+    /// blockquotes (a fixed number of `>` markers). A mixed stack, or no
+    /// container at all, returns `None` so the caller keeps its per-line path.
+    ///
+    /// Returns the offset to resume scanning from.
+    #[inline(never)]
+    fn bulk_scan_container_fenced_code(
+        &mut self,
+        bytes: &[u8],
+        start: usize,
+        tip: usize,
+        fence_char: u8,
+        fence_len: usize,
+        fence_indent: usize,
+    ) -> Option<usize> {
+        // `open[0]` is the Document and `open[tip]` is the fence, so everything
+        // between them is a container. All-list-items therefore implies zero
+        // open blockquotes, and all-blockquotes implies `open_blockquotes ==
+        // tip - 1` — no separate cross-check is needed. Testing the first frame
+        // picks the candidate shape so only one full scan ever runs.
+        let containers = &self.open[1..tip];
+        match containers.first().map(|b| &b.block_type) {
+            Some(OpenBlockType::ListItem { .. })
+                if containers
+                    .iter()
+                    .all(|b| matches!(b.block_type, OpenBlockType::ListItem { .. })) =>
+            {
+                let strip = self.list_indent_sum + fence_indent;
+                Some(self.bulk_scan_nested_fenced_code(bytes, start, fence_char, fence_len, strip))
+            }
+            Some(OpenBlockType::BlockQuote)
+                if containers
+                    .iter()
+                    .all(|b| matches!(b.block_type, OpenBlockType::BlockQuote)) =>
+            {
+                Some(self.bulk_scan_quoted_fenced_code(
+                    bytes,
+                    start,
+                    fence_char,
+                    fence_len,
+                    containers.len(),
+                    fence_indent,
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// Bulk-scan a fenced code block nested inside list items.
+    ///
+    /// `strip` columns of leading space are removed from every content line (the
+    /// containers' content indent plus the fence's own indent), so the body is
+    /// not a contiguous source slice and must be copied. The win over the
+    /// per-line path is skipping the container-stack walk and the leaf-block
+    /// probes for each line.
+    ///
+    /// Bails out (returning the line start it stopped at) as soon as a line is
+    /// not a valid continuation, letting the normal per-line path handle the
+    /// rest — so list-item termination and lazy continuation stay unchanged.
+    fn bulk_scan_nested_fenced_code(
+        &mut self,
+        bytes: &[u8],
+        mut start: usize,
+        fence_char: u8,
+        fence_len: usize,
+        strip: usize,
+    ) -> usize {
+        let input = self.input;
+        let len = bytes.len();
+        let tip = self.open.len() - 1;
+        while start < len {
+            let end = memchr_newline(bytes, start);
+            let mut line_end = end;
+            if line_end > start && bytes[line_end - 1] == b'\r' {
+                line_end -= 1;
+            }
+
+            // Count the leading space run. A tab anywhere in it makes column
+            // arithmetic ambiguous, so hand the line back to the slow path.
+            let mut ws = start;
+            while ws < line_end && bytes[ws] == b' ' {
+                ws += 1;
+            }
+            if ws < line_end && bytes[ws] == b'\t' {
+                return start;
+            }
+            let indent = ws - start;
+            let blank = ws == line_end;
+
+            // A blank line stays inside the fence but carries no indent to strip.
+            if !blank && indent < strip {
+                return start;
+            }
+
+            let content_start = if blank { line_end } else { start + strip };
+
+            // A closing fence is measured after the container indent is stripped.
+            if !blank && is_closing_fence(&bytes[content_start..line_end], fence_char, fence_len) {
+                self.close_top_block();
+                return end + 1;
+            }
+
+            let content = &mut self.open[tip].content;
+            content.push_str(&input[content_start..line_end]);
+            content.push('\n');
+            start = end + 1;
+        }
+        len
+    }
+
+    /// Bulk-scan a fenced code block nested inside blockquotes.
+    ///
+    /// Each line must carry `depth` blockquote markers (`>` with ≤3 leading
+    /// spaces each and one optional space after); `fence_indent` further columns
+    /// are then stripped from the content. Bails out to the per-line path on any
+    /// line that does not match, so lazy continuation and quote termination
+    /// behave exactly as before.
+    fn bulk_scan_quoted_fenced_code(
+        &mut self,
+        bytes: &[u8],
+        mut start: usize,
+        fence_char: u8,
+        fence_len: usize,
+        depth: usize,
+        fence_indent: usize,
+    ) -> usize {
+        let input = self.input;
+        let len = bytes.len();
+        let tip = self.open.len() - 1;
+        while start < len {
+            let end = memchr_newline(bytes, start);
+            let mut line_end = end;
+            if line_end > start && bytes[line_end - 1] == b'\r' {
+                line_end -= 1;
+            }
+
+            // Walk the `>` markers. Any tab makes column arithmetic ambiguous.
+            let mut i = start;
+            let mut ok = true;
+            for _ in 0..depth {
+                let ws = i;
+                while i < line_end && bytes[i] == b' ' {
+                    i += 1;
+                }
+                if i - ws > 3 || i >= line_end || bytes[i] != b'>' {
+                    ok = false;
+                    break;
+                }
+                i += 1;
+                if i < line_end && bytes[i] == b' ' {
+                    i += 1;
+                } else if i < line_end && bytes[i] == b'\t' {
+                    ok = false;
+                    break;
+                }
+            }
+            if !ok {
+                return start;
+            }
+
+            // Strip the fence's own indent, but never past the end of the line.
+            let mut content_start = i;
+            let indent_limit = (content_start + fence_indent).min(line_end);
+            while content_start < indent_limit && bytes[content_start] == b' ' {
+                content_start += 1;
+            }
+            if content_start < line_end && bytes[content_start] == b'\t' {
+                return start;
+            }
+
+            if is_closing_fence(&bytes[content_start..line_end], fence_char, fence_len) {
+                self.close_top_block();
+                return end + 1;
+            }
+
+            let content = &mut self.open[tip].content;
+            content.push_str(&input[content_start..line_end]);
+            content.push('\n');
+            start = end + 1;
+        }
+        len
+    }
+
     #[inline]
     fn push_bulk_content(&mut self, input: &str, start: usize, end: usize, has_cr: bool) {
         let content = &mut self.open[1].content;
@@ -645,6 +845,11 @@ impl<'a> BlockParser<'a> {
         let finalized = self.finalize_block(block);
         if let Some(block) = finalized {
             let parent = self.open.last_mut().unwrap();
+            // `children` starts empty, so a bare push would allocate capacity 1
+            // and then double. Seed it once at a size that covers most blocks.
+            if parent.children.capacity() == 0 {
+                parent.children.reserve(4);
+            }
             parent.children.push(block);
         }
     }

@@ -498,15 +498,22 @@ impl<'a> BlockParser<'a> {
                 };
                 let indent = rc - line.col_offset;
 
+                // `LEAF_START_BYTE` gates the probe chain: only those bytes can
+                // begin a construct that interrupts a lazy continuation, so an
+                // ordinary prose line costs one table lookup instead of five
+                // scans.
                 let can_start_new = indent <= 3
                     && (rb == b'>'
-                        || is_thematic_break(rest)
-                        || parse_atx_heading(rest, self.permissive_atx_headers).is_some()
-                        || parse_fence_start(rest).is_some()
-                        || (!self.no_html_blocks && parse_html_block_start(rest, false).is_some()));
+                        || (LEAF_START_BYTE[rb as usize]
+                            && (is_thematic_break(rest)
+                                || parse_atx_heading(rest, self.permissive_atx_headers)
+                                    .is_some()
+                                || parse_fence_start(rest).is_some()
+                                || (!self.no_html_blocks
+                                    && parse_html_block_start(rest, false).is_some()))));
 
                 if !can_start_new {
-                    let marker = if indent <= 3 {
+                    let marker = if indent <= 3 && LEAF_START_BYTE[rb as usize] {
                         parse_list_marker(rest)
                     } else {
                         None
@@ -532,7 +539,26 @@ impl<'a> BlockParser<'a> {
         self.open_new_blocks(line);
     }
 
-    #[inline(never)]
+    /// Open a new paragraph holding the line's remainder. `line` must already be
+    /// advanced past leading whitespace.
+    #[inline]
+    fn push_paragraph_line(&mut self, line: Line<'a>) {
+        let rem = line.remainder();
+        let block = if self.render_mode && !rem.is_empty() {
+            // Render mode: defer the copy — record the source range and leave
+            // `content` empty. Materialised on demand (continuation lines,
+            // setext/table conversion) or resolved at render time.
+            let mut block = OpenBlock::new(OpenBlockType::Paragraph);
+            block.src_range = Some(self.src_range_of(rem));
+            block
+        } else {
+            let mut block = OpenBlock::with_content_capacity(OpenBlockType::Paragraph, 128);
+            block.content.push_str(rem);
+            block
+        };
+        self.open.push(block);
+    }
+
     pub(super) fn open_new_blocks(&mut self, mut line: Line<'a>) {
         loop {
             let (ns_col, ns_off, first_byte) = line.peek_nonspace_col();
@@ -571,6 +597,15 @@ impl<'a> BlockParser<'a> {
             }
 
             if indent <= 3 {
+                // Every leaf-block construct is identified by its first byte.
+                // One table lookup skips the whole probe chain (thematic break,
+                // list marker, ATX heading, fence, HTML block) for ordinary
+                // prose lines, which are the overwhelming majority.
+                if !LEAF_START_BYTE[first_byte as usize] {
+                    line.advance_to_nonspace();
+                    self.push_paragraph_line(line);
+                    return;
+                }
                 let rest = if ns_off >= line.raw.len() {
                     ""
                 } else {
@@ -674,21 +709,7 @@ impl<'a> BlockParser<'a> {
                 }
             }
 
-            line.advance_to_nonspace();
-            let rem = line.remainder();
-            let block = if self.render_mode && !rem.is_empty() {
-                // Render mode: defer the copy — record the source range and leave
-                // `content` empty. Materialised on demand (continuation lines,
-                // setext/table conversion) or resolved at render time.
-                let mut block = OpenBlock::new(OpenBlockType::Paragraph);
-                block.src_range = Some(self.src_range_of(rem));
-                block
-            } else {
-                let mut block = OpenBlock::with_content_capacity(OpenBlockType::Paragraph, 128);
-                block.content.push_str(rem);
-                block
-            };
-            self.open.push(block);
+            self.push_paragraph_line(line);
             return;
         }
     }
@@ -801,11 +822,16 @@ impl<'a> BlockParser<'a> {
 
                 parent.list_has_blank_between = had_blank;
 
+                // Lists almost always gain siblings, and `vec![item]` would start
+                // at capacity 1 and then double on every push. One small
+                // allocation up front removes that regrowth chain.
+                let mut items = Vec::with_capacity(4);
+                items.push(item);
                 let list = Block::List {
                     kind,
                     start: block.list_start,
                     tight: !blank_between_children,
-                    children: vec![item],
+                    children: items,
                 };
                 Some(list)
             }
@@ -991,3 +1017,24 @@ impl<'a> BlockParser<'a> {
         self.extract_ref_defs(&content[start..end]).into_owned()
     }
 }
+
+/// Bytes that can begin a leaf-block construct at an indent of ≤3: thematic
+/// break (`-*_`), list marker (`-*+` and digits), ATX heading (`#`), code fence
+/// (`` ` `` / `~`) and HTML block (`<`). Any other first byte can only start a
+/// paragraph, so the whole probe chain in [`BlockParser::open_new_blocks`] is
+/// skipped for it.
+static LEAF_START_BYTE: [bool; 256] = {
+    let mut t = [false; 256];
+    let starters = b"-*_+#`~<";
+    let mut i = 0;
+    while i < starters.len() {
+        t[starters[i] as usize] = true;
+        i += 1;
+    }
+    let mut d = b'0';
+    while d <= b'9' {
+        t[d as usize] = true;
+        d += 1;
+    }
+    t
+};
