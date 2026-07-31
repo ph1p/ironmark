@@ -117,7 +117,7 @@ impl InlineElement {
                     child.write_markdown(out);
                 }
                 out.push_str("](");
-                out.push_str(href);
+                write_link_destination(href, out);
                 if let Some(t) = title {
                     out.push_str(" \"");
                     escape_title(t, out);
@@ -127,9 +127,15 @@ impl InlineElement {
             }
             InlineElement::Image { src, alt, title } => {
                 out.push_str("![");
-                out.push_str(alt);
+                // Alt text sits inside brackets: `]` would close them early.
+                for ch in alt.chars() {
+                    if matches!(ch, '[' | ']' | '\\') {
+                        out.push('\\');
+                    }
+                    out.push(ch);
+                }
                 out.push_str("](");
-                out.push_str(src);
+                write_link_destination(src, out);
                 if let Some(t) = title {
                     out.push_str(" \"");
                     escape_title(t, out);
@@ -148,19 +154,213 @@ impl InlineElement {
 }
 
 /// Escape special Markdown characters in text.
-fn escape_markdown_text(text: &str, out: &mut String) {
-    for ch in text.chars() {
+///
+/// Escaping is context-aware: a character is only escaped when it could
+/// actually start (or close) a Markdown construct at that position. Blanket
+/// escaping of every punctuation character produces unreadable output like
+/// `2 \* 3` for ordinary prose, so line-start-only constructs (`#`, `>`,
+/// list markers, thematic breaks) are escaped only at the start of a line,
+/// and `.`/`)` only when they follow a leading run of digits.
+pub(super) fn escape_markdown_text(text: &str, out: &mut String) {
+    let bytes = text.as_bytes();
+    // Whether we are at the start of a logical line within `out`. Text handed
+    // to us is a fragment of a block, so a fresh (or newline-terminated)
+    // buffer means line start.
+    let mut at_line_start = out.is_empty() || out.ends_with('\n');
+    // A digit run at index 0 is only a list marker if the fragment itself
+    // begins a line; captured before the loop mutates `at_line_start`.
+    let fragment_at_line_start = at_line_start;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match b {
+            // Always ambiguous: these open inline constructs anywhere.
+            b'\\' | b'`' | b'[' | b']' | b'*' => {
+                out.push('\\');
+                out.push(b as char);
+            }
+            // `_` only delimits emphasis at a word boundary; intra-word
+            // underscores (snake_case) are literal in CommonMark.
+            b'_' => {
+                let prev_alnum = i > 0 && is_word_byte(bytes[i - 1]);
+                let next_alnum = bytes.get(i + 1).is_some_and(|&n| is_word_byte(n));
+                if prev_alnum && next_alnum {
+                    out.push('_');
+                } else {
+                    out.push_str("\\_");
+                }
+            }
+            // `<` would open a raw HTML tag or autolink.
+            b'<' => out.push_str("&lt;"),
+            // A bare `&` is literal in Markdown; only escape it when the text
+            // itself looks like an entity reference, which would otherwise be
+            // decoded on the way back.
+            b'&' if starts_entity_like(bytes, i) => out.push_str("&amp;"),
+            // `!` is only special immediately before a link bracket.
+            b'!' => {
+                if bytes.get(i + 1) == Some(&b'[') {
+                    out.push_str("\\!");
+                } else {
+                    out.push('!');
+                }
+            }
+            // Extension delimiters: only meaningful when doubled.
+            b'~' | b'=' | b'+' if bytes.get(i + 1) == Some(&b) => {
+                out.push('\\');
+                out.push(b as char);
+            }
+            // Line-start-only block constructs.
+            b'#' | b'>' if at_line_start => {
+                out.push('\\');
+                out.push(b as char);
+            }
+            // Bullet-list markers / setext+thematic breaks need a following
+            // space (or, for `-`/`=`, a run to end of line).
+            b'-' | b'+' if at_line_start && is_marker_or_rule(bytes, i) => {
+                out.push('\\');
+                out.push(b as char);
+            }
+            b'=' if at_line_start && is_setext_run(bytes, i) => out.push_str("\\="),
+            // Ordered-list markers: digits then `.` or `)` then space. The
+            // marker byte is never itself at line start, so the position rule
+            // lives entirely in `follows_leading_digits`.
+            b'.' | b')' if fragment_at_line_start && follows_leading_digits(bytes, i) => {
+                out.push('\\');
+                out.push(b as char);
+            }
+            // Non-ASCII: copy the whole UTF-8 sequence verbatim. Nothing in a
+            // multi-byte char is Markdown-significant.
+            _ if b >= 0x80 => {
+                let end = (i + crate::utf8_char_len(b)).min(bytes.len());
+                out.push_str(&text[i..end]);
+                at_line_start = false;
+                i = end;
+                continue;
+            }
+            _ => out.push(b as char),
+        }
+        at_line_start = b == b'\n';
+        i += 1;
+    }
+}
+
+/// True when `&` at `i` begins something that would be read back as an HTML
+/// entity: `&name;` or `&#123;` / `&#x1F;`.
+fn starts_entity_like(bytes: &[u8], i: usize) -> bool {
+    let mut j = i + 1;
+    if bytes.get(j) == Some(&b'#') {
+        j += 1;
+        if matches!(bytes.get(j), Some(b'x') | Some(b'X')) {
+            j += 1;
+            let start = j;
+            while bytes.get(j).is_some_and(|b| b.is_ascii_hexdigit()) {
+                j += 1;
+            }
+            return j > start && bytes.get(j) == Some(&b';');
+        }
+        let start = j;
+        while bytes.get(j).is_some_and(|b| b.is_ascii_digit()) {
+            j += 1;
+        }
+        return j > start && bytes.get(j) == Some(&b';');
+    }
+    let start = j;
+    while bytes.get(j).is_some_and(|b| b.is_ascii_alphanumeric()) {
+        j += 1;
+    }
+    j > start && bytes.get(j) == Some(&b';')
+}
+
+fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b >= 0x80
+}
+
+/// True when `-`/`+` at `i` begins a list marker (`- `) or a thematic break.
+fn is_marker_or_rule(bytes: &[u8], i: usize) -> bool {
+    match bytes.get(i + 1) {
+        None | Some(b' ') | Some(b'\t') | Some(b'\n') => true,
+        // `---` style thematic break / setext underline.
+        Some(&n) => n == bytes[i],
+    }
+}
+
+/// True when `=` at `i` starts a run of `=` spanning to end of line (setext H1).
+fn is_setext_run(bytes: &[u8], i: usize) -> bool {
+    let mut j = i;
+    while j < bytes.len() && bytes[j] == b'=' {
+        j += 1;
+    }
+    j > i + 1 && (j == bytes.len() || bytes[j] == b'\n')
+}
+
+/// True when `.`/`)` at `i` closes an ordered-list marker: the text from the
+/// line start to `i` is all digits, and a space follows.
+fn follows_leading_digits(bytes: &[u8], i: usize) -> bool {
+    if i == 0 {
+        return false;
+    }
+    if !matches!(
+        bytes.get(i + 1),
+        None | Some(b' ') | Some(b'\t') | Some(b'\n')
+    ) {
+        return false;
+    }
+    bytes[..i].iter().all(|b| b.is_ascii_digit())
+}
+
+/// Write a link/image destination.
+///
+/// A destination containing whitespace or control characters must be wrapped in
+/// angle brackets, otherwise the parser stops at the first space and the link
+/// degrades to literal text. Unbalanced parentheses need the same treatment,
+/// since a bare `)` would close the destination early.
+fn write_link_destination(dest: &str, out: &mut String) {
+    let needs_brackets = dest.is_empty()
+        || dest.chars().any(|c| c.is_whitespace() || c.is_control())
+        || !parens_balanced(dest);
+
+    if !needs_brackets {
+        out.push_str(dest);
+        return;
+    }
+
+    out.push('<');
+    for ch in dest.chars() {
         match ch {
-            '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '(' | ')' | '#' | '+' | '-' | '.'
-            | '!' | '|' | '~' | '=' => {
+            '<' | '>' | '\\' => {
                 out.push('\\');
                 out.push(ch);
             }
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
+            // A newline cannot appear in a destination at all.
+            '\n' | '\r' => out.push_str("%0A"),
             _ => out.push(ch),
         }
     }
+    out.push('>');
+}
+
+/// True when every `(` in `dest` has a matching `)` and none closes early.
+fn parens_balanced(dest: &str) -> bool {
+    let mut depth: i32 = 0;
+    let mut escaped = false;
+    for ch in dest.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
 }
 
 /// Escape characters in a link/image title.
@@ -177,7 +377,7 @@ fn escape_title(title: &str, out: &mut String) {
 /// Write a code span with appropriate backtick fencing.
 fn write_code_span(code: &str, out: &mut String) {
     // Find the longest run of backticks in the code
-    let max_run = find_max_backtick_run(code);
+    let max_run = crate::renderers::markdown::longest_backtick_run(code);
     let fence_len = max_run + 1;
 
     for _ in 0..fence_len {
@@ -197,23 +397,6 @@ fn write_code_span(code: &str, out: &mut String) {
     for _ in 0..fence_len {
         out.push('`');
     }
-}
-
-/// Find the longest consecutive run of backticks in a string.
-fn find_max_backtick_run(s: &str) -> usize {
-    let mut max = 0;
-    let mut current = 0;
-
-    for ch in s.chars() {
-        if ch == '`' {
-            current += 1;
-            max = max.max(current);
-        } else {
-            current = 0;
-        }
-    }
-
-    max
 }
 
 /// Parser for inline HTML content.
@@ -266,8 +449,8 @@ impl<'a> InlineParser<'a> {
                     }
                     // Orphan end tag - ignore
                 }
-                HtmlToken::Comment(_) | HtmlToken::Doctype(_) => {
-                    // Ignore comments and doctypes
+                HtmlToken::RawText { .. } | HtmlToken::Comment(_) | HtmlToken::Doctype(_) => {
+                    // Ignore raw-text elements, comments and doctypes
                 }
             }
         }
@@ -428,6 +611,9 @@ impl<'a> InlineParser<'a> {
                 HtmlToken::Doctype(d) => {
                     html.push_str(d);
                 }
+                HtmlToken::RawText { .. } => {
+                    // Body already dropped by the tokenizer; nothing to keep.
+                }
             }
         }
 
@@ -456,7 +642,12 @@ pub(super) fn write_open_tag(
         out.push(' ');
         out.push_str(k);
         out.push_str("=\"");
-        out.push_str(v);
+        // The value goes inside double quotes, so a literal `"` would close the
+        // attribute early and everything after it would be lost when this HTML
+        // is tokenized again. `&` must go too, or an existing `&quot;` in the
+        // value would decode into a closing quote on the next pass — which is
+        // exactly the `& < > "` set the shared HTML escaper covers.
+        crate::html::escape_html_into(out, v);
         out.push('"');
     }
     out.push_str(if self_closing { " />" } else { ">" });
@@ -464,7 +655,7 @@ pub(super) fn write_open_tag(
 
 /// Normalize whitespace in text (collapse runs of whitespace to single space).
 /// Already-normalized text (the common case) is returned borrowed.
-fn normalize_whitespace(text: &str) -> Cow<'_, str> {
+pub(super) fn normalize_whitespace(text: &str) -> Cow<'_, str> {
     let mut prev_ws = false;
     for (i, ch) in text.char_indices() {
         if ch.is_whitespace() && (ch != ' ' || prev_ws) {

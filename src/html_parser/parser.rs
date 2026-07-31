@@ -6,7 +6,9 @@ use compact_str::CompactString;
 
 use crate::ast::{Block, ListKind, TableAlignment, TableData};
 
-use super::inline::{find_attr, inline_to_markdown, parse_inline_html};
+use super::inline::{
+    escape_markdown_text, find_attr, inline_to_markdown, normalize_whitespace, parse_inline_html,
+};
 use super::tokenizer::{HtmlToken, HtmlTokenizer};
 
 /// Options for HTML-to-AST parsing.
@@ -84,6 +86,10 @@ struct OpenBlock {
     table_state: Option<TableState>,
     /// For code blocks: language info
     code_info: Option<String>,
+    /// For list items: whether an explicit `<p>` child was seen. HTML has no
+    /// blank-line signal for list tightness, so an author-written `<p>` inside
+    /// an `<li>` is the only evidence that the list is loose.
+    saw_explicit_paragraph: bool,
     /// Accumulated text/inline content
     text_content: String,
 }
@@ -98,6 +104,7 @@ impl OpenBlock {
             task_checked: None,
             table_state: None,
             code_info: None,
+            saw_explicit_paragraph: false,
             text_content: String::new(),
         }
     }
@@ -163,7 +170,8 @@ impl<'a> HtmlParser<'a> {
             HtmlToken::Text(text) => {
                 self.handle_text(&text);
             }
-            HtmlToken::Comment(_) | HtmlToken::Doctype(_) => {
+            // Raw-text elements (script/style/...) carry no document content.
+            HtmlToken::RawText { .. } | HtmlToken::Comment(_) | HtmlToken::Doctype(_) => {
                 // Ignore
             }
         }
@@ -181,6 +189,11 @@ impl<'a> HtmlParser<'a> {
         match name {
             // Block elements
             "p" | "pre" | "blockquote" | "li" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                if name == "p"
+                    && let Some(li) = self.find_li_mut()
+                {
+                    li.saw_explicit_paragraph = true;
+                }
                 self.open_block(name);
             }
             "ul" => {
@@ -240,9 +253,11 @@ impl<'a> HtmlParser<'a> {
                 self.push_block(Block::ThematicBreak);
             }
             "br" => {
-                // Add hard break marker to text
+                // Keep it as markup so the inline pass emits a real hard break;
+                // writing "  \n" here would be swallowed by whitespace
+                // normalization on the plain-text path.
                 let current = self.stack.last_mut().unwrap();
-                current.text_content.push_str("  \n");
+                current.text_content.push_str("<br>");
             }
             "code" => {
                 // Check if inside <pre>
@@ -260,9 +275,16 @@ impl<'a> HtmlParser<'a> {
                     current.text_content.push_str("<code>");
                 }
             }
-            "div" | "section" | "article" | "main" | "header" | "footer" | "nav" | "aside" => {
-                // Treat as generic block container
+            "div" | "section" | "article" | "main" | "header" | "footer" | "nav" | "aside"
+            | "figure" | "figcaption" | "dl" | "dd" | "details" | "summary" | "fieldset"
+            | "form" | "address" | "hgroup" => {
+                // Treat as generic block container: contributes no markup of
+                // its own, but its children/text must survive.
                 self.open_block(name);
+            }
+            // A definition term reads as its own short block.
+            "dt" => {
+                self.open_block("p");
             }
             "input" => {
                 // Check for task list checkbox
@@ -323,9 +345,14 @@ impl<'a> HtmlParser<'a> {
                 // Just a marker, no action needed
             }
             "div" | "section" | "article" | "main" | "header" | "footer" | "nav" | "aside"
+            | "figure" | "figcaption" | "dl" | "dd" | "details" | "summary" | "fieldset"
+            | "form" | "address" | "hgroup"
                 if self.is_current(name) =>
             {
                 self.close_generic_block();
+            }
+            "dt" if self.is_current("p") => {
+                self.close_paragraph();
             }
             "code" if !self.is_inside("pre") => {
                 // Inline code end
@@ -379,7 +406,8 @@ impl<'a> HtmlParser<'a> {
         // Auto-close certain tags when a new block starts
         match tag {
             "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "ul" | "ol" | "blockquote" | "pre"
-            | "table" | "hr" | "div" | "section" | "article"
+            | "table" | "hr" | "div" | "section" | "article" | "figure" | "figcaption" | "dl"
+            | "dt" | "dd" | "details" | "summary" | "address"
                 if self.is_current("p") =>
             {
                 // Close any open paragraph
@@ -405,16 +433,23 @@ impl<'a> HtmlParser<'a> {
         }
     }
 
+    /// Emit any text pending on the current container as a paragraph child.
+    ///
+    /// This runs whenever a nested block opens. Discarding the pending text
+    /// instead would lose content: in `<li>a<ul>…</ul></li>` the `a` belongs to
+    /// the item, before the nested list.
     fn flush_text(&mut self) {
-        let (text, is_document) = {
+        // `pre` accumulates verbatim code; never reinterpret it as a paragraph.
+        if self.is_current("pre") {
+            return;
+        }
+        let text = {
             let current = self.stack.last_mut().unwrap();
-            let text = std::mem::take(&mut current.text_content);
-            (text, current.tag == "document")
+            std::mem::take(&mut current.text_content)
         };
         let trimmed = text.trim();
 
-        if !trimmed.is_empty() && is_document {
-            // Top-level text becomes a paragraph
+        if !trimmed.is_empty() {
             let raw = self.convert_inline_content(trimmed);
             self.stack
                 .last_mut()
@@ -508,18 +543,25 @@ impl<'a> HtmlParser<'a> {
             let kind = block.list_kind.unwrap_or(ListKind::Bullet(b'-'));
             let start = block.list_start;
 
-            // Determine if tight (no blank lines between items)
-            // For HTML, we'll assume tight unless there are nested blocks
-            let tight = block.children.iter().all(|child| {
-                if let Block::ListItem { children, .. } = child {
-                    children.len() <= 1
+            // Determine if tight. HTML gives no blank-line signal, so treat a
+            // list as tight unless an item holds genuine multi-block content.
+            // A leading paragraph followed only by nested lists is the normal
+            // shape of `<li>text<ul>…</ul></li>` and stays tight; two
+            // paragraphs (or a paragraph plus a code block) are loose.
+            let tight = !block.saw_explicit_paragraph
+                && block.children.iter().all(|child| {
+                    let Block::ListItem { children, .. } = child else {
+                        return true;
+                    };
+                    let non_list = children
+                        .iter()
+                        .filter(|c| !matches!(c, Block::List { .. }))
+                        .count();
+                    non_list <= 1
                         && children
                             .iter()
-                            .all(|c| matches!(c, Block::Paragraph { .. }))
-                } else {
-                    true
-                }
-            });
+                            .all(|c| matches!(c, Block::Paragraph { .. } | Block::List { .. }))
+                });
 
             self.push_block(Block::List {
                 kind,
@@ -540,10 +582,15 @@ impl<'a> HtmlParser<'a> {
                 block.children.push(Block::Paragraph { raw });
             }
 
+            let explicit_para = block.saw_explicit_paragraph;
             self.push_block(Block::ListItem {
                 children: block.children,
                 checked: block.task_checked,
             });
+            // Propagate the looseness signal to the enclosing list.
+            if explicit_para && let Some(parent) = self.stack.last_mut() {
+                parent.saw_explicit_paragraph = true;
+            }
         }
     }
 
@@ -615,10 +662,14 @@ impl<'a> HtmlParser<'a> {
             return String::new();
         }
 
-        // Check if content contains HTML tags
+        // Fast path: no tags to interpret, but the text still needs Markdown
+        // escaping and whitespace normalization or it will re-parse as markup
+        // on the way back (e.g. a literal "# x" becoming a heading).
         if !trimmed.contains('<') {
-            // Plain text - just return as-is (already decoded)
-            return trimmed.to_string();
+            let normalized = normalize_whitespace(trimmed);
+            let mut out = String::with_capacity(normalized.len());
+            escape_markdown_text(&normalized, &mut out);
+            return out;
         }
 
         // Parse inline HTML and convert to Markdown

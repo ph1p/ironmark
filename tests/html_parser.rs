@@ -373,3 +373,60 @@ fn unknown_inline_handling_controls_markdown_output() {
         "<sup>Superscript</sup> text\n"
     );
 }
+
+#[test]
+fn attribute_value_quotes_survive_reserialization() {
+    // A `"` inside a preserved tag's attribute must be escaped on the way out,
+    // or it closes the attribute early and the rest of the value is lost.
+    let preserve = HtmlParseOptions {
+        unknown_inline_handling: UnknownInlineHandling::PreserveAsHtml,
+        ..default_opts()
+    };
+    assert_eq!(
+        html_to_markdown(r#"<p><sup data-x='he said "hi"'>s</sup></p>"#, &preserve),
+        "<sup data-x=\"he said &quot;hi&quot;\">s</sup>\n"
+    );
+}
+
+#[test]
+fn link_title_keeps_interior_quotes() {
+    // Reaches the title via a single-quoted attribute and via `&quot;`; both
+    // must round-trip through the Markdown title escape.
+    assert_eq!(
+        html_to_markdown(
+            r#"<p><a href="/x" title='he said "hi"'>y</a></p>"#,
+            &default_opts()
+        ),
+        "[y](/x \"he said \\\"hi\\\"\")\n"
+    );
+    assert_eq!(
+        html_to_markdown(
+            r#"<p><a href="/x" title="t &quot;q&quot;">y</a></p>"#,
+            &default_opts()
+        ),
+        "[y](/x \"t \\\"q\\\"\")\n"
+    );
+}
+
+#[test]
+fn link_destination_with_space_is_bracketed() {
+    // A bare space would end the destination, degrading the link to plain text.
+    assert_eq!(
+        html_to_markdown(r#"<p><a href="/a b">y</a></p>"#, &default_opts()),
+        "[y](</a b>)\n"
+    );
+}
+
+#[test]
+fn leading_ordered_marker_is_escaped() {
+    // `1. text` at the start of a paragraph would re-parse as an ordered list.
+    assert_eq!(
+        html_to_markdown("<p>1. not a list</p>", &default_opts()),
+        "1\\. not a list\n"
+    );
+    // A digit run mid-text is not a marker and must stay unescaped.
+    assert_eq!(
+        html_to_markdown("<p>version 1.2 here</p>", &default_opts()),
+        "version 1.2 here\n"
+    );
+}

@@ -61,7 +61,12 @@ fn render_block(block: &Block, out: &mut String, depth: usize, in_list_item: boo
             out.push_str("---\n");
         }
         Block::CodeBlock { info, literal } => {
-            out.push_str("```");
+            // The fence must be longer than any backtick run inside the body,
+            // otherwise the content terminates its own block.
+            let fence_len = (longest_backtick_run(literal) + 1).max(3);
+            for _ in 0..fence_len {
+                out.push('`');
+            }
             if !info.is_empty() {
                 out.push_str(info.as_str());
             }
@@ -70,7 +75,10 @@ fn render_block(block: &Block, out: &mut String, depth: usize, in_list_item: boo
             if !literal.ends_with('\n') {
                 out.push('\n');
             }
-            out.push_str("```\n");
+            for _ in 0..fence_len {
+                out.push('`');
+            }
+            out.push('\n');
         }
         Block::BlockQuote { children } => {
             for child in children {
@@ -96,35 +104,30 @@ fn render_block(block: &Block, out: &mut String, depth: usize, in_list_item: boo
                     out.push('\n');
                 }
 
-                // Render list marker
+                // Build the marker first: its width sets the continuation
+                // indent, so nested content lines up under the item text.
+                let mut marker = String::new();
                 match kind {
-                    ListKind::Bullet(marker) => {
-                        out.push(*marker as char);
-                        out.push(' ');
+                    ListKind::Bullet(m) => {
+                        marker.push(*m as char);
+                        marker.push(' ');
                     }
                     ListKind::Ordered(delimiter) => {
                         use std::fmt::Write;
-                        let _ = write!(out, "{num}");
-                        out.push(*delimiter as char);
-                        out.push(' ');
+                        let _ = write!(marker, "{num}");
+                        marker.push(*delimiter as char);
+                        marker.push(' ');
                         num += 1;
                     }
                 }
 
-                // Render list item content
-                render_list_item_content(child, out, depth + 1, *tight);
+                render_list_item(child, out, &marker, depth + 1, *tight);
             }
         }
-        Block::ListItem { children, checked } => {
-            // Task list checkbox
-            if let Some(c) = *checked {
-                out.push_str(if c { "[x] " } else { "[ ] " });
-            }
+        Block::ListItem { children, .. } => {
+            // Reached only when a ListItem appears outside a List; render its
+            // children plainly. Marker/indent handling lives in render_list_item.
             for (i, child) in children.iter().enumerate() {
-                if i > 0 {
-                    // Indent continuation
-                    out.push_str("    ");
-                }
                 render_block(child, out, depth, i == 0);
             }
         }
@@ -140,28 +143,73 @@ fn render_block(block: &Block, out: &mut String, depth: usize, in_list_item: boo
     }
 }
 
-fn render_list_item_content(block: &Block, out: &mut String, depth: usize, tight: bool) {
-    if let Block::ListItem { children, checked } = block {
-        // Task list checkbox
-        if let Some(c) = *checked {
-            out.push_str(if c { "[x] " } else { "[ ] " });
+/// Render one list item: `marker` on the first line, then every subsequent
+/// line indented by the marker's width so nested blocks stay inside the item.
+fn render_list_item(block: &Block, out: &mut String, marker: &str, depth: usize, tight: bool) {
+    let (children, checked): (&[Block], Option<bool>) = match block {
+        Block::ListItem { children, checked } => (children, *checked),
+        // Not a ListItem (malformed AST): render as the item's sole content.
+        other => {
+            let mut body = String::new();
+            render_block(other, &mut body, depth, true);
+            write_indented(out, &body, marker);
+            return;
         }
+    };
 
-        for (i, child) in children.iter().enumerate() {
-            if i > 0 {
-                // Add indent for continuation blocks
-                for _ in 0..depth {
-                    out.push_str("    ");
-                }
-            }
-            render_block(child, out, depth, i == 0);
-            if !tight && i < children.len() - 1 {
-                out.push('\n');
+    let mut body = String::new();
+    if let Some(c) = checked {
+        body.push_str(if c { "[x] " } else { "[ ] " });
+    }
+    for (i, child) in children.iter().enumerate() {
+        render_block(child, &mut body, depth, i == 0);
+        // Blank line between blocks in a loose item.
+        if !tight && i + 1 < children.len() {
+            body.push('\n');
+        }
+    }
+
+    write_indented(out, &body, marker);
+}
+
+/// Write `body` with `marker` prefixing its first line and an equal-width run
+/// of spaces prefixing the rest. Blank lines stay blank (no trailing spaces).
+fn write_indented(out: &mut String, body: &str, marker: &str) {
+    let mut first = true;
+    for line in body.lines() {
+        if first {
+            out.push_str(marker);
+            first = false;
+        } else if !line.is_empty() {
+            for _ in 0..marker.len() {
+                out.push(' ');
             }
         }
-    } else {
-        render_block(block, out, depth, true);
+        out.push_str(line);
+        out.push('\n');
     }
+    if first {
+        // Empty item: still emit the marker so the list structure survives.
+        out.push_str(marker.trim_end());
+        out.push('\n');
+    }
+}
+
+/// Longest run of consecutive backticks in `s`.
+pub(crate) fn longest_backtick_run(s: &str) -> usize {
+    let mut max = 0;
+    let mut cur = 0;
+    for &b in s.as_bytes() {
+        if b == b'`' {
+            cur += 1;
+            if cur > max {
+                max = cur;
+            }
+        } else {
+            cur = 0;
+        }
+    }
+    max
 }
 
 fn render_table(table: &TableData, out: &mut String) {
@@ -174,11 +222,16 @@ fn render_table(table: &TableData, out: &mut String) {
     out.push('|');
     for (i, cell) in table.header.iter().enumerate() {
         out.push(' ');
-        out.push_str(cell.as_str());
+        write_table_cell(cell.as_str(), out);
         out.push_str(" |");
         if i >= num_cols - 1 {
             break;
         }
+    }
+    // Pad a short header row: the delimiter row defines num_cols, and a
+    // mismatch makes the whole table degrade back to a paragraph.
+    for _ in table.header.len()..num_cols {
+        out.push_str("  |");
     }
     out.push('\n');
 
@@ -207,12 +260,24 @@ fn render_table(table: &TableData, out: &mut String) {
             let cell_idx = row_idx * num_cols + col_idx;
             if let Some(cell) = table.rows.get(cell_idx) {
                 out.push(' ');
-                out.push_str(cell.as_str());
+                write_table_cell(cell.as_str(), out);
                 out.push_str(" |");
             } else {
                 out.push_str(" |");
             }
         }
         out.push('\n');
+    }
+}
+
+/// Write a table cell, escaping the characters that would break the row: `|`
+/// ends a cell, and a newline ends the row.
+fn write_table_cell(cell: &str, out: &mut String) {
+    for ch in cell.chars() {
+        match ch {
+            '|' => out.push_str("\\|"),
+            '\n' | '\r' => out.push(' '),
+            _ => out.push(ch),
+        }
     }
 }

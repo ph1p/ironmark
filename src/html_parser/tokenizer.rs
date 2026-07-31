@@ -28,6 +28,16 @@ pub enum HtmlToken<'a> {
     Comment(Cow<'a, str>),
     /// A DOCTYPE declaration.
     Doctype(Cow<'a, str>),
+    /// A raw-text element (`<script>`, `<style>`, `<textarea>`, `<title>`)
+    /// whose body has already been consumed and discarded by the tokenizer.
+    RawText {
+        /// Tag name (lowercase).
+        name: Cow<'a, str>,
+        /// Attribute name-value pairs.
+        attrs: Vec<(Cow<'a, str>, Cow<'a, str>)>,
+        /// Always false; present so callers can match uniformly with StartTag.
+        self_closing: bool,
+    },
 }
 
 /// HTML tokenizer that produces tokens from an HTML string.
@@ -201,7 +211,9 @@ impl<'a> HtmlTokenizer<'a> {
 
     /// Parse a start tag `<name ...>` or `<name ... />`.
     fn parse_start_tag(&mut self) -> Option<HtmlToken<'a>> {
-        self.skip_whitespace();
+        // A tag name must follow `<` immediately: `< x` is literal text, not a
+        // tag. Skipping whitespace first would consume that space and mangle
+        // ordinary prose such as a decoded `&lt; &gt;`.
         let name = self.parse_tag_name();
 
         if name.is_empty() {
@@ -253,11 +265,52 @@ impl<'a> HtmlTokenizer<'a> {
             self_closing = true;
         }
 
+        // Raw-text elements: their content is never markup. Skip straight to
+        // the matching end tag so a `<` inside (e.g. `1 < 2` in a script)
+        // cannot be mis-tokenized as a tag, and so the body never leaks into
+        // the document as text.
+        if !self_closing && is_raw_text_element(&name) {
+            self.skip_raw_text(&name);
+            return Some(HtmlToken::RawText {
+                name,
+                attrs,
+                self_closing: false,
+            });
+        }
+
         Some(HtmlToken::StartTag {
             name,
             attrs,
             self_closing,
         })
+    }
+
+    /// Advance past the body of a raw-text element and its end tag.
+    fn skip_raw_text(&mut self, name: &str) {
+        let hay = self.bytes;
+        let mut search = self.pos;
+        while let Some(off) = memchr::memchr(b'<', &hay[search..]) {
+            let lt = search + off;
+            let rest = &hay[lt + 1..];
+            if rest.first() == Some(&b'/')
+                && rest.len() > name.len()
+                && rest[1..1 + name.len()].eq_ignore_ascii_case(name.as_bytes())
+                && matches!(rest.get(1 + name.len()), Some(c) if *c == b'>' || c.is_ascii_whitespace())
+            {
+                // Consume through the closing '>'.
+                self.pos = lt + 1;
+                while self.pos < hay.len() && hay[self.pos] != b'>' {
+                    self.pos += 1;
+                }
+                if self.pos < hay.len() {
+                    self.pos += 1;
+                }
+                return;
+            }
+            search = lt + 1;
+        }
+        // Unclosed: consume the remainder.
+        self.pos = hay.len();
     }
 
     /// Parse a tag name as a borrowed slice of the input.
@@ -366,6 +419,12 @@ fn lowercase_cow(name: &str) -> Cow<'_, str> {
     } else {
         Cow::Borrowed(name)
     }
+}
+
+/// Check if a (lowercase) tag name is a raw-text element whose content must
+/// never be interpreted as markup or emitted as document text.
+fn is_raw_text_element(name: &str) -> bool {
+    matches!(name, "script" | "style" | "textarea" | "title" | "template")
 }
 
 /// Check if a (lowercase) tag name is a void element (self-closing).
