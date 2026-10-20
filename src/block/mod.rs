@@ -358,6 +358,10 @@ struct OpenBlock {
     content: String,
     children: Vec<Block>,
     had_blank_in_item: bool,
+    /// Set when `had_blank_in_item` came only from a nested item's trailing
+    /// blank: the number of children up to and including that nested list. The
+    /// blank separates children only if more children follow it.
+    nested_blank_at: u32,
     list_has_blank_between: bool,
     content_has_newline: bool,
     checked: Option<bool>,
@@ -378,6 +382,7 @@ impl OpenBlock {
             content: String::new(),
             children: Vec::new(),
             had_blank_in_item: false,
+            nested_blank_at: 0,
             list_has_blank_between: false,
             content_has_newline: false,
             checked: None,
@@ -405,6 +410,7 @@ impl OpenBlock {
             content: String::new(),
             children: Vec::new(),
             had_blank_in_item: false,
+            nested_blank_at: 0,
             list_has_blank_between: false,
             content_has_newline: false,
             checked: None,

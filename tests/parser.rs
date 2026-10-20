@@ -540,6 +540,32 @@ fn bare_email_underscore_local_part() {
     );
 }
 
+// A blank line after a nested list ends the inner items; it must not make the
+// enclosing item loose unless that item gains another child after the blank.
+#[test]
+fn nested_list_trailing_blank_stays_tight() {
+    assert_html(
+        "- outer\n  - inner\n    - deep\n\nfoo\n",
+        "<ul>\n<li>outer\n<ul>\n<li>inner\n<ul>\n<li>deep</li>\n</ul>\n</li>\n</ul>\n</li>\n</ul>\n<p>foo</p>\n",
+    );
+    assert_html(
+        "- a\n  - b\n\n  - c\n",
+        "<ul>\n<li>a\n<ul>\n<li>\n<p>b</p>\n</li>\n<li>\n<p>c</p>\n</li>\n</ul>\n</li>\n</ul>\n",
+    );
+}
+
+#[test]
+fn nested_list_blank_before_next_child_is_loose() {
+    assert_html(
+        "- a\n  - b\n\n  c\n",
+        "<ul>\n<li>\n<p>a</p>\n<ul>\n<li>b</li>\n</ul>\n<p>c</p>\n</li>\n</ul>\n",
+    );
+    assert_html(
+        "- a\n  - b\n    - c\n\n  d\n",
+        "<ul>\n<li>\n<p>a</p>\n<ul>\n<li>b\n<ul>\n<li>c</li>\n</ul>\n</li>\n</ul>\n<p>d</p>\n</li>\n</ul>\n",
+    );
+}
+
 #[test]
 fn autolink_disabled() {
     let opts = ParseOptions {

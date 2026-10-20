@@ -784,7 +784,11 @@ impl<'a> BlockParser<'a> {
             OpenBlockType::ListItem { .. } => {
                 let had_blank = block.had_blank_in_item;
                 let kind = block.list_kind.unwrap_or(ListKind::Bullet(b'-'));
-                let blank_between_children = had_blank && block.children.len() >= 2;
+                let blank_between_children = if block.nested_blank_at > 0 {
+                    block.children.len() > block.nested_blank_at as usize
+                } else {
+                    had_blank && block.children.len() >= 2
+                };
 
                 let item = Block::ListItem {
                     children: block.children,
@@ -792,10 +796,14 @@ impl<'a> BlockParser<'a> {
                 };
                 let parent = self.open.last_mut().unwrap();
 
-                if had_blank
+                // A trailing blank in this item sits after the parent item's
+                // current last child (this list), so it only loosens the parent
+                // if the parent gains another child afterwards.
+                let propagate = had_blank
                     && !blank_between_children
                     && matches!(parent.block_type, OpenBlockType::ListItem { .. })
-                {
+                    && !parent.had_blank_in_item;
+                if propagate {
                     parent.had_blank_in_item = true;
                 }
 
@@ -817,10 +825,17 @@ impl<'a> BlockParser<'a> {
                     if had_blank {
                         parent.list_has_blank_between = true;
                     }
+                    if propagate {
+                        parent.nested_blank_at = parent.children.len() as u32;
+                    }
                     return None;
                 }
 
                 parent.list_has_blank_between = had_blank;
+                if propagate {
+                    // The new list is pushed onto the parent by the caller.
+                    parent.nested_blank_at = parent.children.len() as u32 + 1;
+                }
 
                 // Lists almost always gain siblings, and `vec![item]` would start
                 // at capacity 1 and then double on every push. One small
