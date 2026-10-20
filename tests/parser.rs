@@ -1346,3 +1346,14 @@ fn indented_paragraph_with_leading_ws_and_brackets() {
     assert!(html.contains("<p>spaced para</p>"), "{html}");
     assert!(html.contains("<p>[x] not a def</p>"), "{html}");
 }
+
+#[test]
+fn unmatched_backtick_before_other_inlines() {
+    let opts = ParseOptions::default();
+    let html = render_html("x ` [a](b)", &opts);
+    assert_eq!(html, "<p>x ` <a href=\"b\">a</a></p>\n");
+    let html = render_html("x ` <http://a.b>", &opts);
+    assert!(html.contains("<a href=\"http://a.b\">"), "{html}");
+    let html = render_html("` \\* *em*", &opts);
+    assert_eq!(html, "<p>` * <em>em</em></p>\n");
+}
