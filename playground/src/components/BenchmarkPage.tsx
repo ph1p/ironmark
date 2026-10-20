@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type {
   BenchEntry,
   BenchEnv,
@@ -36,6 +36,51 @@ const LABELS: Record<string, string> = {
   bun: "Bun built-in",
 };
 
+// How each parser runs; ironmark is native in Rust and WASM in JS runtimes.
+const KINDS: Record<string, string> = {
+  pulldown_cmark: "Rust",
+  comrak: "Rust",
+  markdown_rs: "Rust",
+  markdown_it: "Rust",
+  md4c: "C",
+  "markdown-wasm": "WASM",
+  md4w: "WASM",
+  marked: "JS",
+  bun: "native",
+};
+
+type Runtime = "wasm" | "bun" | "rust";
+
+const RUNTIMES: { key: Runtime; label: string; blurb: string }[] = [
+  {
+    key: "wasm",
+    label: "Node.js",
+    blurb:
+      "npm packages called from Node.js. ironmark, markdown-wasm and md4w are WebAssembly builds; marked is plain JavaScript.",
+  },
+  {
+    key: "bun",
+    label: "Bun",
+    blurb:
+      "The same npm packages under Bun, plus Bun's built-in Markdown parser, which runs as native code without a WebAssembly boundary.",
+  },
+  {
+    key: "rust",
+    label: "Native Rust",
+    blurb:
+      "Rust crates called directly, plus the C library md4c through FFI. No JavaScript involved.",
+  },
+];
+
+function parserLabel(lib: string): string {
+  return LABELS[lib] ?? lib;
+}
+
+function parserKind(lib: string, runtime: Runtime): string {
+  if (lib === "ironmark") return runtime === "rust" ? "Rust" : "WASM";
+  return KINDS[lib] ?? "";
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtNs(ns: number): string {
@@ -46,8 +91,12 @@ function fmtNs(ns: number): string {
 }
 
 function fmtThroughput(bytes: number, ns: number): string {
-  if (!bytes || !ns) return "-";
+  if (!bytes || !ns) return "–";
   return `${((bytes / ns) * 1e3).toFixed(1)} MB/s`;
+}
+
+function fmtMultiple(x: number): string {
+  return x >= 10 ? `${x.toFixed(0)}×` : `${x.toFixed(2)}×`;
 }
 
 // Half the interquartile range relative to the median (older snapshots: null).
@@ -77,9 +126,9 @@ function fmtEnv(env: BenchEnv): string {
 }
 
 function fmtBytes(b: number): string {
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  if (b < 1000) return `${b} B`;
+  if (b < 1e6) return `${(b / 1000).toFixed(1)} KB`;
+  return `${(b / 1e6).toFixed(1)} MB`;
 }
 
 function fmtDate(ts: string): string {
@@ -89,109 +138,357 @@ function fmtDate(ts: string): string {
   return time ? `${date} ${time.replace(/-/g, ":")}` : date;
 }
 
-// ─── BenchCard ───────────────────────────────────────────────────────────────
+// Criterion group names (Rust) → the wording the JS runner uses.
+function caseName(bench: BenchEntry): string {
+  if (bench.name === "commonmark_spec") return "spec (all examples)";
+  // Size names are generator targets; the real size is shown next to the name.
+  if (/^\d+ bytes$/.test(bench.name) || /^mixed \d/.test(bench.name)) return "mixed";
+  return bench.name.replace(/_/g, " ");
+}
 
-function BenchCard({ bench }: { bench: BenchEntry }) {
-  const entries = Object.entries(bench.results)
-    .map(([lib, r]) => ({ lib, ...r }))
-    .filter((e) => e.median_ns > 0)
-    .sort((a, b) => a.median_ns - b.median_ns);
+function geomean(xs: number[]): number {
+  return Math.exp(xs.reduce((s, x) => s + Math.log(x), 0) / xs.length);
+}
 
-  if (entries.length === 0) return null;
+// ─── Per-runtime analysis ────────────────────────────────────────────────────
 
-  const winner = entries[0];
-  const maxTp = Math.max(
-    ...entries.map((e) => (bench.bytes ? bench.bytes / e.median_ns : 1 / e.median_ns)),
-  );
-  const speedup =
-    entries.length >= 2
-      ? entries[1].median_ns / winner.median_ns > 1.01 && !withinNoise(winner, entries[1])
-        ? `${(entries[1].median_ns / winner.median_ns).toFixed(1)}× faster`
-        : "≈ tied (within noise)"
-      : null;
+type Cell = BenchResult & { ratio: number; fastest: boolean; tied: boolean };
+type Row = { bench: BenchEntry; name: string; cells: Record<string, Cell> };
+type RowGroup = { title: string; rows: Row[] };
+type ParserSummary = { lib: string; typical: number; best: number; cases: number };
+type Analysis = {
+  groups: RowGroup[];
+  parsers: ParserSummary[];
+  caseCount: number;
+  ironmark: { wins: number; ties: number; vsNextBest: number | null } | null;
+};
+
+function analyze(sections: BenchSection[]): Analysis {
+  const groups: RowGroup[] = [];
+  const ratios: Record<string, number[]> = {};
+  const best: Record<string, number> = {};
+  let wins = 0;
+  let ties = 0;
+  const vsNext: number[] = [];
+
+  for (const section of sections) {
+    const benches = [...section.benches];
+    if (section.title === "Document Sizes") benches.sort((a, b) => a.bytes - b.bytes);
+    const rows: Row[] = [];
+    for (const bench of benches) {
+      const valid = Object.entries(bench.results).filter(([, r]) => r.median_ns > 0);
+      if (valid.length === 0) continue;
+      const [fastLib, fastRes] = valid.reduce((a, b) => (b[1].median_ns < a[1].median_ns ? b : a));
+      const cells: Record<string, Cell> = {};
+      for (const [lib, r] of valid) {
+        const fastest = lib === fastLib;
+        const tied = !fastest && withinNoise(r, fastRes);
+        cells[lib] = { ...r, ratio: r.median_ns / fastRes.median_ns, fastest, tied };
+        (ratios[lib] ??= []).push(cells[lib].ratio);
+        if (fastest || tied) best[lib] = (best[lib] ?? 0) + 1;
+      }
+      const im = cells.ironmark;
+      if (im) {
+        if (im.fastest) wins++;
+        else if (im.tied) ties++;
+        const others = valid.filter(([lib]) => lib !== "ironmark").map(([, r]) => r.median_ns);
+        if (others.length) vsNext.push(Math.min(...others) / im.median_ns);
+      }
+      rows.push({ bench, name: caseName(bench), cells });
+    }
+    if (rows.length) groups.push({ title: section.title, rows });
+  }
+
+  const parsers = Object.entries(ratios)
+    .map(([lib, rs]) => ({ lib, typical: geomean(rs), best: best[lib] ?? 0, cases: rs.length }))
+    .sort((a, b) => a.typical - b.typical);
+  const caseCount = groups.reduce((n, g) => n + g.rows.length, 0);
+
+  return {
+    groups,
+    parsers,
+    caseCount,
+    ironmark: ratios.ironmark
+      ? { wins, ties, vsNextBest: vsNext.length ? geomean(vsNext) : null }
+      : null,
+  };
+}
+
+// ─── Summary ─────────────────────────────────────────────────────────────────
+
+function Summary({ analysis, runtime }: { analysis: Analysis; runtime: Runtime }) {
+  const { ironmark: im, parsers, caseCount } = analysis;
+  const maxTypical = Math.max(...parsers.map((p) => p.typical));
+  // Log scale: a 10× slower parser must not squash the differences that matter.
+  const barPct = (x: number) =>
+    maxTypical > 1 ? 8 + (92 * Math.log(x)) / Math.log(maxTypical) : 100;
 
   return (
-    <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
-      <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-        <span className="text-xs text-zinc-400 font-medium">
-          {bench.name}
-          {bench.bytes > 0 && <span className="text-zinc-600 ml-1">({fmtBytes(bench.bytes)})</span>}
-        </span>
-        {speedup && (
-          <span
-            className="text-xs font-semibold px-2 py-0.5 rounded border"
-            style={{
-              color: COLORS[winner.lib] ?? "#e8590c",
-              borderColor: `${COLORS[winner.lib] ?? "#e8590c"}99`,
-            }}
-          >
-            {LABELS[winner.lib] ?? winner.lib} · {speedup}
+    <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 space-y-4">
+      {im && (
+        <p className="text-sm text-zinc-300 leading-relaxed">
+          ironmark is the fastest in{" "}
+          <strong className="text-zinc-100">
+            {im.wins} of {caseCount}
+          </strong>{" "}
+          cases
+          {im.ties > 0 && <> and within measurement noise of the fastest in {im.ties} more</>}.
+          {im.vsNextBest != null && (
+            <>
+              {" "}
+              Against the best other parser on each case it is typically{" "}
+              <strong className={im.vsNextBest >= 1 ? "text-emerald-400" : "text-amber-400"}>
+                {im.vsNextBest >= 1
+                  ? `${im.vsNextBest.toFixed(2)}× faster`
+                  : `${(1 / im.vsNextBest).toFixed(2)}× slower`}
+              </strong>
+              .
+            </>
+          )}
+        </p>
+      )}
+
+      <div className="space-y-1.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Typical time
+          </h3>
+          <span className="text-xs text-zinc-600">
+            relative to the fastest parser · shorter is better
           </span>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        {entries.map((e) => {
-          const tp = bench.bytes ? bench.bytes / e.median_ns : 1 / e.median_ns;
-          const pct = tp / maxTp;
-          const isWinner = e.lib === winner.lib;
-          const color = COLORS[e.lib] ?? "#888";
-          const label = LABELS[e.lib] ?? e.lib;
-          const spread = relSpread(e);
-          const differs = e.matches_majority === false;
-
-          return (
-            <div key={e.lib} className="flex items-center gap-2 text-xs">
-              <span
-                className="w-28 shrink-0 text-right truncate"
-                style={{ color: isWinner ? "#fff" : "#666", fontWeight: isWinner ? 600 : 400 }}
-                title={differs ? "Output differs from the other parsers on this input" : undefined}
-              >
-                {differs && <span className="text-amber-500 mr-1">≠</span>}
-                {label}
-              </span>
-              <div className="flex-1 h-5 rounded bg-zinc-800 overflow-hidden min-w-0">
-                <div
-                  className="h-full rounded"
-                  style={{
-                    width: `${Math.max(1, pct * 100).toFixed(1)}%`,
-                    backgroundColor: color,
-                  }}
-                />
-              </div>
-              <span
-                className="w-16 shrink-0 text-right text-zinc-300 tabular-nums"
-                title={
-                  spread != null
-                    ? `±${(spread * 100).toFixed(1)}% (interquartile range)`
-                    : undefined
-                }
-              >
-                {fmtNs(e.median_ns)}
-              </span>
-              <span className="w-12 shrink-0 text-right text-zinc-600 tabular-nums hidden sm:block">
-                {spread != null ? `±${(spread * 100).toFixed(0)}%` : ""}
-              </span>
-              <span className="w-20 shrink-0 text-right text-zinc-600 tabular-nums hidden sm:block">
-                {fmtThroughput(bench.bytes, e.median_ns)}
-              </span>
+        </div>
+        {parsers.map((p) => (
+          <div key={p.lib} className="flex items-center gap-2 text-xs">
+            <span
+              className={`w-32 shrink-0 truncate ${p.lib === "ironmark" ? "font-semibold text-zinc-100" : "text-zinc-400"}`}
+            >
+              {parserLabel(p.lib)}
+              <span className="ml-1 text-zinc-600 font-normal">{parserKind(p.lib, runtime)}</span>
+            </span>
+            <div className="flex-1 h-4 rounded bg-zinc-800 overflow-hidden min-w-0">
+              <div
+                className="h-full rounded"
+                style={{
+                  width: `${barPct(p.typical).toFixed(1)}%`,
+                  backgroundColor: COLORS[p.lib] ?? "#888",
+                }}
+              />
             </div>
-          );
-        })}
+            <span className="w-14 shrink-0 text-right tabular-nums text-zinc-300">
+              {fmtMultiple(p.typical)}
+            </span>
+            <span className="w-24 shrink-0 text-right tabular-nums text-zinc-600 hidden sm:block">
+              best in {p.best}/{p.cases}
+            </span>
+          </div>
+        ))}
+        <p className="text-xs text-zinc-600 pt-1">
+          Geometric mean over all cases of time ÷ fastest time, so 1.00× would mean fastest
+          everywhere. &ldquo;Best in&rdquo; counts cases where the parser is fastest or within noise
+          of it.
+        </p>
       </div>
     </div>
   );
 }
 
-// ─── BenchSectionView ────────────────────────────────────────────────────────
+// ─── Results table ───────────────────────────────────────────────────────────
 
-function BenchSectionView({ section }: { section: BenchSection }) {
+function cellClass(c: Cell): string {
+  if (c.fastest) return "bg-emerald-500/15 text-emerald-300 font-semibold";
+  if (c.tied) return "bg-emerald-500/5 text-emerald-200/80";
+  if (c.ratio < 1.5) return "text-zinc-300";
+  if (c.ratio < 3) return "text-zinc-400";
+  return "text-zinc-500";
+}
+
+function cellTitle(lib: string, c: Cell, bytes: number): string {
+  const spread = relSpread(c);
+  return [
+    `${parserLabel(lib)}: ${fmtNs(c.median_ns)}`,
+    spread != null ? `±${(spread * 100).toFixed(1)}%` : null,
+    bytes ? fmtThroughput(bytes, c.median_ns) : null,
+    c.fastest
+      ? "fastest"
+      : c.tied
+        ? "tied with fastest (within noise)"
+        : `${fmtMultiple(c.ratio)} the fastest time`,
+    c.matches_majority === false ? "output differs from the other parsers" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function CaseDetail({ row, runtime }: { row: Row; runtime: Runtime }) {
+  const entries = Object.entries(row.cells).sort(([, a], [, b]) => a.median_ns - b.median_ns);
+  const slowest = Math.max(...entries.map(([, c]) => c.median_ns));
   return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-zinc-300">{section.title}</h3>
-      {section.benches.map((b) => (
-        <BenchCard key={b.name} bench={b} />
-      ))}
+    <div className="space-y-1.5 py-1">
+      {entries.map(([lib, c]) => {
+        const spread = relSpread(c);
+        return (
+          <div key={lib} className="flex items-center gap-2 text-xs">
+            <span className="w-32 shrink-0 truncate text-zinc-400">
+              {c.matches_majority === false && <span className="text-amber-500 mr-1">≠</span>}
+              {parserLabel(lib)}
+              <span className="ml-1 text-zinc-600">{parserKind(lib, runtime)}</span>
+            </span>
+            <div className="flex-1 h-3 rounded bg-zinc-800 overflow-hidden min-w-0">
+              <div
+                className="h-full rounded"
+                style={{
+                  width: `${Math.max(1, (c.median_ns / slowest) * 100).toFixed(1)}%`,
+                  backgroundColor: COLORS[lib] ?? "#888",
+                }}
+              />
+            </div>
+            <span className="w-16 shrink-0 text-right tabular-nums text-zinc-300">
+              {fmtNs(c.median_ns)}
+            </span>
+            <span className="w-12 shrink-0 text-right tabular-nums text-zinc-600 hidden sm:block">
+              {spread != null ? `±${(spread * 100).toFixed(0)}%` : ""}
+            </span>
+            <span className="w-20 shrink-0 text-right tabular-nums text-zinc-600 hidden sm:block">
+              {fmtThroughput(row.bench.bytes, c.median_ns)}
+            </span>
+          </div>
+        );
+      })}
+      <p className="text-xs text-zinc-600 pt-1">
+        Median time per call; bars show time, so shorter is faster.
+        {entries.some(([, c]) => relSpread(c) != null) && " ± is half the interquartile range."}
+      </p>
+    </div>
+  );
+}
+
+function ResultsTable({ analysis, runtime }: { analysis: Analysis; runtime: Runtime }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const libs = analysis.parsers.map((p) => p.lib);
+  const anyDiffers = analysis.groups.some((g) =>
+    g.rows.some((r) => Object.values(r.cells).some((c) => c.matches_majority === false)),
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="rounded-lg border border-zinc-800 overflow-x-auto">
+        <table className="w-full text-xs tabular-nums border-collapse">
+          <thead>
+            <tr className="bg-zinc-900 text-zinc-400">
+              <th className="sticky left-0 bg-zinc-900 text-left font-medium px-3 py-2">Case</th>
+              {libs.map((lib) => (
+                <th key={lib} className="px-2 py-2 text-right font-medium whitespace-nowrap">
+                  <span
+                    className="inline-block w-2 h-2 rounded-full mr-1.5"
+                    style={{ backgroundColor: COLORS[lib] ?? "#888" }}
+                  />
+                  <span className={lib === "ironmark" ? "text-zinc-100" : undefined}>
+                    {parserLabel(lib)}
+                  </span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {analysis.groups.map((g) => (
+              <Fragment key={g.title}>
+                <tr>
+                  <td
+                    colSpan={libs.length + 1}
+                    className="px-3 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600 bg-zinc-950"
+                  >
+                    {g.title}
+                  </td>
+                </tr>
+                {g.rows.map((row) => {
+                  const key = `${g.title}/${row.bench.name}`;
+                  const isOpen = open === key;
+                  return (
+                    <Fragment key={key}>
+                      <tr
+                        onClick={() => setOpen(isOpen ? null : key)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setOpen(isOpen ? null : key);
+                          }
+                        }}
+                        tabIndex={0}
+                        className="border-t border-zinc-800/60 cursor-pointer hover:bg-zinc-900/60 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-500"
+                        aria-expanded={isOpen}
+                      >
+                        <td className="sticky left-0 bg-zinc-950 px-3 py-1.5 whitespace-nowrap text-zinc-300">
+                          <span className="text-zinc-600 mr-1.5 inline-block w-2">
+                            {isOpen ? "▾" : "▸"}
+                          </span>
+                          {row.name}
+                          {row.bench.bytes > 0 && (
+                            <span className="ml-1.5 text-zinc-600">
+                              {fmtBytes(row.bench.bytes)}
+                            </span>
+                          )}
+                        </td>
+                        {libs.map((lib) => {
+                          const c = row.cells[lib];
+                          return (
+                            <td
+                              key={lib}
+                              className={`px-2 py-1.5 text-right whitespace-nowrap ${c ? cellClass(c) : "text-zinc-700"}`}
+                              title={c ? cellTitle(lib, c, row.bench.bytes) : "not measured"}
+                            >
+                              {c ? (
+                                <>
+                                  {c.matches_majority === false && (
+                                    <span className="text-amber-500 mr-1">≠</span>
+                                  )}
+                                  {c.tied && "≈"}
+                                  {c.fastest ? fmtNs(c.median_ns) : fmtMultiple(c.ratio)}
+                                </>
+                              ) : (
+                                "–"
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {isOpen && (
+                        <tr className="bg-zinc-900/40">
+                          <td colSpan={libs.length + 1} className="px-3 py-2">
+                            {/* Stays in view while the table scrolls sideways on narrow screens. */}
+                            <div className="sticky left-3 max-w-[calc(100vw-4rem)]">
+                              <CaseDetail row={row} runtime={runtime} />
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex gap-x-4 gap-y-1 flex-wrap text-xs text-zinc-500">
+        <span>
+          <span className="px-1 rounded bg-emerald-500/15 text-emerald-300 font-semibold">
+            12.3 µs
+          </span>{" "}
+          fastest (its time)
+        </span>
+        <span>
+          <span className="text-zinc-300">1.40×</span> takes 1.4 times as long
+        </span>
+        <span>
+          <span className="text-emerald-200/80">≈</span> tied with fastest, within noise
+        </span>
+        {anyDiffers && (
+          <span>
+            <span className="text-amber-500">≠</span> output differs from the other parsers
+          </span>
+        )}
+        <span>Click a row for times and throughput.</span>
+      </div>
     </div>
   );
 }
@@ -480,118 +777,17 @@ function TrendChart({ trend, mode }: { trend: TrendPoint[]; mode: TrendMode }) {
   );
 }
 
-// ─── RankingOverview ─────────────────────────────────────────────────────────
-
-type RankEntry = { lib: string; wins: number; total: number; avgSpeedup: number };
-
-function buildRanking(latest: BenchmarkData["latest"]): RankEntry[] {
-  const wins: Record<string, number> = {};
-  const total: Record<string, number> = {};
-  const speedupSum: Record<string, number> = {};
-
-  const allSections = [
-    ...(latest.wasm?.sections ?? []),
-    ...(latest.bun?.sections ?? []),
-    ...(latest.rust?.sections ?? []),
-  ];
-
-  for (const section of allSections) {
-    for (const bench of section.benches) {
-      const entries = Object.entries(bench.results)
-        .filter(([, r]) => r.median_ns > 0)
-        .sort(([, a], [, b]) => a.median_ns - b.median_ns);
-      if (entries.length === 0) continue;
-      const fastestNs = entries[0][1].median_ns;
-      for (const [lib, r] of entries) {
-        total[lib] = (total[lib] ?? 0) + 1;
-        speedupSum[lib] = (speedupSum[lib] ?? 0) + r.median_ns / fastestNs;
-      }
-      const [winner] = entries[0];
-      wins[winner] = (wins[winner] ?? 0) + 1;
-    }
-  }
-
-  return Object.keys(total)
-    .map((lib) => ({
-      lib,
-      wins: wins[lib] ?? 0,
-      total: total[lib],
-      avgSpeedup: speedupSum[lib] / total[lib],
-    }))
-    .sort((a, b) => b.wins - a.wins || a.avgSpeedup - b.avgSpeedup);
-}
-
-function RankingOverview({ latest }: { latest: BenchmarkData["latest"] }) {
-  const ranking = buildRanking(latest);
-  if (ranking.length === 0) return null;
-
-  const maxWins = ranking[0].wins;
-
-  return (
-    <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 space-y-3">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-        Overall Ranking
-      </h3>
-      <div className="flex flex-col gap-2">
-        {ranking.map((e, i) => {
-          const color = COLORS[e.lib] ?? "#888";
-          const label = LABELS[e.lib] ?? e.lib;
-          const pct = maxWins > 0 ? e.wins / maxWins : 0;
-          const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
-          return (
-            <div key={e.lib} className="flex items-center gap-2 text-xs">
-              <span className="w-5 shrink-0 text-center text-sm">
-                {medal ?? <span className="text-zinc-600">{i + 1}</span>}
-              </span>
-              <span
-                className="w-28 shrink-0 truncate font-medium"
-                style={{ color: i === 0 ? "#fff" : "#999" }}
-              >
-                {label}
-              </span>
-              <div className="flex-1 h-4 rounded bg-zinc-800 overflow-hidden min-w-0">
-                <div
-                  className="h-full rounded"
-                  style={{ width: `${Math.max(1, pct * 100).toFixed(1)}%`, backgroundColor: color }}
-                />
-              </div>
-              <span className="w-20 shrink-0 text-right tabular-nums text-zinc-300">
-                {e.wins}/{e.total} wins
-              </span>
-              <span className="w-16 shrink-0 text-right tabular-nums text-zinc-600 hidden sm:block">
-                {e.avgSpeedup.toFixed(2)}× avg
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <p className="text-xs text-zinc-600">
-        Wins = fastest in a benchmark · avg = mean slowdown vs winner (1.00× = always fastest)
-      </p>
-    </div>
-  );
-}
-
 // ─── BenchmarkPage ───────────────────────────────────────────────────────────
 
-type InnerTab = "latest" | "trend";
-type RuntimeFilter = "all" | "wasm" | "bun" | "rust";
-type LatestGroup = {
-  runtime: Exclude<RuntimeFilter, "all">;
-  heading: string;
-  note?: string;
-  section: BenchSection;
-};
+type InnerTab = "results" | "history";
 
 export function BenchmarkPage() {
   const [data, setData] = useState<BenchmarkData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [innerTab, setInnerTab] = useState<InnerTab>("latest");
-  const [trendMode, setTrendMode] = useState<TrendMode>("absolute");
-  const [query, setQuery] = useState("");
-  const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFilter>("all");
-  const [parserFilter, setParserFilter] = useState<string>("all");
+  const [innerTab, setInnerTab] = useState<InnerTab>("results");
+  const [trendMode, setTrendMode] = useState<TrendMode>("relative");
+  const [runtime, setRuntime] = useState<Runtime>("wasm");
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}benchmark-data.json`)
@@ -601,104 +797,46 @@ export function BenchmarkPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const latestGroups = useMemo<LatestGroup[]>(() => {
-    if (!data) return [];
-    const groups: LatestGroup[] = [];
-    if (data.latest.wasm) {
-      groups.push(
-        ...data.latest.wasm.sections.map((section) => ({
-          runtime: "wasm" as const,
-          heading: "WASM · Node.js",
-          section,
-        })),
-      );
-    }
-    if (data.latest.bun) {
-      groups.push(
-        ...data.latest.bun.sections.map((section) => ({
-          runtime: "bun" as const,
-          heading: "WASM · Bun runtime",
-          note: "(+ Bun built-in native)",
-          section,
-        })),
-      );
-    }
-    if (data.latest.rust) {
-      groups.push(
-        ...data.latest.rust.sections.map((section) => ({
-          runtime: "rust" as const,
-          heading: "Native Rust",
-          section,
-        })),
-      );
-    }
-    return groups;
-  }, [data]);
-
-  const parserOptions = useMemo(() => {
-    const libs = new Set<string>();
-    for (const group of latestGroups) {
-      for (const bench of group.section.benches) {
-        for (const [lib, result] of Object.entries(bench.results)) {
-          if (result.median_ns > 0) libs.add(lib);
-        }
-      }
-    }
-    return Array.from(libs).sort((a, b) => (LABELS[a] ?? a).localeCompare(LABELS[b] ?? b));
-  }, [latestGroups]);
-
-  const filteredGroups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return latestGroups
-      .filter((group) => runtimeFilter === "all" || group.runtime === runtimeFilter)
-      .map((group) => ({
-        ...group,
-        section: {
-          ...group.section,
-          benches: group.section.benches.filter((bench) => {
-            const parserMatch =
-              parserFilter === "all" ||
-              Object.entries(bench.results).some(
-                ([lib, result]) => lib === parserFilter && result.median_ns > 0,
-              );
-            if (!parserMatch) return false;
-            if (!q) return true;
-            const haystack = [
-              group.heading,
-              group.section.title,
-              bench.name,
-              ...Object.keys(bench.results).map((lib) => LABELS[lib] ?? lib),
-            ]
-              .join(" ")
-              .toLowerCase();
-            return haystack.includes(q);
-          }),
-        },
-      }))
-      .filter((group) => group.section.benches.length > 0);
-  }, [latestGroups, parserFilter, query, runtimeFilter]);
-
-  const filteredBenchCount = filteredGroups.reduce(
-    (sum, group) => sum + group.section.benches.length,
-    0,
+  const available = useMemo(
+    () => RUNTIMES.filter((r) => (data?.latest[r.key]?.sections.length ?? 0) > 0),
+    [data],
   );
+  const active = available.some((r) => r.key === runtime) ? runtime : available[0]?.key;
+
+  const analyses = useMemo(() => {
+    const out: Partial<Record<Runtime, Analysis>> = {};
+    for (const r of available) out[r.key] = analyze(data!.latest[r.key]!.sections);
+    return out;
+  }, [available, data]);
+  const analysis = active ? analyses[active] : undefined;
 
   return (
     <div className="flex-1 overflow-y-auto bg-zinc-950 text-zinc-100">
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-        <div>
+        <div className="space-y-1.5">
           <h2 className="text-lg font-semibold">Benchmarks</h2>
-          {data?.generatedAt && (
-            <p className="text-xs text-zinc-500 mt-0.5">Generated {fmtDate(data.generatedAt)}</p>
-          )}
-          {data?.env && (
-            <p className="text-xs text-zinc-600 mt-0.5">Measured on {fmtEnv(data.env)}</p>
-          )}
-          {data?.profile && (
-            <p className="text-xs text-zinc-600 mt-0.5">
-              All parsers configured for the same feature set ({data.profile}).{" "}
-              <span className="text-amber-500">≠</span> marks output that differs from the other
-              parsers. Numbers are only comparable within one machine.
+          <p className="text-sm text-zinc-400 leading-relaxed">
+            How long ironmark takes to turn Markdown into HTML compared with other parsers. Every
+            parser is set up for the same features
+            {data?.profile === "gfm"
+              ? " (CommonMark plus GFM tables, strikethrough, task lists and autolinks)"
+              : data?.profile === "commonmark"
+                ? " (plain CommonMark, no extensions)"
+                : ""}
+            , and each environment is compared on its own.
+          </p>
+          {data && (
+            <p className="text-xs text-zinc-600">
+              {data.env ? `Measured on ${fmtEnv(data.env)} · ` : ""}
+              updated {fmtDate(data.generatedAt)} ·{" "}
+              <a
+                href="https://github.com/ph1p/ironmark/tree/main/benchmark#readme"
+                target="_blank"
+                rel="noreferrer"
+                className="underline decoration-zinc-700 hover:text-zinc-400"
+              >
+                methodology &amp; how to run it yourself
+              </a>
             </p>
           )}
         </div>
@@ -716,133 +854,76 @@ export function BenchmarkPage() {
 
         {data && (
           <>
-            {/* Inner tabs */}
             <div className="flex gap-4 border-b border-zinc-800">
-              {(["latest", "trend"] as InnerTab[]).map((tab) => (
+              {(
+                [
+                  ["results", "Results"],
+                  ["history", "History"],
+                ] as const
+              ).map(([tab, label]) => (
                 <button
                   key={tab}
                   onClick={() => setInnerTab(tab)}
-                  className={`pb-2 text-sm font-medium capitalize border-b-2 -mb-px transition-colors ${
+                  className={`pb-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                     innerTab === tab
                       ? "border-zinc-100 text-zinc-100"
                       : "border-transparent text-zinc-500 hover:text-zinc-300"
                   }`}
                 >
-                  {tab === "trend" ? "Trend" : "Latest"}
+                  {label}
                 </button>
               ))}
             </div>
 
-            {/* Latest tab */}
-            {innerTab === "latest" && (
-              <div className="space-y-10">
-                <RankingOverview latest={data.latest} />
-                <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 space-y-4">
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                      Filter Benchmarks
-                    </h3>
-                    <span className="text-xs text-zinc-600">
-                      {filteredBenchCount} benchmark{filteredBenchCount === 1 ? "" : "s"} shown
-                    </span>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_auto_auto]">
-                    <input
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search by benchmark, section, runtime, or parser"
-                      className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-zinc-600"
-                    />
-                    <select
-                      value={runtimeFilter}
-                      onChange={(e) => setRuntimeFilter(e.target.value as RuntimeFilter)}
-                      className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-300 outline-none focus:border-zinc-600"
-                    >
-                      <option value="all">All runtimes</option>
-                      <option value="wasm">WASM · Node</option>
-                      <option value="bun">Bun</option>
-                      <option value="rust">Rust</option>
-                    </select>
-                    <select
-                      value={parserFilter}
-                      onChange={(e) => setParserFilter(e.target.value)}
-                      className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-300 outline-none focus:border-zinc-600"
-                    >
-                      <option value="all">All parsers</option>
-                      {parserOptions.map((lib) => (
-                        <option key={lib} value={lib}>
-                          {LABELS[lib] ?? lib}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex gap-2 flex-wrap">
-                    {(["all", "wasm", "bun", "rust"] as RuntimeFilter[]).map((value) => (
+            {innerTab === "results" && active && analysis && (
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <div
+                    role="tablist"
+                    aria-label="Environment"
+                    className="inline-flex rounded-lg border border-zinc-800 bg-zinc-900 p-0.5"
+                  >
+                    {available.map((r) => (
                       <button
-                        key={value}
-                        onClick={() => setRuntimeFilter(value)}
-                        className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                          runtimeFilter === value
-                            ? "border-zinc-500 bg-zinc-800 text-zinc-100"
-                            : "border-zinc-800 bg-zinc-950 text-zinc-500 hover:text-zinc-300"
+                        key={r.key}
+                        role="tab"
+                        aria-selected={active === r.key}
+                        onClick={() => setRuntime(r.key)}
+                        className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                          active === r.key
+                            ? "bg-zinc-700 text-zinc-100"
+                            : "text-zinc-400 hover:text-zinc-200"
                         }`}
                       >
-                        {value === "all"
-                          ? "All"
-                          : value === "wasm"
-                            ? "WASM · Node"
-                            : value === "bun"
-                              ? "Bun"
-                              : "Rust"}
+                        {r.label}
                       </button>
                     ))}
                   </div>
-                </div>
-                {filteredGroups.map((group, index) => {
-                  const showHeading =
-                    index === 0 ||
-                    filteredGroups[index - 1].heading !== group.heading ||
-                    filteredGroups[index - 1].note !== group.note;
-                  return (
-                    <div key={`${group.runtime}:${group.section.title}`} className="space-y-5">
-                      {showHeading && (
-                        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                          {group.heading}{" "}
-                          {group.note && (
-                            <span className="normal-case font-normal text-zinc-600">
-                              {group.note}
-                            </span>
-                          )}
-                        </h3>
-                      )}
-                      <BenchSectionView section={group.section} />
-                    </div>
-                  );
-                })}
-                {filteredBenchCount === 0 && (
-                  <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
-                    <p className="text-sm text-zinc-400">
-                      No benchmarks match the current filters.
-                    </p>
-                  </div>
-                )}
-                {!data.latest.rust && (
-                  <p className="text-xs text-zinc-600">
-                    Native Rust results not available — run{" "}
-                    <code className="text-zinc-500">cargo bench</code> to include them.
+                  <p className="text-xs text-zinc-500 leading-relaxed">
+                    {RUNTIMES.find((r) => r.key === active)!.blurb}
                   </p>
-                )}
+                </div>
+
+                <Summary analysis={analysis} runtime={active} />
+                <ResultsTable key={active} analysis={analysis} runtime={active} />
+
+                <p className="text-xs text-zinc-600 leading-relaxed">
+                  Numbers come from one machine and are only comparable with each other, not with
+                  other machines. Differences of a few percent are usually noise.
+                </p>
               </div>
             )}
 
-            {/* Trend tab */}
-            {innerTab === "trend" && (
+            {innerTab === "history" && (
               <div className="space-y-4">
+                <p className="text-sm text-zinc-400 leading-relaxed">
+                  ironmark on the CommonMark spec document (all 652 examples) across recorded runs.
+                </p>
                 <div className="flex gap-2 flex-wrap">
                   {(
                     [
-                      ["absolute", "Absolute Time"],
-                      ["relative", "Vs Fastest"],
+                      ["relative", "Compared with the fastest other parser"],
+                      ["absolute", "Parse time"],
                     ] as const
                   ).map(([value, label]) => (
                     <button
@@ -860,8 +941,8 @@ export function BenchmarkPage() {
                 </div>
                 <p className="text-xs text-zinc-500">
                   {trendMode === "absolute"
-                    ? "ironmark — CommonMark Spec median parse time across runs. Lower is faster; this is absolute time."
-                    : "ironmark — CommonMark Spec time vs the fastest competitor in the same runtime. Below 1.00x = ironmark faster than the best rival (0.60x = 40% faster)."}
+                    ? "Median time per parse. Lower is faster. Runs on different machines are not comparable."
+                    : "ironmark's time divided by the fastest other parser's time in the same environment. Below 1.00× means ironmark is faster (0.60× = takes 60% as long)."}
                 </p>
                 <TrendChart trend={data.trend} mode={trendMode} />
               </div>
