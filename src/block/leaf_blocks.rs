@@ -173,6 +173,13 @@ pub(super) fn is_closing_fence(line: &[u8], fence_char: u8, fence_len: usize) ->
 
 #[inline]
 pub(super) fn parse_table_separator(line: &str) -> Option<SmallVec<[TableAlignment; 8]>> {
+    // Runs on every paragraph continuation line; most fail on their first letter.
+    if !line
+        .bytes()
+        .all(|b| matches!(b, b'|' | b':' | b'-' | b' ' | b'\t'))
+    {
+        return None;
+    }
     let trimmed = trim_space_tab(line);
     if trimmed.is_empty() {
         return None;
