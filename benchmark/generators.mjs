@@ -398,29 +398,15 @@ export function writePlaygroundData(latest = null) {
           if (rec.rust) latestByRuntime.rust = { sections: rec.rust };
           if (rec.bun) latestByRuntime.bun = { sections: rec.bun };
         }
-        const wasmBench = rec.wasm
-          ?.find((s) => s.title === "CommonMark Spec")
-          ?.benches?.find((b) => b.name === "spec (all examples)");
-        const bunBench = rec.bun
-          ?.find((s) => s.title === "CommonMark Spec")
-          ?.benches?.find((b) => b.name === "spec (all examples)");
-        const rustBench = rec.rust
-          ?.find((s) => s.title === "CommonMark Spec")
-          ?.benches?.find((b) => b.name === "commonmark_spec");
-        const wasmNs = wasmBench?.results?.ironmark?.median_ns;
-        const bunNs = bunBench?.results?.ironmark?.median_ns;
-        const rustNs = rustBench?.results?.ironmark?.median_ns;
-        if (!wasmNs && !bunNs && !rustNs) return null;
-        const point = { timestamp: rec.timestamp ?? f.slice(0, 19) };
-        if (wasmNs) point.ironmark_wasm_ns = wasmNs;
-        if (bunNs) point.ironmark_bun_ns = bunNs;
-        if (rustNs) point.ironmark_rust_ns = rustNs;
-        const wasmFastest = fastestCompetitorMedian(wasmBench);
-        const bunFastest = fastestCompetitorMedian(bunBench);
-        const rustFastest = fastestCompetitorMedian(rustBench);
-        if (wasmNs && wasmFastest) point.ironmark_wasm_ratio = wasmNs / wasmFastest;
-        if (bunNs && bunFastest) point.ironmark_bun_ratio = bunNs / bunFastest;
-        if (rustNs && rustFastest) point.ironmark_rust_ratio = rustNs / rustFastest;
+        const cases = {};
+        for (const runtime of ["wasm", "bun", "rust"]) {
+          const byCase = trendCases(rec[runtime]);
+          if (byCase) cases[runtime] = byCase;
+        }
+        if (Object.keys(cases).length === 0) return null;
+        const point = { timestamp: rec.timestamp ?? f.slice(0, 19), cases };
+        if (rec.profile) point.profile = rec.profile;
+        if (rec.env?.cpu) point.machine = rec.env.cpu;
         return point;
       } catch {
         return null;
@@ -442,15 +428,59 @@ export function writePlaygroundData(latest = null) {
   console.log(`Playground data written to playground/public/benchmark-data.json`);
 }
 
-// Fastest median among the OTHER parsers. Including ironmark itself would
-// clamp the ratio to 1.00 whenever ironmark wins, flattening the trend into
-// a straight line — the ratio should track the margin vs the best rival
-// (<1.00 = ironmark faster).
-function fastestCompetitorMedian(bench) {
-  if (!bench?.results) return undefined;
-  const values = Object.entries(bench.results)
-    .filter(([lib]) => lib !== "ironmark")
-    .map(([, r]) => r?.median_ns)
-    .filter((v) => typeof v === "number" && v > 0);
-  return values.length > 0 ? Math.min(...values) : undefined;
+/**
+ * The cases the playground trend tracks, shared by every runtime. Keys are
+ * stable across the Rust (criterion group) and JS names and across snapshots.
+ */
+export const TREND_CASES = [
+  "spec",
+  "all-features",
+  "mixed-1k",
+  "mixed-10k",
+  "mixed-100k",
+  "headings",
+  "nested-lists",
+  "table",
+  "code-blocks",
+  "inline-heavy",
+];
+
+function trendCaseKey(name) {
+  const n = name.toLowerCase().replace(/_/g, " ");
+  if (n === "commonmark spec" || n.startsWith("spec")) return "spec";
+  const mixed = n.match(/^(?:mixed )?([\d.]+) ?(b|bytes|kb)$/);
+  if (mixed) {
+    const bytes = Number(mixed[1]) * (mixed[2] === "kb" ? 1024 : 1);
+    // Nearest of 1k / 10k / 100k; the Rust-only 1 MB case is not tracked.
+    const exp = Math.round(Math.log10(bytes));
+    return exp >= 3 && exp <= 5 ? `mixed-${10 ** (exp - 3)}k` : null;
+  }
+  const key = n.replace(/ \(.*\)$/, "").replace(/ /g, "-");
+  return TREND_CASES.includes(key) ? key : null;
+}
+
+/** `{ caseKey: { ns, ratio, rival } }` for ironmark in one runtime's sections. */
+function trendCases(sections) {
+  if (!sections) return null;
+  const out = {};
+  for (const bench of sections.flatMap((s) => s.benches ?? [])) {
+    const key = trendCaseKey(bench.name);
+    const ns = bench.results?.ironmark?.median_ns;
+    if (!key || !(ns > 0)) continue;
+    const entry = { ns };
+    // Fastest OTHER parser: including ironmark would clamp the ratio to 1.00
+    // whenever it wins and flatten the trend (<1.00 = ironmark faster).
+    let rival = null;
+    for (const [lib, r] of Object.entries(bench.results)) {
+      if (lib !== "ironmark" && r?.median_ns > 0 && (!rival || r.median_ns < rival[1])) {
+        rival = [lib, r.median_ns];
+      }
+    }
+    if (rival) {
+      entry.ratio = ns / rival[1];
+      entry.rival = rival[0];
+    }
+    out[key] = entry;
+  }
+  return Object.keys(out).length ? out : null;
 }

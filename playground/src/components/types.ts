@@ -14,14 +14,14 @@ export type BenchResult = {
 };
 export type BenchEntry = { name: string; bytes: number; results: Record<string, BenchResult> };
 export type BenchSection = { title: string; benches: BenchEntry[] };
+/** ironmark in one tracked case; ratio = time ÷ fastest other parser's time. */
+export type TrendCase = { ns: number; ratio?: number; rival?: string };
 export type TrendPoint = {
   timestamp: string;
-  ironmark_wasm_ns?: number;
-  ironmark_bun_ns?: number;
-  ironmark_rust_ns?: number;
-  ironmark_wasm_ratio?: number;
-  ironmark_bun_ratio?: number;
-  ironmark_rust_ratio?: number;
+  /** Feature profile of the run; missing on snapshots before profiles existed. */
+  profile?: string;
+  machine?: string;
+  cases: Partial<Record<"wasm" | "bun" | "rust", Record<string, TrendCase>>>;
 };
 export type BenchEnv = {
   cpu: string;

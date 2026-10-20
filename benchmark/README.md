@@ -107,7 +107,7 @@ brew install md4c   # the Rust side includes md4c
 pnpm bench          # Rust + Node + Bun → history/YYYY-MM-DD_HH-MM-SS.json
 ```
 
-Bun is optional: without it, the Bun section is skipped. Commit the new history file to extend the trend chart. Snapshots record the machine (`env`) and profile; compare trend points only from the same machine.
+Bun is optional: without it, the Bun section is skipped. Commit the new history file to extend the trend chart. The playground History tab tracks ten cases that every runtime runs (`TREND_CASES` in `generators.mjs`). Snapshots record the machine (`env`) and profile; compare trend points only from the same machine.
 
 Snapshots before 2026-10-20 used different parser configurations (md4c with underline and hard breaks, markdown-it with syntax highlighting and typographer, ironmark with all its extensions on), so they are not directly comparable with later ones.
 

@@ -5,6 +5,7 @@ import type {
   BenchmarkData,
   BenchResult,
   BenchSection,
+  TrendCase,
   TrendPoint,
 } from "./types";
 
@@ -493,27 +494,60 @@ function ResultsTable({ analysis, runtime }: { analysis: Analysis; runtime: Runt
   );
 }
 
-// ─── TrendChart ──────────────────────────────────────────────────────────────
+// ─── History ─────────────────────────────────────────────────────────────────
 
-// CVD-validated trio for the dark surface (orange / aqua / blue).
-const TREND_COLORS = { wasm: "#d95926", bun: "#199e70", rust: "#3987e5" };
-
-const ABSOLUTE_TREND_SERIES: { key: keyof TrendPoint; label: string; color: string }[] = [
-  { key: "ironmark_wasm_ns", label: "WASM (Node)", color: TREND_COLORS.wasm },
-  { key: "ironmark_bun_ns", label: "Bun", color: TREND_COLORS.bun },
-  { key: "ironmark_rust_ns", label: "Native Rust", color: TREND_COLORS.rust },
+// Same keys as TREND_CASES in benchmark/generators.mjs.
+const TREND_CASES: { key: string; label: string }[] = [
+  { key: "spec", label: "spec (all examples)" },
+  { key: "all-features", label: "all features" },
+  { key: "mixed-1k", label: "mixed 1 KB" },
+  { key: "mixed-10k", label: "mixed 10 KB" },
+  { key: "mixed-100k", label: "mixed 100 KB" },
+  { key: "headings", label: "headings" },
+  { key: "nested-lists", label: "nested lists" },
+  { key: "table", label: "table (100×10)" },
+  { key: "code-blocks", label: "code blocks" },
+  { key: "inline-heavy", label: "inline heavy" },
 ];
 
-const RELATIVE_TREND_SERIES: { key: keyof TrendPoint; label: string; color: string }[] = [
-  { key: "ironmark_wasm_ratio", label: "WASM (Node)", color: TREND_COLORS.wasm },
-  { key: "ironmark_bun_ratio", label: "Bun", color: TREND_COLORS.bun },
-  { key: "ironmark_rust_ratio", label: "Native Rust", color: TREND_COLORS.rust },
-];
+type Metric = "ratio" | "time";
+type TrendValue = { i: number; point: TrendPoint; c: TrendCase; v: number };
 
-type TrendMode = "absolute" | "relative";
+function trendSeries(
+  trend: TrendPoint[],
+  runtime: Runtime,
+  key: string,
+  metric: Metric,
+): TrendValue[] {
+  const out: TrendValue[] = [];
+  trend.forEach((point, i) => {
+    const c = point.cases[runtime]?.[key];
+    const v = metric === "ratio" ? c?.ratio : c?.ns;
+    if (c && v != null) out.push({ i, point, c, v });
+  });
+  return out;
+}
 
-function fmtRatio(v: number): string {
-  return `${v.toFixed(2)}x`;
+function fmtMetric(v: number, metric: Metric): string {
+  return metric === "ratio" ? `${v.toFixed(2)}×` : fmtNs(v);
+}
+
+/**
+ * Indices where the setup changed: a new feature profile (older snapshots
+ * have none) or a different machine. Values on either side don't compare.
+ */
+function setupBreaks(trend: TrendPoint[]): { i: number; reason: string }[] {
+  const out: { i: number; reason: string }[] = [];
+  for (let i = 1; i < trend.length; i++) {
+    const prev = trend[i - 1];
+    const cur = trend[i];
+    if ((prev.profile ?? "") !== (cur.profile ?? "")) {
+      out.push({ i, reason: "parsers configured for the same features from here on" });
+    } else if (prev.machine && cur.machine && prev.machine !== cur.machine) {
+      out.push({ i, reason: `measured on ${cur.machine} from here on` });
+    }
+  }
+  return out;
 }
 
 /**
@@ -563,216 +597,346 @@ function monotonePath(pts: { x: number; y: number }[]): string {
   return d;
 }
 
-/** Nudge overlapping end-of-line labels apart (min 12px vertical gap). */
-function spreadLabels(ys: number[], minGap = 12): number[] {
-  const order = ys.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y);
-  for (let k = 1; k < order.length; k++) {
-    if (order[k].y - order[k - 1].y < minGap) order[k].y = order[k - 1].y + minGap;
-  }
-  const out = [...ys];
-  for (const { y, i } of order) out[i] = y;
-  return out;
+function niceTicks(lo: number, hi: number, count = 4): number[] {
+  const step0 = (hi - lo) / count;
+  const mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= step0) ?? step0;
+  const ticks: number[] = [];
+  for (let t = Math.ceil(lo / step) * step; t <= hi + step * 1e-9; t += step) ticks.push(t);
+  return ticks;
 }
 
-function TrendChart({ trend, mode }: { trend: TrendPoint[]; mode: TrendMode }) {
-  if (trend.length < 2) {
+function Sparkline({
+  values,
+  metric,
+  breaks,
+}: {
+  values: TrendValue[];
+  metric: Metric;
+  breaks: number[];
+}) {
+  const W = 120;
+  const H = 32;
+  if (values.length < 2) return <div className="h-8" />;
+  const vs = values.map((v) => v.v);
+  let lo = Math.min(...vs);
+  let hi = Math.max(...vs);
+  if (metric === "ratio") {
+    lo = Math.min(lo, 1);
+    hi = Math.max(hi, 1);
+  }
+  const pad = (hi - lo || 1) * 0.1;
+  lo -= pad;
+  hi += pad;
+  const px = (k: number) => 2 + (k / (values.length - 1)) * (W - 4);
+  const py = (v: number) => H - ((v - lo) / (hi - lo)) * H;
+  const pts = values.map((v, k) => ({ x: px(k), y: py(v.v) }));
+  const last = pts[pts.length - 1];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-8" preserveAspectRatio="none" aria-hidden>
+      {metric === "ratio" && (
+        <line x1={0} x2={W} y1={py(1)} y2={py(1)} stroke="#3f3f46" strokeDasharray="3,3" />
+      )}
+      {breaks.map((b) => {
+        const k = values.findIndex((v) => v.i >= b);
+        if (k <= 0) return null;
+        const x = (pts[k - 1].x + pts[k].x) / 2;
+        return <line key={b} x1={x} x2={x} y1={0} y2={H} stroke="#52525b" strokeDasharray="2,2" />;
+      })}
+      <path
+        d={monotonePath(pts)}
+        fill="none"
+        stroke={COLORS.ironmark}
+        strokeWidth="1.5"
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle cx={last.x} cy={last.y} r="2" fill={COLORS.ironmark} />
+    </svg>
+  );
+}
+
+function HistoryChart({
+  trend,
+  values,
+  metric,
+}: {
+  trend: TrendPoint[];
+  values: TrendValue[];
+  metric: Metric;
+}) {
+  if (values.length < 2) {
     return (
       <p className="text-sm text-zinc-500 text-center py-12">
-        Run <code className="text-zinc-400">pnpm bench</code> multiple times to see a performance
-        trend. Lower is faster.
+        Not enough recorded runs for this case yet.
       </p>
     );
   }
 
-  const W = 600;
-  const H = 220;
-  const PAD = { top: 18, right: 96, bottom: 36, left: 64 };
+  const W = 640;
+  const H = 240;
+  const PAD = { top: 22, right: 16, bottom: 30, left: 68 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
-  const series = mode === "absolute" ? ABSOLUTE_TREND_SERIES : RELATIVE_TREND_SERIES;
-  const allValues = trend.flatMap((t) =>
-    series.map((s) => t[s.key] as number | undefined).filter((v): v is number => v != null),
-  );
-  // Relative mode always shows the 1.00x parity line for context, so the
-  // domain must include it; 8% headroom keeps curves off the frame.
-  let lo = Math.min(...allValues);
-  let hi = Math.max(...allValues);
-  if (mode === "relative") {
+  // Time mode also draws the fastest other parser, derived from the ratio.
+  const rival = values
+    .filter((v) => metric === "time" && v.c.ratio)
+    .map((v) => ({ ...v, v: v.c.ns / v.c.ratio! }));
+  const all = [...values, ...rival].map((v) => v.v);
+  let lo = Math.min(...all);
+  let hi = Math.max(...all);
+  if (metric === "ratio") {
     lo = Math.min(lo, 1);
     hi = Math.max(hi, 1);
+  } else {
+    lo = 0;
   }
   const headroom = (hi - lo || 1) * 0.08;
-  const minV = lo - headroom;
+  const minV = metric === "time" ? 0 : lo - headroom;
   const maxV = hi + headroom;
-  const range = maxV - minV;
 
-  const px = (i: number) => PAD.left + (i / (trend.length - 1)) * chartW;
-  const py = (v: number) => PAD.top + chartH - ((v - minV) / range) * chartH;
-
-  const activeSeries = series.filter((s) => trend.some((t) => t[s.key] != null));
-
-  // End-of-line labels, nudged apart when lines converge.
-  const endLabelYs = spreadLabels(
-    activeSeries.map((s) => {
-      for (let i = trend.length - 1; i >= 0; i--) {
-        const v = trend[i][s.key] as number | undefined;
-        if (v != null) return py(v);
-      }
-      return PAD.top + chartH;
-    }),
-  );
+  const px = (i: number) => PAD.left + (i / Math.max(1, trend.length - 1)) * chartW;
+  const py = (v: number) => PAD.top + chartH - ((v - minV) / (maxV - minV)) * chartH;
+  const breaks = setupBreaks(trend);
+  const ticks = niceTicks(minV, maxV);
+  const toPts = (vs: TrendValue[]) => vs.map((v) => ({ x: px(v.i), y: py(v.v) }));
 
   return (
-    <div className="space-y-3">
-      <div className="flex gap-4 flex-wrap">
-        {activeSeries.map((s) => (
-          <div key={s.key} className="flex items-center gap-1.5 text-xs text-zinc-400">
-            <span
-              className="w-3 h-0.5 rounded-full inline-block"
-              style={{ backgroundColor: s.color }}
-            />
-            {s.label}
-          </div>
+    <div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ fontFamily: "ui-monospace, monospace" }}
+        role="img"
+        aria-label="ironmark parse time across recorded benchmark runs"
+      >
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={PAD.left} x2={PAD.left + chartW} y1={py(t)} y2={py(t)} stroke="#27272a" />
+            <text x={PAD.left - 6} y={py(t) + 3} textAnchor="end" fill="#71717a" fontSize="12">
+              {metric === "ratio" ? `${t.toFixed(2)}×` : fmtNs(t)}
+            </text>
+          </g>
         ))}
-      </div>
-      <div className="overflow-x-auto">
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          width={W}
-          height={H}
-          className="max-w-full"
-          style={{ fontFamily: "ui-monospace, monospace" }}
-        >
-          <line
-            x1={PAD.left}
-            y1={PAD.top}
-            x2={PAD.left + chartW}
-            y2={PAD.top}
-            stroke="#333"
-            strokeDasharray="3,3"
-          />
-          <line
-            x1={PAD.left}
-            y1={PAD.top + chartH}
-            x2={PAD.left + chartW}
-            y2={PAD.top + chartH}
-            stroke="#333"
-            strokeDasharray="3,3"
-          />
-          <text x={PAD.left - 6} y={PAD.top + 4} textAnchor="end" fill="#666" fontSize="10">
-            {mode === "absolute" ? fmtNs(maxV) : fmtRatio(maxV)}
-          </text>
-          <text
-            x={PAD.left - 6}
-            y={PAD.top + chartH + 4}
-            textAnchor="end"
-            fill="#666"
-            fontSize="10"
-          >
-            {mode === "absolute" ? fmtNs(minV) : fmtRatio(minV)}
-          </text>
 
-          {/* Reading direction: lower on the chart = faster. */}
-          <text x={PAD.left - 6} y={PAD.top + 16} textAnchor="end" fill="#555" fontSize="9">
-            slower ↑
-          </text>
-          <text x={PAD.left - 6} y={PAD.top + chartH - 8} textAnchor="end" fill="#888" fontSize="9">
-            faster ↓
-          </text>
+        {metric === "ratio" && (
+          <g>
+            <line
+              x1={PAD.left}
+              x2={PAD.left + chartW}
+              y1={py(1)}
+              y2={py(1)}
+              stroke="#a1a1aa"
+              strokeDasharray="5,4"
+            />
+            <text x={PAD.left + 6} y={py(1) - 5} textAnchor="start" fill="#a1a1aa" fontSize="12">
+              fastest other parser
+            </text>
+            <text x={PAD.left + 6} y={py(1) + 13} textAnchor="start" fill="#52525b" fontSize="11">
+              below = ironmark faster
+            </text>
+          </g>
+        )}
 
-          {/* Parity with the fastest competitor (relative mode only). */}
-          {mode === "relative" && (
-            <g>
+        {breaks.map((b) => {
+          const x = (px(b.i - 1) + px(b.i)) / 2;
+          return (
+            <g key={b.i}>
               <line
-                x1={PAD.left}
-                y1={py(1)}
-                x2={PAD.left + chartW}
-                y2={py(1)}
+                x1={x}
+                x2={x}
+                y1={PAD.top - 8}
+                y2={PAD.top + chartH}
                 stroke="#52525b"
-                strokeDasharray="5,4"
+                strokeDasharray="2,3"
               />
-              <text x={PAD.left + 4} y={py(1) - 4} fill="#71717a" fontSize="9" textAnchor="start">
-                1.00x = fastest rival
+              <text x={x - 4} y={PAD.top - 10} textAnchor="end" fill="#71717a" fontSize="11">
+                setup changed ↓<title>{b.reason}; earlier values are not directly comparable</title>
               </text>
             </g>
-          )}
+          );
+        })}
 
-          {activeSeries.map((s) => {
-            const pts = trend
-              .map((t, i) => {
-                const v = t[s.key] as number | undefined;
-                return v != null ? { x: px(i), y: py(v) } : null;
-              })
-              .filter((p): p is { x: number; y: number } => p != null);
+        {rival.length > 1 && (
+          <path
+            d={monotonePath(toPts(rival))}
+            fill="none"
+            stroke="#71717a"
+            strokeWidth="1.5"
+            strokeDasharray="4,3"
+          />
+        )}
+        <path
+          d={monotonePath(toPts(values))}
+          fill="none"
+          stroke={COLORS.ironmark}
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+
+        {values.map((v) => (
+          // Invisible wide hit target carries the tooltip; the visible dot stays small.
+          <g key={v.i}>
+            <circle cx={px(v.i)} cy={py(v.v)} r="9" fill="transparent">
+              <title>
+                {[
+                  fmtDate(v.point.timestamp),
+                  `ironmark ${fmtNs(v.c.ns)}`,
+                  v.c.rival && v.c.ratio
+                    ? `fastest other: ${parserLabel(v.c.rival)} ${fmtNs(v.c.ns / v.c.ratio)} (${v.c.ratio.toFixed(2)}×)`
+                    : null,
+                  v.point.machine,
+                ]
+                  .filter(Boolean)
+                  .join("\n")}
+              </title>
+            </circle>
+            <circle cx={px(v.i)} cy={py(v.v)} r="3" fill={COLORS.ironmark} pointerEvents="none" />
+          </g>
+        ))}
+
+        {[0, trend.length - 1].map((i) => (
+          <text
+            key={i}
+            x={px(i)}
+            y={H - 8}
+            textAnchor={i === 0 ? "start" : "end"}
+            fill="#71717a"
+            fontSize="12"
+          >
+            {fmtDate(trend[i].timestamp).slice(0, 10)}
+          </text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function HistoryView({ trend, runtime }: { trend: TrendPoint[]; runtime: Runtime }) {
+  const [metric, setMetric] = useState<Metric>("ratio");
+  const [selected, setSelected] = useState("spec");
+  const cases = TREND_CASES.map((tc) => ({
+    ...tc,
+    values: trendSeries(trend, runtime, tc.key, metric),
+  })).filter((tc) => tc.values.length > 0);
+
+  if (trend.length < 2 || cases.length === 0) {
+    return (
+      <p className="text-sm text-zinc-500 text-center py-12">
+        Run <code className="text-zinc-400">pnpm bench</code> a few times to see how performance
+        changes.
+      </p>
+    );
+  }
+
+  const breaks = setupBreaks(trend).map((b) => b.i);
+  const current = cases.find((c) => c.key === selected) ?? cases[0];
+  const latest = current.values[current.values.length - 1];
+  const best = current.values.reduce((a, b) => (b.v < a.v ? b : a));
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div
+          role="radiogroup"
+          aria-label="Metric"
+          className="inline-flex rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 text-xs"
+        >
+          {(
+            [
+              ["ratio", "vs fastest other parser"],
+              ["time", "parse time"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              role="radio"
+              aria-checked={metric === value}
+              onClick={() => setMetric(value)}
+              className={`rounded-md px-2.5 py-1 transition-colors ${
+                metric === value ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-zinc-600">{trend.length} recorded runs</span>
+      </div>
+
+      <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 space-y-3">
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+          <h3 className="text-sm font-medium text-zinc-200">{current.label}</h3>
+          <div className="flex gap-4 text-xs text-zinc-500 tabular-nums">
+            <span>
+              latest{" "}
+              <strong className="text-zinc-200 font-semibold">{fmtMetric(latest.v, metric)}</strong>
+            </span>
+            <span>
+              best {fmtMetric(best.v, metric)} ({fmtDate(best.point.timestamp).slice(0, 10)})
+            </span>
+          </div>
+        </div>
+        <HistoryChart trend={trend} values={current.values} metric={metric} />
+        <div className="flex gap-x-4 gap-y-1 flex-wrap text-xs text-zinc-500">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-0.5 rounded-full" style={{ backgroundColor: COLORS.ironmark }} />
+            ironmark
+          </span>
+          {metric === "time" && (
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 border-t border-dashed border-zinc-500" />
+              fastest other parser in that run
+            </span>
+          )}
+          <span>Hover a point for details.</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Tracked cases
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          {cases.map((c) => {
+            const last = c.values[c.values.length - 1];
+            const active = c.key === current.key;
+            const tone =
+              metric === "ratio"
+                ? last.v < 1
+                  ? "text-emerald-400"
+                  : "text-amber-400"
+                : "text-zinc-200";
             return (
-              <path
-                key={s.key}
-                d={monotonePath(pts)}
-                fill="none"
-                stroke={s.color}
-                strokeWidth="2"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
+              <button
+                key={c.key}
+                onClick={() => setSelected(c.key)}
+                aria-pressed={active}
+                className={`rounded-lg border p-2.5 text-left transition-colors ${
+                  active
+                    ? "border-zinc-500 bg-zinc-800/80"
+                    : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
+                }`}
+              >
+                <div className="text-xs text-zinc-400 truncate">{c.label}</div>
+                <div className={`text-sm font-semibold tabular-nums ${tone}`}>
+                  {fmtMetric(last.v, metric)}
+                </div>
+                <Sparkline values={c.values} metric={metric} breaks={breaks} />
+              </button>
             );
           })}
-
-          {/* Direct end-of-line labels: identity readable without the legend. */}
-          {activeSeries.map((s, si) => (
-            <g key={`label-${s.key}`}>
-              <line
-                x1={PAD.left + chartW + 4}
-                y1={endLabelYs[si]}
-                x2={PAD.left + chartW + 14}
-                y2={endLabelYs[si]}
-                stroke={s.color}
-                strokeWidth="2"
-              />
-              <text x={PAD.left + chartW + 18} y={endLabelYs[si] + 3} fill="#a1a1aa" fontSize="9">
-                {s.label}
-              </text>
-            </g>
-          ))}
-
-          {trend.map((t, i) =>
-            activeSeries.map((s) => {
-              const v = t[s.key] as number | undefined;
-              if (v == null) return null;
-              return (
-                // Invisible wide hit target carries the tooltip; the visible
-                // dot stays small so the curve reads clean.
-                <g key={`${s.key}-${i}`}>
-                  <circle cx={px(i)} cy={py(v)} r="9" fill="transparent">
-                    <title>
-                      {fmtDate(t.timestamp)} · {s.label}:{" "}
-                      {mode === "absolute"
-                        ? fmtNs(v)
-                        : `${fmtRatio(v)} vs fastest rival (${v < 1 ? "faster" : "slower"})`}
-                    </title>
-                  </circle>
-                  <circle cx={px(i)} cy={py(v)} r="3" fill={s.color} pointerEvents="none" />
-                </g>
-              );
-            }),
-          )}
-
-          {trend.map((t, i) =>
-            trend.length <= 6 || i === 0 || i === trend.length - 1 ? (
-              <text
-                key={i}
-                x={px(i)}
-                y={H - 6}
-                textAnchor={i === 0 ? "start" : i === trend.length - 1 ? "end" : "middle"}
-                fill="#555"
-                fontSize="9"
-              >
-                {fmtDate(t.timestamp)}
-              </text>
-            ) : null,
-          )}
-        </svg>
+        </div>
       </div>
+
+      <p className="text-xs text-zinc-600 leading-relaxed">
+        Each point is one recorded <code className="text-zinc-500">pnpm bench</code> run.{" "}
+        {metric === "ratio"
+          ? "The ratio is ironmark's time divided by the fastest other parser's time in the same run, so it holds up better across machines than raw times. Below 1.00× means ironmark was the fastest."
+          : "Raw times depend on the machine; compare only points measured on the same one."}{" "}
+        Values before a &ldquo;setup changed&rdquo; marker were measured with a different
+        configuration.
+      </p>
     </div>
   );
 }
@@ -786,7 +950,6 @@ export function BenchmarkPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [innerTab, setInnerTab] = useState<InnerTab>("results");
-  const [trendMode, setTrendMode] = useState<TrendMode>("relative");
   const [runtime, setRuntime] = useState<Runtime>("wasm");
 
   useEffect(() => {
@@ -875,35 +1038,37 @@ export function BenchmarkPage() {
               ))}
             </div>
 
+            {active && (
+              <div className="space-y-2">
+                <div
+                  role="tablist"
+                  aria-label="Environment"
+                  className="inline-flex rounded-lg border border-zinc-800 bg-zinc-900 p-0.5"
+                >
+                  {available.map((r) => (
+                    <button
+                      key={r.key}
+                      role="tab"
+                      aria-selected={active === r.key}
+                      onClick={() => setRuntime(r.key)}
+                      className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                        active === r.key
+                          ? "bg-zinc-700 text-zinc-100"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-zinc-500 leading-relaxed">
+                  {RUNTIMES.find((r) => r.key === active)!.blurb}
+                </p>
+              </div>
+            )}
+
             {innerTab === "results" && active && analysis && (
               <div className="space-y-5">
-                <div className="space-y-2">
-                  <div
-                    role="tablist"
-                    aria-label="Environment"
-                    className="inline-flex rounded-lg border border-zinc-800 bg-zinc-900 p-0.5"
-                  >
-                    {available.map((r) => (
-                      <button
-                        key={r.key}
-                        role="tab"
-                        aria-selected={active === r.key}
-                        onClick={() => setRuntime(r.key)}
-                        className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                          active === r.key
-                            ? "bg-zinc-700 text-zinc-100"
-                            : "text-zinc-400 hover:text-zinc-200"
-                        }`}
-                      >
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-zinc-500 leading-relaxed">
-                    {RUNTIMES.find((r) => r.key === active)!.blurb}
-                  </p>
-                </div>
-
                 <Summary analysis={analysis} runtime={active} />
                 <ResultsTable key={active} analysis={analysis} runtime={active} />
 
@@ -914,38 +1079,8 @@ export function BenchmarkPage() {
               </div>
             )}
 
-            {innerTab === "history" && (
-              <div className="space-y-4">
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  ironmark on the CommonMark spec document (all 652 examples) across recorded runs.
-                </p>
-                <div className="flex gap-2 flex-wrap">
-                  {(
-                    [
-                      ["relative", "Compared with the fastest other parser"],
-                      ["absolute", "Parse time"],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <button
-                      key={value}
-                      onClick={() => setTrendMode(value)}
-                      className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                        trendMode === value
-                          ? "border-zinc-500 bg-zinc-800 text-zinc-100"
-                          : "border-zinc-800 bg-zinc-950 text-zinc-500 hover:text-zinc-300"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-zinc-500">
-                  {trendMode === "absolute"
-                    ? "Median time per parse. Lower is faster. Runs on different machines are not comparable."
-                    : "ironmark's time divided by the fastest other parser's time in the same environment. Below 1.00× means ironmark is faster (0.60× = takes 60% as long)."}
-                </p>
-                <TrendChart trend={data.trend} mode={trendMode} />
-              </div>
+            {innerTab === "history" && active && (
+              <HistoryView trend={data.trend} runtime={active} />
             )}
           </>
         )}
