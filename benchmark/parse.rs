@@ -46,24 +46,20 @@ const MD_FLAG_TABLES: u32 = 0x0100;
 #[cfg(feature = "bench-md4c")]
 const MD_FLAG_STRIKETHROUGH: u32 = 0x0200;
 #[cfg(feature = "bench-md4c")]
+const MD_FLAG_PERMISSIVEWWWAUTOLINKS: u32 = 0x0400;
+#[cfg(feature = "bench-md4c")]
 const MD_FLAG_TASKLISTS: u32 = 0x0800;
-#[cfg(feature = "bench-md4c")]
-const MD_FLAG_UNDERLINE: u32 = 0x4000;
-#[cfg(feature = "bench-md4c")]
-const MD_FLAG_HARD_SOFT_BREAKS: u32 = 0x8000;
 
 #[cfg(feature = "bench-md4c")]
 fn parse_md4c(input: &str) -> String {
     use md4c_ffi::{md_html, output_cb};
-    // Match ironmark's default feature set as closely as md4c allows.
-    // md4c has no Highlight (==) equivalent — excluded from both sides.
+    // The shared GFM feature set (see "Parser wrappers").
     const FLAGS: u32 = MD_FLAG_TABLES
         | MD_FLAG_STRIKETHROUGH
         | MD_FLAG_TASKLISTS
         | MD_FLAG_PERMISSIVEURLAUTOLINKS
         | MD_FLAG_PERMISSIVEEMAILAUTOLINKS
-        | MD_FLAG_HARD_SOFT_BREAKS
-        | MD_FLAG_UNDERLINE;
+        | MD_FLAG_PERMISSIVEWWWAUTOLINKS;
     let mut output = String::with_capacity(input.len() * 2);
     // SAFETY: md_html does not store the pointers beyond the call; output lives for the duration
     unsafe {
@@ -236,6 +232,11 @@ fn gen_many_ref_links(n: usize) -> String {
 }
 
 // --- Parser wrappers ---
+//
+// Every parser is configured for the same feature set — CommonMark plus GFM
+// tables, strikethrough, task lists and autolink literals — so none of them
+// wins by doing less work. Gaps: pulldown-cmark has no autolink literals and
+// markdown-it (Rust) no task lists. Same profile as `js-bench.mjs --profile gfm`.
 
 type ParserFn = fn(&str) -> String;
 
@@ -254,7 +255,15 @@ fn parsers() -> Vec<(&'static str, ParserFn)> {
 }
 
 fn parse_ironmark(input: &str) -> String {
-    render_html(input, &ParseOptions::default())
+    use std::sync::OnceLock;
+    static OPTS: OnceLock<ParseOptions> = OnceLock::new();
+    let opts = OPTS.get_or_init(|| ParseOptions {
+        hard_breaks: false,
+        enable_highlight: false,
+        enable_underline: false,
+        ..ParseOptions::default()
+    });
+    render_html(input, opts)
 }
 
 fn parse_pulldown_cmark(input: &str) -> String {
@@ -278,7 +287,11 @@ fn parse_comrak(input: &str) -> String {
 }
 
 fn parse_markdown_rs(input: &str) -> String {
-    markdown::to_html(input)
+    // markdown::Options isn't Sync, so no static.
+    thread_local! {
+        static OPTS: markdown::Options = markdown::Options::gfm();
+    }
+    OPTS.with(|opts| markdown::to_html_with_options(input, opts).unwrap_or_default())
 }
 
 fn parse_markdown_it(input: &str) -> String {
@@ -287,7 +300,11 @@ fn parse_markdown_it(input: &str) -> String {
     let parser = PARSER.get_or_init(|| {
         let mut p = markdown_it::MarkdownIt::new();
         markdown_it::plugins::cmark::add(&mut p);
-        markdown_it::plugins::extra::add(&mut p);
+        // Not `extra::add`: that also runs syntect highlighting, typographer
+        // and smartquotes, which no other parser here does.
+        markdown_it::plugins::extra::strikethrough::add(&mut p);
+        markdown_it::plugins::extra::tables::add(&mut p);
+        markdown_it::plugins::extra::linkify::add(&mut p);
         p
     });
     parser.parse(input).render()
@@ -475,7 +492,8 @@ fn bench_hotspots(c: &mut Criterion) {
 
 // --- CSV export ---
 //
-// Reads median_ns from criterion's own estimates.json files — no re-measurement.
+// Reads median_ns from criterion's own estimates.json and the interquartile
+// range from its per-sample sample.json — no re-measurement.
 // Writes to benchmark/history/YYYY-MM-DD.csv (overwrites same-day file).
 
 fn csv_date() -> String {
@@ -523,9 +541,40 @@ fn csv_date() -> String {
     format!("{y:04}-{:02}-{:02}", m + 1, d + 1)
 }
 
+struct CriterionRow {
+    group: String,
+    parser: String,
+    input_bytes: usize,
+    median_ns: f64,
+    p25_ns: f64,
+    p75_ns: f64,
+}
+
+/// 25th and 75th percentile of per-iteration time over criterion's samples.
+fn sample_quartiles(sample_json: &str) -> Option<(f64, f64)> {
+    let v: serde_json::Value = serde_json::from_str(sample_json).ok()?;
+    let iters = v["iters"].as_array()?;
+    let times = v["times"].as_array()?;
+    let mut per_iter: Vec<f64> = iters
+        .iter()
+        .zip(times)
+        .filter_map(|(i, t)| Some(t.as_f64()? / i.as_f64()?))
+        .collect();
+    if per_iter.is_empty() {
+        return None;
+    }
+    per_iter.sort_by(f64::total_cmp);
+    let q = |p: f64| {
+        let pos = (per_iter.len() - 1) as f64 * p;
+        let lo = pos.floor() as usize;
+        let hi = (lo + 1).min(per_iter.len() - 1);
+        per_iter[lo] + (per_iter[hi] - per_iter[lo]) * (pos - lo as f64)
+    };
+    Some((q(0.25), q(0.75)))
+}
+
 /// Walk criterion's output directory and collect all estimates.
-/// Returns (group_path, parser, input_bytes, median_ns).
-fn collect_criterion_results() -> Vec<(String, String, usize, f64)> {
+fn collect_criterion_results() -> Vec<CriterionRow> {
     let criterion_dir =
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/criterion");
     let known_parsers = [
@@ -545,7 +594,7 @@ fn collect_criterion_dir(
     base: &std::path::Path,
     dir: &std::path::Path,
     known_parsers: &[&str],
-    out: &mut Vec<(String, String, usize, f64)>,
+    out: &mut Vec<CriterionRow>,
 ) {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -576,9 +625,21 @@ fn collect_criterion_dir(
                         .and_then(|s| s.parse().ok())
                         .unwrap_or(0);
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json)
-                        && let Some(ns) = v["median"]["point_estimate"].as_f64()
+                        && let Some(median_ns) = v["median"]["point_estimate"].as_f64()
                     {
-                        out.push((group, parser, input_bytes, ns));
+                        let (p25_ns, p75_ns) =
+                            std::fs::read_to_string(path.join("new/sample.json"))
+                                .ok()
+                                .and_then(|s| sample_quartiles(&s))
+                                .unwrap_or((median_ns, median_ns));
+                        out.push(CriterionRow {
+                            group,
+                            parser,
+                            input_bytes,
+                            median_ns,
+                            p25_ns,
+                            p75_ns,
+                        });
                     }
                 }
             }
@@ -613,9 +674,14 @@ fn export_csv(c: &mut Criterion) {
         use std::io::Write;
         let mut f = std::fs::File::create(&dated_path)
             .unwrap_or_else(|e| panic!("create {dated_path}: {e}"));
-        writeln!(f, "date,group,parser,input_bytes,median_ns").unwrap();
-        for (group, parser, input_bytes, median_ns) in &rows {
-            writeln!(f, "{date},{group},{parser},{input_bytes},{median_ns:.0}").unwrap();
+        writeln!(f, "date,group,parser,input_bytes,median_ns,p25_ns,p75_ns").unwrap();
+        for r in &rows {
+            writeln!(
+                f,
+                "{date},{},{},{},{:.0},{:.0},{:.0}",
+                r.group, r.parser, r.input_bytes, r.median_ns, r.p25_ns, r.p75_ns
+            )
+            .unwrap();
         }
     }
 

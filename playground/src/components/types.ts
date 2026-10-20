@@ -2,7 +2,16 @@ export type OutputTab = "preview" | "html" | "ast";
 export type MobilePanel = "editor" | OutputTab;
 export type AppView = "playground" | "benchmarks" | "ast-to-md" | "html-to-md";
 
-export type BenchResult = { median_ns: number; mean_ns?: number; p95_ns?: number };
+export type BenchResult = {
+  median_ns: number;
+  mean_ns?: number;
+  p25_ns?: number;
+  p75_ns?: number;
+  p95_ns?: number;
+  samples?: number;
+  /** false when this parser's output differs from the majority's. */
+  matches_majority?: boolean;
+};
 export type BenchEntry = { name: string; bytes: number; results: Record<string, BenchResult> };
 export type BenchSection = { title: string; benches: BenchEntry[] };
 export type TrendPoint = {
@@ -14,8 +23,20 @@ export type TrendPoint = {
   ironmark_bun_ratio?: number;
   ironmark_rust_ratio?: number;
 };
+export type BenchEnv = {
+  cpu: string;
+  cores: number;
+  memory_gb?: number;
+  os: string;
+  node?: string;
+  bun?: string;
+  rustc?: string;
+};
 export type BenchmarkData = {
   generatedAt: string;
+  /** Machine/toolchain of the newest snapshot that recorded one. */
+  env?: BenchEnv | null;
+  profile?: string | null;
   latest: {
     wasm: { sections: BenchSection[] } | null;
     rust: { sections: BenchSection[] } | null;

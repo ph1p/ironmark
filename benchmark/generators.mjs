@@ -3,7 +3,9 @@
  * benchmarks (js-bench.mjs, report.mjs) and the playground build.
  */
 
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpus, platform, release, totalmem } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 export const ROOT = resolve(import.meta.dirname, "..");
@@ -124,6 +126,18 @@ export function genManyRefLinks(n = 1_000) {
   );
 }
 
+/** Mixed document of exactly `size` bytes (ASCII, so chars = bytes). */
+export function genMixedDocOfSize(size) {
+  let lines = Math.ceil(size / 30);
+  let doc = genMixedDoc(lines);
+  while (doc.length < size) doc = genMixedDoc((lines *= 2));
+  return doc.slice(0, size);
+}
+
+export function loadSpecExamples() {
+  return JSON.parse(readFileSync(join(ROOT, "tests/spec/spec-0.31.2.json"), "utf8"));
+}
+
 export function loadSpecMarkdown() {
   const json = readFileSync(join(ROOT, "tests/spec/spec-0.31.2.json"), "utf8");
   return JSON.parse(json)
@@ -194,6 +208,129 @@ export function median(sorted) {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
+/** Linear-interpolated quantile (0..1) of an ascending-sorted sample array. */
+export function quantile(sorted, q) {
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.min(lo + 1, sorted.length - 1);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+/** MB/s for `bytes` parsed in `ns` nanoseconds. */
+export function throughputMBs(bytes, ns) {
+  return (bytes / ns) * 1e3;
+}
+
+/**
+ * Half the interquartile range relative to the median, e.g. 0.03 = ±3 %.
+ * Missing quartiles (older history, single samples) give null.
+ */
+export function relSpread(r) {
+  if (r.p25_ns == null || r.p75_ns == null || !r.median_ns) return null;
+  return (r.p75_ns - r.p25_ns) / 2 / r.median_ns;
+}
+
+/** True when two results' interquartile ranges overlap — too close to call. */
+export function withinNoise(a, b) {
+  if (a.p25_ns == null || b.p25_ns == null) return false;
+  return a.p25_ns <= b.p75_ns && b.p25_ns <= a.p75_ns;
+}
+
+/**
+ * Machine and toolchain the numbers were measured on. Benchmarks are only
+ * comparable within one machine — store this with every snapshot.
+ */
+export function captureEnv() {
+  const cpu = cpus();
+  const env = {
+    cpu: cpu[0]?.model.trim() ?? "unknown",
+    cores: cpu.length,
+    memory_gb: Math.round(totalmem() / 2 ** 30),
+    os: `${platform()} ${release()}`,
+    node: process.versions.node,
+  };
+  if (typeof Bun !== "undefined") env.bun = Bun.version;
+  return env;
+}
+
+/** `rustc --version` without the "rustc " prefix, or undefined. */
+export function rustcVersion() {
+  try {
+    return execFileSync("rustc", ["--version"], { encoding: "utf8" })
+      .trim()
+      .replace(/^rustc /, "");
+  } catch {
+    return undefined;
+  }
+}
+
+export function fmtEnv(env) {
+  if (!env) return "";
+  return [
+    env.cpu,
+    `${env.cores} cores`,
+    env.memory_gb && `${env.memory_gb} GB`,
+    env.os,
+    env.node && `Node ${env.node}`,
+    env.bun && `Bun ${env.bun}`,
+    env.rustc && `rustc ${env.rustc}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+// ─── Output equivalence ─────────────────────────────────────────────
+
+/**
+ * Light normalisation, close to the CommonMark spec runner's: whitespace
+ * between tags, self-closing void tags and attribute order don't count.
+ */
+export function normalizeSpecHtml(html) {
+  return html
+    .replace(/<([a-z][a-z0-9]*)((?:\s+[^\s=>]+(?:="[^"]*")?)*)\s*\/?>/gi, (_, tag, attrs) => {
+      const sorted = (attrs.match(/[^\s=>]+(?:="[^"]*")?/g) ?? []).sort();
+      return `<${tag.toLowerCase()}${sorted.map((a) => " " + a).join("")}>`;
+    })
+    .replace(/\s+/g, " ")
+    .replace(/\s*(<\/?[a-z][^>]*>)\s*/gi, "$1")
+    .trim();
+}
+
+/**
+ * markdown-wasm and md4w always emit an empty `<a class="anchor">` in every
+ * heading; there is no flag to turn it off. It isn't part of the parse result.
+ */
+export function stripHeadingAnchors(html) {
+  return html.replace(/\s*<a\b[^>]*\bclass="anchor"[^>]*><\/a>/gi, "");
+}
+
+const KEEP_ATTRS = new Set(["href", "src", "alt", "title", "start"]);
+
+/**
+ * Aggressive normalisation for comparing parsers with each other: also
+ * ignores markup flavour that differs without changing the document —
+ * heading anchors, `<s>`/`<del>`, `<b>`/`<strong>`, task-list checkbox
+ * markup, classes, table alignment style, and quote/`>` escaping in text.
+ */
+export function normalizeForCompare(html) {
+  return normalizeSpecHtml(
+    stripHeadingAnchors(html)
+      .replace(/<input\b[^>]*>/gi, "")
+      .replace(/<(\/?)(?:s|strike)>/gi, "<$1del>")
+      .replace(/<(\/?)b>/gi, "<$1strong>")
+      .replace(/<(\/?)i>/gi, "<$1em>")
+      .replace(/<([a-z][a-z0-9]*)(\s[^>]*?)?(\/?)>/gi, (_, tag, attrs = "", slash) => {
+        const kept = (attrs.match(/[^\s=]+="[^"]*"/g) ?? []).filter((a) =>
+          KEEP_ATTRS.has(a.slice(0, a.indexOf("=")).toLowerCase()),
+        );
+        return `<${tag}${kept.map((a) => " " + a).join("")}${slash}>`;
+      })
+      .replace(/&quot;|&#0*34;|&#x0*22;/gi, '"')
+      .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'")
+      .replace(/&gt;/g, ">"),
+  );
+}
+
 export function fmtNs(ns) {
   if (ns < 1_000) return `${ns.toFixed(0)} ns`;
   if (ns < 1_000_000) return `${(ns / 1_000).toFixed(1)} µs`;
@@ -247,11 +384,15 @@ export function writePlaygroundData(latest = null) {
   // Track the most recent non-null sections for each runtime independently,
   // since a standalone `js-bench.mjs --save` writes only its own runtime.
   const latestByRuntime = { wasm: null, rust: null, bun: null };
+  let env = null;
+  let profile = null;
 
   const trend = allFiles
     .map((f) => {
       try {
         const rec = JSON.parse(readFileSync(join(historyDir, f), "utf8"));
+        if (rec.env) env = rec.env;
+        if (rec.profile) profile = rec.profile;
         if (!latest) {
           if (rec.wasm) latestByRuntime.wasm = { sections: rec.wasm };
           if (rec.rust) latestByRuntime.rust = { sections: rec.rust };
@@ -289,6 +430,8 @@ export function writePlaygroundData(latest = null) {
 
   const data = {
     generatedAt: new Date().toISOString(),
+    env,
+    profile,
     latest: latest ?? latestByRuntime,
     trend,
   };

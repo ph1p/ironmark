@@ -4,7 +4,8 @@
  * 1. builds the WASM package
  * 2. runs js-bench.mjs under Node and (if installed) Bun
  * 3. folds in the Rust criterion results from the temporary history CSV
- * 4. writes one timestamped history JSON to benchmark/history/
+ * 4. writes one timestamped history JSON to benchmark/history/, together with
+ *    the machine and toolchain versions the numbers were measured on
  *
  * The playground Benchmarks page is generated from those history files.
  */
@@ -12,7 +13,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync, execSync } from "node:child_process";
-import { ROOT, writeHistoryJson } from "./generators.mjs";
+import { ROOT, captureEnv, fmtEnv, rustcVersion, writeHistoryJson } from "./generators.mjs";
 
 const HISTORY_DIR = join(ROOT, "benchmark", "history");
 
@@ -40,12 +41,12 @@ function runJsBench(runtime) {
   } catch (err) {
     const reason = err.code === "ENOENT" ? `${runtime} not installed` : "run failed";
     console.error(`${runtime} benchmarks skipped (${reason}).\n`);
-    return [];
+    return null;
   }
 }
 
-const wasmSections = runJsBench("node");
-const bunSections = runJsBench("bun");
+const wasmRun = runJsBench("node");
+const bunRun = runJsBench("bun");
 
 // ─── Read Rust results from history CSV ─────────────────────────────
 
@@ -64,11 +65,13 @@ function readLatestHistoryCsv() {
     .filter((l) => l && !l.startsWith("date,"));
   const groups = new Map();
   for (const line of lines) {
-    const [, group, parser, input_bytes, median_ns] = line.split(",");
+    const [, group, parser, input_bytes, median_ns, p25_ns, p75_ns] = line.split(",");
     if (!group || !parser || !median_ns) continue;
     const bytes = parseInt(input_bytes) || 0;
     if (!groups.has(group)) groups.set(group, { bytes, results: {} });
-    groups.get(group).results[parser] = { median_ns: parseFloat(median_ns) };
+    const result = { median_ns: parseFloat(median_ns) };
+    if (p25_ns && p75_ns) Object.assign(result, { p25_ns: +p25_ns, p75_ns: +p75_ns });
+    groups.get(group).results[parser] = result;
   }
   rmSync(latestPath);
   console.log(`Deleted temporary ${latest}`);
@@ -109,9 +112,13 @@ const rustSections = [
 
 // ─── Persist history JSON ────────────────────────────────────────────
 
+const env = { ...captureEnv(), bun: bunRun?.env.bun, rustc: rustcVersion() };
 const { filename } = writeHistoryJson(HISTORY_DIR, {
+  env,
+  profile: "gfm",
   rust: rustSections,
-  wasm: wasmSections,
-  bun: bunSections,
+  wasm: wasmRun?.sections ?? [],
+  bun: bunRun?.sections ?? [],
 });
+console.log(`Measured on ${fmtEnv(env)}`);
 console.log(`History written to benchmark/history/${filename}`);

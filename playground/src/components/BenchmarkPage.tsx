@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BenchEntry, BenchmarkData, BenchSection, TrendPoint } from "./types";
+import type {
+  BenchEntry,
+  BenchEnv,
+  BenchmarkData,
+  BenchResult,
+  BenchSection,
+  TrendPoint,
+} from "./types";
 
 // ─── Parser display config ───────────────────────────────────────────────────
 
@@ -40,7 +47,33 @@ function fmtNs(ns: number): string {
 
 function fmtThroughput(bytes: number, ns: number): string {
   if (!bytes || !ns) return "-";
-  return `${(bytes / (1024 * 1024) / (ns / 1e9)).toFixed(1)} MB/s`;
+  return `${((bytes / ns) * 1e3).toFixed(1)} MB/s`;
+}
+
+// Half the interquartile range relative to the median (older snapshots: null).
+function relSpread(r: BenchResult): number | null {
+  if (r.p25_ns == null || r.p75_ns == null || !r.median_ns) return null;
+  return (r.p75_ns - r.p25_ns) / 2 / r.median_ns;
+}
+
+// Overlapping interquartile ranges: the difference is within noise.
+function withinNoise(a: BenchResult, b: BenchResult): boolean {
+  if (a.p25_ns == null || a.p75_ns == null || b.p25_ns == null || b.p75_ns == null) return false;
+  return a.p25_ns <= b.p75_ns && b.p25_ns <= a.p75_ns;
+}
+
+function fmtEnv(env: BenchEnv): string {
+  return [
+    env.cpu,
+    `${env.cores} cores`,
+    env.memory_gb && `${env.memory_gb} GB`,
+    env.os,
+    env.node && `Node ${env.node}`,
+    env.bun && `Bun ${env.bun}`,
+    env.rustc && `rustc ${env.rustc}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function fmtBytes(b: number): string {
@@ -72,9 +105,9 @@ function BenchCard({ bench }: { bench: BenchEntry }) {
   );
   const speedup =
     entries.length >= 2
-      ? entries[1].median_ns / winner.median_ns > 1.01
+      ? entries[1].median_ns / winner.median_ns > 1.01 && !withinNoise(winner, entries[1])
         ? `${(entries[1].median_ns / winner.median_ns).toFixed(1)}× faster`
-        : "~tied"
+        : "≈ tied (within noise)"
       : null;
 
   return (
@@ -104,13 +137,17 @@ function BenchCard({ bench }: { bench: BenchEntry }) {
           const isWinner = e.lib === winner.lib;
           const color = COLORS[e.lib] ?? "#888";
           const label = LABELS[e.lib] ?? e.lib;
+          const spread = relSpread(e);
+          const differs = e.matches_majority === false;
 
           return (
             <div key={e.lib} className="flex items-center gap-2 text-xs">
               <span
                 className="w-28 shrink-0 text-right truncate"
                 style={{ color: isWinner ? "#fff" : "#666", fontWeight: isWinner ? 600 : 400 }}
+                title={differs ? "Output differs from the other parsers on this input" : undefined}
               >
+                {differs && <span className="text-amber-500 mr-1">≠</span>}
                 {label}
               </span>
               <div className="flex-1 h-5 rounded bg-zinc-800 overflow-hidden min-w-0">
@@ -122,8 +159,18 @@ function BenchCard({ bench }: { bench: BenchEntry }) {
                   }}
                 />
               </div>
-              <span className="w-16 shrink-0 text-right text-zinc-300 tabular-nums">
+              <span
+                className="w-16 shrink-0 text-right text-zinc-300 tabular-nums"
+                title={
+                  spread != null
+                    ? `±${(spread * 100).toFixed(1)}% (interquartile range)`
+                    : undefined
+                }
+              >
                 {fmtNs(e.median_ns)}
+              </span>
+              <span className="w-12 shrink-0 text-right text-zinc-600 tabular-nums hidden sm:block">
+                {spread != null ? `±${(spread * 100).toFixed(0)}%` : ""}
               </span>
               <span className="w-20 shrink-0 text-right text-zinc-600 tabular-nums hidden sm:block">
                 {fmtThroughput(bench.bytes, e.median_ns)}
@@ -643,6 +690,16 @@ export function BenchmarkPage() {
           <h2 className="text-lg font-semibold">Benchmarks</h2>
           {data?.generatedAt && (
             <p className="text-xs text-zinc-500 mt-0.5">Generated {fmtDate(data.generatedAt)}</p>
+          )}
+          {data?.env && (
+            <p className="text-xs text-zinc-600 mt-0.5">Measured on {fmtEnv(data.env)}</p>
+          )}
+          {data?.profile && (
+            <p className="text-xs text-zinc-600 mt-0.5">
+              All parsers configured for the same feature set ({data.profile}).{" "}
+              <span className="text-amber-500">≠</span> marks output that differs from the other
+              parsers. Numbers are only comparable within one machine.
+            </p>
           )}
         </div>
 

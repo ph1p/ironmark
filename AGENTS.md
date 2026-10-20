@@ -35,7 +35,8 @@ pnpm bench                    # full benchmark: Rust (md4c) + Bun + WASM → sin
 pnpm bench:rust               # Rust side only (skips WASM build + JS benches)
 pnpm bench:js                 # JS runner under Node: ironmark WASM vs markdown-wasm, md4w, marked (needs `pnpm build`)
 pnpm bench:bun                # same runner under Bun, adds Bun.markdown.html (requires Bun >= 1.4)
-                              # runner flags: --parsers a,b --suite <text> --file <md> --quick --save --json --list
+                              # runner flags: --parsers a,b --suite <text> --file <md> --profile <gfm|commonmark>
+                              #   --check (spec conformance + output agreement) --quick --save --json --list
 ```
 
 ## Architecture
@@ -98,7 +99,7 @@ Two-phase pipeline: **block parsing → inline parsing → HTML rendering**.
 
 ### Benchmark (`benchmark/`)
 
-- `benchmark/parse.rs` — criterion benchmarks comparing ironmark vs comrak, pulldown-cmark, markdown-it, markdown-rs; md4c included when `--features bench-md4c` is passed (requires system `md4c`: `brew install md4c`)
+- `benchmark/parse.rs` — criterion benchmarks comparing ironmark vs comrak, pulldown-cmark, markdown-it, markdown-rs; md4c included when `--features bench-md4c` is passed (requires system `md4c`: `brew install md4c`). Every parser is configured for the shared "gfm" profile (see the comment above the parser wrappers); keep new parsers on it
 - `benchmark/js-bench.mjs` — JS runner (Node or Bun): ironmark WASM vs markdown-wasm, md4w, marked, and `Bun.markdown.html` under Bun; only writes history with `--save`
 - `benchmark/report.mjs` — `pnpm bench` orchestrator: WASM build → `js-bench.mjs` under Node + Bun → merges the Rust CSV → one timestamped history JSON; deletes the CSV after reading
 - `benchmark/generators.mjs` — shared inputs, `collectSamples` (batched, budgeted; single sample for >1 s calls), history + playground-data helpers
