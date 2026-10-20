@@ -39,3 +39,7 @@ minimumReleaseAgeExclude:
   - "@oxlint/binding-win32-x64-msvc@1.89.0"
   - oxfmt@0.74.0
   - oxlint@1.89.0
+
+overrides:
+  # semantic-release@25 still depends on 14.x (writer@8), which preset v10 rejects
+  "@semantic-release/release-notes-generator": 15.0.0-beta.3

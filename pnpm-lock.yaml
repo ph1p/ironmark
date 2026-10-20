@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@semantic-release/release-notes-generator': 15.0.0-beta.3
+
 importers:
 
   .:
@@ -580,12 +583,6 @@ packages:
   '@semantic-release/npm@13.2.0':
     resolution: {integrity: sha512-Uz4JGafLoEGiheLKEs1orockCWP6liY9D2YnvKHYbqo9hCHAw9fuAHcU53q29SXVCtkvDhs/QVUg7Vvuyfp4Jg==}
     engines: {node: ^22.14.0 || >= 24.10.0}
-    peerDependencies:
-      semantic-release: '>=20.1.0'
-
-  '@semantic-release/release-notes-generator@14.1.1':
-    resolution: {integrity: sha512-Pbd2e2XRMUD0OxehHpgd5/YghsE76cddkRHSoDvKLK+OCy4Ewxn49rWR631MEUU01lgwF/uyVXvbnVuu6+Z6VA==}
-    engines: {node: '>=20.8.1'}
     peerDependencies:
       semantic-release: '>=20.1.0'
 
@@ -2068,20 +2065,6 @@ snapshots:
       semver: 7.8.5
       tempy: 3.2.0
 
-  '@semantic-release/release-notes-generator@14.1.1(semantic-release@25.0.9(supports-color@7.2.0))(supports-color@7.2.0)':
-    dependencies:
-      conventional-changelog-angular: 8.3.1
-      conventional-changelog-writer: 8.4.0
-      conventional-commits-filter: 5.0.0
-      conventional-commits-parser: 6.4.0
-      debug: 4.4.3(supports-color@7.2.0)
-      import-from-esm: 2.0.0(supports-color@7.2.0)
-      lodash-es: 4.18.1
-      read-package-up: 11.0.0
-      semantic-release: 25.0.9(supports-color@7.2.0)
-    transitivePeerDependencies:
-      - supports-color
-
   '@semantic-release/release-notes-generator@15.0.0-beta.3(semantic-release@25.0.9(supports-color@7.2.0))(supports-color@7.2.0)':
     dependencies:
       conventional-changelog-angular: 9.4.0
@@ -2877,7 +2860,7 @@ snapshots:
       '@semantic-release/error': 4.0.0
       '@semantic-release/github': 12.0.10(semantic-release@25.0.9(supports-color@7.2.0))(supports-color@7.2.0)
       '@semantic-release/npm': 13.2.0(semantic-release@25.0.9(supports-color@7.2.0))
-      '@semantic-release/release-notes-generator': 14.1.1(semantic-release@25.0.9(supports-color@7.2.0))(supports-color@7.2.0)
+      '@semantic-release/release-notes-generator': 15.0.0-beta.3(semantic-release@25.0.9(supports-color@7.2.0))(supports-color@7.2.0)
       aggregate-error: 5.1.0
       cosmiconfig: 9.0.2
       debug: 4.4.3(supports-color@7.2.0)
