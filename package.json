@@ -65,6 +65,8 @@
     "bench": "pnpm bench:rust && node benchmark/report.mjs",
     "bench:quick": "BENCH_QUICK=1 RUSTFLAGS=\"-C target-cpu=native\" cargo bench -- ironmark",
     "bench:rust": "RUSTFLAGS=\"-C target-cpu=native\" cargo bench --features bench-md4c",
+    "bench:js": "node benchmark/js-bench.mjs",
+    "bench:bun": "bun benchmark/js-bench.mjs",
     "test": "cargo test --offline"
   },
   "devDependencies": {
@@ -76,6 +78,7 @@
     "@semantic-release/release-notes-generator": "^14.1.1",
     "conventional-changelog-conventionalcommits": "^10.4.1",
     "markdown-wasm": "^1.2.0",
+    "marked": "^18.1.1",
     "md4w": "^0.2.7",
     "oxfmt": "^0.74.0",
     "oxlint": "^1.89.0",

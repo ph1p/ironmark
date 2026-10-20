@@ -12,6 +12,7 @@ const COLORS: Record<string, string> = {
   md4c: "#d97706",
   "markdown-wasm": "#7048e8",
   md4w: "#0ea5e9",
+  marked: "#5c940d",
   bun: "#f4d9a0",
 };
 
@@ -24,6 +25,7 @@ const LABELS: Record<string, string> = {
   md4c: "md4c",
   "markdown-wasm": "markdown-wasm",
   md4w: "md4w",
+  marked: "marked",
   bun: "Bun built-in",
 };
 
@@ -32,7 +34,8 @@ const LABELS: Record<string, string> = {
 function fmtNs(ns: number): string {
   if (ns < 1000) return `${ns.toFixed(0)} ns`;
   if (ns < 1e6) return `${(ns / 1000).toFixed(1)} µs`;
-  return `${(ns / 1e6).toFixed(2)} ms`;
+  if (ns < 1e9) return `${(ns / 1e6).toFixed(2)} ms`;
+  return `${(ns / 1e9).toFixed(2)} s`;
 }
 
 function fmtThroughput(bytes: number, ns: number): string {

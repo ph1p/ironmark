@@ -1,6 +1,6 @@
 /**
- * Shared Markdown input generators for JS/Bun benchmarks.
- * Used by both report.mjs (Node.js WASM) and bun-bench.mjs (Bun native).
+ * Shared Markdown input generators, sampling and history helpers for the JS
+ * benchmarks (js-bench.mjs, report.mjs) and the playground build.
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -138,31 +138,51 @@ export function loadAllFeatures() {
 /**
  * Time-budgeted sampling shared by the Bun and Node (WASM) benchmark runners.
  *
- * Batch timing: time `batch` calls in one `performance.now()` pair to avoid
- * per-call measurement overhead dominating sub-100µs inputs. Warmup runs until
+ * Batch timing: time up to `batch` calls in one `performance.now()` pair to
+ * avoid per-call measurement overhead dominating sub-100µs inputs; inputs that
+ * already take ≥1 ms per call are timed one call at a time. Warmup runs until
  * `warmupMs` elapses (capped at 100 calls) so the JIT stabilises. Sampling is
  * budgeted: small inputs get up to `maxIterations` samples, big/slow inputs
- * stop after `budgetMs` (but never below `minIterations`).
+ * stop after `budgetMs` (but never below `minIterations`, scaled down to 5
+ * for calls slower than ~`budgetMs / 8`). A parser that needs
+ * more than `slowMs` for one call (quadratic blow-ups) gets a single sample
+ * instead of holding the run hostage.
  *
  * Returns per-call millisecond samples, sorted ascending.
  */
 export function collectSamples(
   fn,
   input,
-  { maxIterations = 500, minIterations = 30, budgetMs = 500, warmupMs = 150, batch = 10 } = {},
+  {
+    maxIterations = 500,
+    minIterations = 30,
+    budgetMs = 500,
+    warmupMs = 150,
+    batch = 10,
+    slowMs = 1000,
+  } = {},
 ) {
+  // The last warmup call doubles as a probe for picking the batch size.
+  let probeMs = 0;
   const warmupEnd = performance.now() + warmupMs;
-  for (let i = 0; i < 100 && performance.now() < warmupEnd; i++) fn(input);
+  for (let i = 0; i < 100 && performance.now() < warmupEnd; i++) {
+    const t = performance.now();
+    fn(input);
+    probeMs = performance.now() - t;
+  }
+  if (probeMs > slowMs) return [probeMs];
+  const perSample = Math.max(1, Math.min(batch, Math.ceil(1 / Math.max(probeMs, 1e-3))));
+  const minSamples = Math.min(minIterations, Math.max(5, Math.ceil((4 * budgetMs) / probeMs)));
 
   const samples = [];
   const budgetEnd = performance.now() + budgetMs;
   while (
     samples.length < maxIterations &&
-    (samples.length < minIterations || performance.now() < budgetEnd)
+    (samples.length < minSamples || performance.now() < budgetEnd)
   ) {
     const start = performance.now();
-    for (let b = 0; b < batch; b++) fn(input);
-    samples.push((performance.now() - start) / batch);
+    for (let b = 0; b < perSample; b++) fn(input);
+    samples.push((performance.now() - start) / perSample);
   }
   samples.sort((a, b) => a - b);
   return samples;
@@ -177,7 +197,8 @@ export function median(sorted) {
 export function fmtNs(ns) {
   if (ns < 1_000) return `${ns.toFixed(0)} ns`;
   if (ns < 1_000_000) return `${(ns / 1_000).toFixed(1)} µs`;
-  return `${(ns / 1_000_000).toFixed(2)} ms`;
+  if (ns < 1_000_000_000) return `${(ns / 1_000_000).toFixed(2)} ms`;
+  return `${(ns / 1_000_000_000).toFixed(2)} s`;
 }
 
 export function fmtBytes(b) {
@@ -224,7 +245,7 @@ export function writePlaygroundData(latest = null) {
     : [];
 
   // Track the most recent non-null sections for each runtime independently,
-  // since bun-bench.mjs and report.mjs write separate files.
+  // since a standalone `js-bench.mjs --save` writes only its own runtime.
   const latestByRuntime = { wasm: null, rust: null, bun: null };
 
   const trend = allFiles

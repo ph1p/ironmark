@@ -655,13 +655,17 @@ Parsing always uses the default `ParseOptions` (all extensions enabled, `disable
 
 ## Benchmarks
 
-Compares ironmark against pulldown-cmark, comrak, markdown-it, and markdown-rs. Results are available at [ph1p.js.org/ironmark/#benchmark](https://ph1p.js.org/ironmark/#benchmark).
+Compares ironmark against pulldown-cmark, comrak, markdown-it, markdown-rs and md4c (native Rust), and against markdown-wasm, md4w, marked and Bun's built-in parser (JS/WASM). Results are available at [ph1p.js.org/ironmark/#benchmark](https://ph1p.js.org/ironmark/#benchmark).
 
 ```bash
-cargo bench                          # run all benchmarks
-cargo bench --features bench-md4c   # include md4c (requires: brew install md4c)
-pnpm bench                          # run + update playground data
+pnpm bench:rust                     # native Rust (criterion)
+pnpm bench:js                       # WASM under Node
+pnpm bench:bun                      # WASM under Bun, incl. Bun.markdown.html
+pnpm bench:js --file my-doc.md      # benchmark your own Markdown
+pnpm bench                          # everything → benchmark/history snapshot
 ```
+
+See [benchmark/README.md](benchmark/README.md) for all options, how to read the output, and how to get stable numbers.
 
 ## Development
 

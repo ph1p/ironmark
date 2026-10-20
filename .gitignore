@@ -7,6 +7,5 @@
 /.wasm-tools
 /.cargo-home
 .DS_Store
-/benchmark/bun-results.json
 /playground/public/benchmark-data.json
 /vendor

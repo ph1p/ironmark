@@ -1,119 +1,51 @@
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
-import { join } from "node:path";
-import { execSync } from "node:child_process";
-import {
-  ROOT,
-  fmtBytes,
-  loadSpecMarkdown,
-  loadAllFeatures,
-  genInlineHeavy,
-  genHeadings,
-  genNestedList,
-  genTable,
-  genCodeBlocks,
-  genMixedDoc,
-  collectSamples,
-  median,
-  writeHistoryJson,
-} from "./generators.mjs";
+/**
+ * Full benchmark report — what `pnpm bench` runs after `pnpm bench:rust`.
+ *
+ * 1. builds the WASM package
+ * 2. runs js-bench.mjs under Node and (if installed) Bun
+ * 3. folds in the Rust criterion results from the temporary history CSV
+ * 4. writes one timestamped history JSON to benchmark/history/
+ *
+ * The playground Benchmarks page is generated from those history files.
+ */
 
-const require = createRequire(import.meta.url);
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { execFileSync, execSync } from "node:child_process";
+import { ROOT, writeHistoryJson } from "./generators.mjs";
+
 const HISTORY_DIR = join(ROOT, "benchmark", "history");
 
 // ─── Build WASM ─────────────────────────────────────────────────────
 
 console.log("Building WASM...\n");
 try {
-  execSync("pnpm build", {
-    cwd: ROOT,
-    stdio: "inherit",
-  });
+  execSync("pnpm build", { cwd: ROOT, stdio: "inherit" });
 } catch {
-  console.error("\nWASM build failed — skipping WASM results.\n");
+  console.error("\nWASM build failed.\n");
   process.exit(1);
 }
 
-// ─── Run Bun benchmarks ─────────────────────────────────────────────────────
+// ─── Run JS benchmarks (Node + Bun) ─────────────────────────────────
 
-console.log("\nRunning Bun benchmarks...\n");
-let bunSections = [];
-try {
-  const bunOutput = execSync("bun benchmark/bun-bench.mjs --json", {
-    cwd: ROOT,
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  bunSections = JSON.parse(bunOutput.toString());
-  console.log("Bun benchmarks done.\n");
-} catch {
-  console.error("Bun benchmarks failed — skipping Bun results.\n");
-}
-
-const allFeaturesInput = loadAllFeatures();
-
-// ─── Run WASM benchmarks ────────────────────────────────────────────
-
-const { renderHtml: ironmarkParse } = await import("../wasm/node.js");
-const markdownWasm = require("markdown-wasm/dist/markdown.node.js");
-const { init: md4wInit, mdToHtml } = await import("md4w");
-await md4wInit();
-
-const wasmParsers = {
-  ironmark: (input) => ironmarkParse(input),
-  "markdown-wasm": (input) => markdownWasm.parse(input),
-  md4w: (input) => mdToHtml(input),
-};
-
-function runWasmBench(name, input) {
-  const results = {};
-  const bytes = Buffer.byteLength(input, "utf8");
-  for (const [lib, fn] of Object.entries(wasmParsers)) {
-    // Measure each parser independently so JIT state doesn't bleed across.
-    const samples = collectSamples(fn, input);
-    results[lib] = {
-      median_ns: median(samples) * 1e6,
-      mean_ns: (samples.reduce((a, b) => a + b, 0) / samples.length) * 1e6,
-    };
+function runJsBench(runtime) {
+  console.log(`\nRunning JS benchmarks under ${runtime}...\n`);
+  try {
+    const out = execFileSync(runtime, ["benchmark/js-bench.mjs", "--json"], {
+      cwd: ROOT,
+      stdio: ["ignore", "pipe", "inherit"],
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return JSON.parse(out.toString());
+  } catch (err) {
+    const reason = err.code === "ENOENT" ? `${runtime} not installed` : "run failed";
+    console.error(`${runtime} benchmarks skipped (${reason}).\n`);
+    return [];
   }
-  return { name, bytes, results };
 }
 
-console.log("\nRunning WASM benchmarks...\n");
-
-const specMarkdown = loadSpecMarkdown();
-
-const wasmSections = [
-  {
-    title: "CommonMark Spec",
-    benches: [runWasmBench("spec (all examples)", specMarkdown)],
-  },
-  {
-    title: "All Features",
-    benches: [runWasmBench("all features", allFeaturesInput)],
-  },
-  {
-    title: "Document Sizes",
-    benches: [1_000, 10_000, 100_000].map((size) => {
-      const input = genMixedDoc(Math.ceil(size / 80)).slice(0, size);
-      return runWasmBench(`mixed ${fmtBytes(size)}`, input);
-    }),
-  },
-  {
-    title: "Block Types",
-    benches: [
-      runWasmBench("headings", genHeadings()),
-      runWasmBench("nested lists", genNestedList()),
-      runWasmBench("table (100×10)", genTable()),
-      runWasmBench("code blocks", genCodeBlocks()),
-    ],
-  },
-  {
-    title: "Inline-heavy",
-    benches: [runWasmBench("inline heavy", genInlineHeavy())],
-  },
-];
-
-console.log("WASM benchmarks done.\n");
+const wasmSections = runJsBench("node");
+const bunSections = runJsBench("bun");
 
 // ─── Read Rust results from history CSV ─────────────────────────────
 

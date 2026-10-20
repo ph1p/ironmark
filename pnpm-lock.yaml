@@ -190,6 +190,9 @@ importers:
       markdown-wasm:
         specifier: ^1.2.0
         version: 1.2.0
+      marked:
+        specifier: ^18.1.1
+        version: 18.1.1
       md4w:
         specifier: ^0.2.7
         version: 0.2.7
@@ -1103,6 +1106,11 @@ packages:
   marked@15.0.12:
     resolution: {integrity: sha512-8dD6FusOQSrpv9Z1rdNMdlSgQOIP880DHqnohobOmYLElGEqAL/JvxvuxZO16r4HtjTlfPRDC1hbvxC9dPN2nA==}
     engines: {node: '>= 18'}
+    hasBin: true
+
+  marked@18.1.1:
+    resolution: {integrity: sha512-zEGgrtUG8crk+TrMacJSVABU4DYDDkS8uqgU3ohrn/2fW9C2AEfUrO3m6IhpIpQpl7YcVpiXXC9cSMWDANT3dg==}
+    engines: {node: '>= 20'}
     hasBin: true
 
   md4w@0.2.7:
@@ -2527,6 +2535,8 @@ snapshots:
       supports-hyperlinks: 3.2.0
 
   marked@15.0.12: {}
+
+  marked@18.1.1: {}
 
   md4w@0.2.7: {}
 
