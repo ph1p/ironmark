@@ -1,15 +1,19 @@
-const decoder = new TextDecoder("utf-8");
+const encoder = new TextEncoder();
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
-function toStr(markdown) {
-  if (typeof markdown === "string") return markdown;
-  if (markdown instanceof Uint8Array) return decoder.decode(markdown);
-  if (markdown instanceof ArrayBuffer) return decoder.decode(new Uint8Array(markdown));
+// The WASM side takes UTF-8 bytes (one memcpy across the boundary). Byte input
+// goes through as is; a leading BOM is dropped, as TextDecoder did before.
+function bytesOf(view) {
+  return view[0] === 0xef && view[1] === 0xbb && view[2] === 0xbf ? view.subarray(3) : view;
+}
+
+function toBytes(markdown) {
+  if (typeof markdown === "string") return encoder.encode(markdown);
+  if (markdown instanceof Uint8Array) return bytesOf(markdown);
+  if (markdown instanceof ArrayBuffer) return bytesOf(new Uint8Array(markdown));
   if (ArrayBuffer.isView(markdown))
-    return decoder.decode(
-      new Uint8Array(markdown.buffer, markdown.byteOffset, markdown.byteLength),
-    );
+    return bytesOf(new Uint8Array(markdown.buffer, markdown.byteOffset, markdown.byteLength));
   throw new TypeError("markdown must be a string, Uint8Array, ArrayBuffer, or Buffer");
 }
 
@@ -66,7 +70,7 @@ export function resolveOptions(options) {
 function optionArgs(markdown, options) {
   const r = resolveOptions(options);
   return [
-    toStr(markdown),
+    toBytes(markdown),
     r.hardBreaks,
     r.enableHighlight,
     r.enableStrikethrough,
@@ -98,7 +102,7 @@ export function createParseMarkdown(wasmParseToAst) {
 
 export function createRenderHtml(wasmParse, wasmParseDefault = null) {
   return function renderHtml(input, options) {
-    if (options == null && wasmParseDefault) return wasmParseDefault(toStr(input));
+    if (options == null && wasmParseDefault) return wasmParseDefault(toBytes(input));
     return wasmParse(...optionArgs(input, options));
   };
 }

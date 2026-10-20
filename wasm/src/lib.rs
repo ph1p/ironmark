@@ -2,11 +2,19 @@ use ironmark::{
     AnsiOptions, Block, HtmlParseOptions, ParseOptions, UnknownInlineHandling, parse_markdown,
     render_ansi_terminal, render_html,
 };
+use std::borrow::Cow;
 use wasm_bindgen::prelude::*;
 
-#[global_allocator]
-static ALLOC: lol_alloc::AssumeSingleThreaded<lol_alloc::FreeListAllocator> =
-    unsafe { lol_alloc::AssumeSingleThreaded::new(lol_alloc::FreeListAllocator::new()) };
+/// Markdown arrives as UTF-8 bytes: wasm-bindgen copies `&[u8]` with one memcpy,
+/// while `&str` goes through a per-character JS loop that dominated large inputs.
+/// Invalid sequences become U+FFFD, like `TextDecoder`; strict `from_utf8` runs
+/// first because its ASCII fast path beats the lossy iterator.
+fn utf8(bytes: &[u8]) -> Cow<'_, str> {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => Cow::Borrowed(s),
+        Err(_) => String::from_utf8_lossy(bytes),
+    }
+}
 
 /// Maximum input size for WASM: 10 MB
 const WASM_MAX_INPUT_SIZE: usize = 10 * 1024 * 1024;
@@ -57,7 +65,7 @@ fn build_options(
 
 #[wasm_bindgen]
 pub fn parse(
-    markdown: &str,
+    markdown: &[u8],
     hard_breaks: Option<bool>,
     enable_highlight: Option<bool>,
     enable_strikethrough: Option<bool>,
@@ -78,7 +86,7 @@ pub fn parse(
     enable_latex_math: Option<bool>,
 ) -> String {
     render_html(
-        markdown,
+        &utf8(markdown),
         &build_options(
             hard_breaks,
             enable_highlight,
@@ -103,13 +111,13 @@ pub fn parse(
 }
 
 #[wasm_bindgen(js_name = "parseDefault")]
-pub fn parse_default(markdown: &str) -> String {
-    render_html(markdown, &ParseOptions::default())
+pub fn parse_default(markdown: &[u8]) -> String {
+    render_html(&utf8(markdown), &ParseOptions::default())
 }
 
 #[wasm_bindgen(js_name = "parseToAst")]
 pub fn parse_to_ast(
-    markdown: &str,
+    markdown: &[u8],
     hard_breaks: Option<bool>,
     enable_highlight: Option<bool>,
     enable_strikethrough: Option<bool>,
@@ -130,7 +138,7 @@ pub fn parse_to_ast(
     enable_latex_math: Option<bool>,
 ) -> Result<String, JsValue> {
     let ast = parse_markdown(
-        markdown,
+        &utf8(markdown),
         &build_options(
             hard_breaks,
             enable_highlight,
@@ -169,7 +177,7 @@ pub fn parse_to_ast(
 /// @param lineNumbers - Show line numbers in fenced code blocks (default: false).
 #[wasm_bindgen(js_name = "renderAnsi")]
 pub fn render_ansi(
-    markdown: &str,
+    markdown: &[u8],
     hard_breaks: Option<bool>,
     enable_highlight: Option<bool>,
     enable_strikethrough: Option<bool>,
@@ -222,7 +230,7 @@ pub fn render_ansi(
         line_numbers: line_numbers.unwrap_or(false),
         padding: padding as usize,
     };
-    render_ansi_terminal(markdown, &parse_opts, Some(&ansi_opts))
+    render_ansi_terminal(&utf8(markdown), &parse_opts, Some(&ansi_opts))
 }
 
 fn build_html_parse_options(preserve_unknown_as_html: Option<bool>) -> HtmlParseOptions {
