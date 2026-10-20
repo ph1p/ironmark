@@ -253,22 +253,17 @@ pub(crate) fn parse_inline_pass(
         backtick_hint = count_backtick_hint_from(bytes, rescan_from, backtick_hint);
     }
 
-    // The fast scan stopped at the first FULL byte, so the flags only cover the
-    // prefix. Finish them over the rest; any other FULL byte needs the full parser.
-    if full_only_backticks && backtick_hint != 0 {
-        for &b in &bytes[rescan_from..] {
-            let f = scan_table[b as usize];
-            if f & (SCAN_FULL | SCAN_IS_BACKTICK) == SCAN_FULL {
-                full_only_backticks = false;
-                break;
-            }
-            has_emphasis |= f & SCAN_EMPH != 0;
-            has_breaks |= f & SCAN_BREAK != 0;
-            needs_html_escape |= f & SCAN_ESCAPE != 0;
-        }
-    }
-
-    if full_only_backticks && backtick_hint != 0 && !has_matching_backtick_runs(bytes) {
+    // The fast scan stopped at the first FULL byte, so its flags only cover the
+    // prefix; the tail pass finishes them and bails on any other FULL byte.
+    let tail = if full_only_backticks && backtick_hint != 0 {
+        backtick_only_tail(bytes, rescan_from - 1, scan_table)
+    } else {
+        None
+    };
+    if let Some(f) = tail {
+        has_emphasis |= f & SCAN_EMPH != 0;
+        has_breaks |= f & SCAN_BREAK != 0;
+        needs_html_escape |= f & SCAN_ESCAPE != 0;
         if has_breaks {
             emit_breaks_and_emphasis(out, raw, bytes, opts, &mut bufs.em_delims);
         } else if has_emphasis {

@@ -12,16 +12,25 @@ pub(super) fn count_backtick_hint_from(bytes: &[u8], mut start: usize, mut count
     count
 }
 
-pub(super) fn has_matching_backtick_runs(bytes: &[u8]) -> bool {
+/// One pass from the first backtick (`start`) to the end: returns the OR of the
+/// remaining scan flags when backticks are the only FULL bytes and no two runs
+/// share a length (so no code span can close). `None` means the full parser is needed.
+pub(super) fn backtick_only_tail(bytes: &[u8], start: usize, table: &[u8; 256]) -> Option<u8> {
     let mut seen_short = [false; 64];
     let mut seen_long: Option<FxHashMap<u32, ()>> = None;
-    let mut i = 0usize;
+    let mut flags = 0u8;
+    let mut i = start;
 
     while i < bytes.len() {
-        let Some(off) = memchr::memchr(b'`', &bytes[i..]) else {
-            break;
-        };
-        i += off;
+        let f = table[bytes[i] as usize];
+        if f & SCAN_IS_BACKTICK == 0 {
+            if f & SCAN_FULL != 0 {
+                return None;
+            }
+            flags |= f;
+            i += 1;
+            continue;
+        }
         let run_start = i;
         i += 1;
         while i < bytes.len() && bytes[i] == b'`' {
@@ -29,22 +38,19 @@ pub(super) fn has_matching_backtick_runs(bytes: &[u8]) -> bool {
         }
         let run_len = i - run_start;
         if run_len < seen_short.len() {
-            let slot = &mut seen_short[run_len];
-            if *slot {
-                return true;
+            if std::mem::replace(&mut seen_short[run_len], true) {
+                return None;
             }
-            *slot = true;
-        } else {
-            let map = seen_long.get_or_insert_with(FxHashMap::default);
-            let key = run_len as u32;
-            if map.contains_key(&key) {
-                return true;
-            }
-            map.insert(key, ());
+        } else if seen_long
+            .get_or_insert_with(FxHashMap::default)
+            .insert(run_len as u32, ())
+            .is_some()
+        {
+            return None;
         }
     }
 
-    false
+    Some(flags)
 }
 
 pub(super) fn try_emit_common_inline(out: &mut String, raw: &str, opts: &ParseOptions) -> bool {
