@@ -516,6 +516,30 @@ fn bare_email_in_text() {
     );
 }
 
+// GFM spec examples 633–635: trailing `.` stays outside, `-`/`_` invalidate.
+#[test]
+fn bare_email_trailing_punctuation() {
+    assert_html(
+        "a.b-c_d@a.b.",
+        "<p><a href=\"mailto:a.b-c_d@a.b\">a.b-c_d@a.b</a>.</p>\n",
+    );
+    assert_html("a.b-c_d@a.b-", "<p>a.b-c_d@a.b-</p>\n");
+    assert_html("a.b-c_d@a.b_", "<p>a.b-c_d@a.b_</p>\n");
+}
+
+// `_` in the local part is scanned as a delimiter run before the `@` is seen.
+#[test]
+fn bare_email_underscore_local_part() {
+    assert_html(
+        "a_b@x.com",
+        "<p><a href=\"mailto:a_b@x.com\">a_b@x.com</a></p>\n",
+    );
+    assert_html(
+        "*mail foo__bar@x.com now*",
+        "<p><em>mail <a href=\"mailto:foo__bar@x.com\">foo__bar@x.com</a> now</em></p>\n",
+    );
+}
+
 #[test]
 fn autolink_disabled() {
     let opts = ParseOptions {

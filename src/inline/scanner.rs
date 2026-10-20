@@ -236,6 +236,44 @@ impl<'a> InlineScanner<'a> {
     }
 
     #[inline]
+    /// Drop the trailing items that cover input `[to, from)`, truncating a
+    /// text range that straddles `to`. Only text ranges and delimiter runs
+    /// can be undone; returns false (and changes nothing) for anything else.
+    fn rewind_items(&mut self, from: usize, to: usize) -> bool {
+        let mut pos = from;
+        let mut keep = self.items.len();
+        let mut truncate = None;
+        while pos > to && keep > 0 {
+            match self.items[keep - 1] {
+                InlineItem::TextRange(s, e) if e == pos => {
+                    if s < to {
+                        truncate = Some(s);
+                        pos = to;
+                    } else {
+                        pos = s;
+                        keep -= 1;
+                    }
+                }
+                InlineItem::DelimRun { count, .. } if count as usize <= pos - to => {
+                    pos -= count as usize;
+                    keep -= 1;
+                }
+                _ => return false,
+            }
+        }
+        if pos != to {
+            return false;
+        }
+        while self.delims.last().is_some_and(|&d| d >= keep) {
+            self.delims.pop();
+        }
+        self.items.truncate(keep);
+        if let Some(s) = truncate {
+            self.items[keep - 1] = InlineItem::TextRange(s, to);
+        }
+        true
+    }
+
     pub(super) fn flush_text_range(&mut self, start: usize, end: usize) {
         if start < end {
             self.items.push(InlineItem::TextRange(start, end));
@@ -662,11 +700,20 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
+        // GFM: `_` right after the domain invalidates it; a trailing `.` is
+        // sentence punctuation and stays outside the link.
+        if end < len && bytes[end] == b'_' {
+            return false;
+        }
+        while end > domain_start && bytes[end - 1] == b'.' {
+            end -= 1;
+        }
+
         if end == domain_start {
             return false;
         }
 
-        if matches!(bytes[end - 1], b'-' | b'.') {
+        if bytes[end - 1] == b'-' {
             return false;
         }
 
@@ -681,7 +728,15 @@ impl<'a> InlineScanner<'a> {
             }
         }
 
-        self.flush_text_range(text_start, local_start);
+        // A local part like `a_b` was already emitted as text + delimiter run
+        // before the `@` showed up; take those items back.
+        if local_start < text_start {
+            if !self.rewind_items(text_start, local_start) {
+                return false;
+            }
+        } else {
+            self.flush_text_range(text_start, local_start);
+        }
 
         self.items
             .push(InlineItem::Autolink(local_start as u32, end as u32, true));
