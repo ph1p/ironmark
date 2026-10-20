@@ -72,7 +72,7 @@ members = ["wasm"]
 [build-dependencies]
 
 [dev-dependencies]
-comrak = { version = "0.54", default-features = false }
+comrak = { version = "0.56", default-features = false }
 criterion = { version = "0.8" }
 markdown = "1"
 markdown-it = "0.6"
