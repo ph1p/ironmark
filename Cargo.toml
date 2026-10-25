@@ -69,8 +69,6 @@ serde = { version = "1", features = ["derive"], optional = true }
 [workspace]
 members = ["wasm"]
 
-[build-dependencies]
-
 [dev-dependencies]
 comrak = { version = "0.57", default-features = false }
 criterion = { version = "0.8" }
