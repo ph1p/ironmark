@@ -1,0 +1,28 @@
+name: Setup WASM toolchain
+description: Rust wasm32 target, wasm-bindgen-cli, binaryen, Node and pnpm — everything `pnpm build:wasm` needs
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+
+    - uses: Swatinem/rust-cache@v2
+
+    # Must match the wasm-bindgen version in wasm/Cargo.toml and `setup:wasm` in package.json
+    - name: Install wasm-bindgen-cli
+      shell: bash
+      run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+
+    - name: Install binaryen
+      shell: bash
+      run: |
+        curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_131/binaryen-version_131-x86_64-linux.tar.gz | tar -xz
+        sudo cp binaryen-version_131/bin/* /usr/local/bin/
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+
+    - uses: pnpm/action-setup@v6
