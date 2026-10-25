@@ -90,6 +90,9 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+# Kept separate from release for wasm-only tuning. Speed wins over size here:
+# measured against opt-level 3 (2026-10-25, JS bench geomean, after wasm-opt -O3):
+#   "s" = -18% gzip, ~5% slower; "z" = -33% gzip, ~49% slower.
 [profile.release-wasm]
 inherits = "release"
 opt-level = 3
