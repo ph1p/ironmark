@@ -81,7 +81,7 @@ pub(super) fn try_emit_common_inline(out: &mut String, raw: &str, opts: &ParseOp
     while i < len {
         match bytes[i] {
             b'\\' | b'&' | b'<' | b'!' | b'_' => return false,
-            b'>' => {
+            b'>' | b'"' => {
                 seg_needs_escape = true;
                 i += 1;
             }

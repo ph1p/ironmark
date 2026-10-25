@@ -275,7 +275,7 @@ import { getCapabilities, getAstSchemaVersion, getDefaultOptions, getPresets } f
 // What does this build support?
 const caps = getCapabilities();
 // {
-//   astSchemaVersion: "1",
+//   astSchemaVersion: "2",
 //   formats: ["html", "ast", "markdown", "ansi"],
 //   presets: ["default", "safe", "strict", "llm"],
 //   extensions: [...],
@@ -283,7 +283,7 @@ const caps = getCapabilities();
 // }
 
 // What is the current AST schema version?
-const version = getAstSchemaVersion(); // "1"
+const version = getAstSchemaVersion(); // "2"
 
 // What are the resolved defaults for every option?
 const defaults = getDefaultOptions();
@@ -474,6 +474,23 @@ fn main() {
         ..Default::default()
     });
 }
+```
+
+### Cargo features
+
+| Feature       | Default | Enables                                           |
+| ------------- | ------- | ------------------------------------------------- |
+| `html`        | yes     | Markdown → HTML (`render_html`)                   |
+| `ansi`        | yes     | Markdown → ANSI terminal (`render_ansi_terminal`) |
+| `html-parser` | yes     | HTML → AST → Markdown (`html_to_markdown`)        |
+| `serde`       | no      | `Serialize`/`Deserialize` for the AST types       |
+| `cli`         | no      | The `ironmark` binary                             |
+
+Parsing to the AST (`parse_markdown`) and AST → Markdown (`render_markdown`) are always available. To build only what you use:
+
+```toml
+[dependencies]
+ironmark = { version = "2", default-features = false, features = ["html"] }
 ```
 
 ### AST Output

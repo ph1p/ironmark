@@ -248,6 +248,18 @@ fn escaped_html_in_text_and_quotes() {
 }
 
 #[test]
+fn quotes_escaped_next_to_simple_inlines() {
+    assert_html(
+        "say \"hi\" `x`",
+        "<p>say &quot;hi&quot; <code>x</code></p>\n",
+    );
+    assert_html(
+        "`x` \"hi\" *em*",
+        "<p><code>x</code> &quot;hi&quot; <em>em</em></p>\n",
+    );
+}
+
+#[test]
 fn raw_html_is_not_escaped() {
     assert_html(
         "Use <kbd>Ctrl</kbd> and <em>HTML</em>",
