@@ -243,11 +243,13 @@ pub(crate) fn parse_inline_pass(
         return;
     }
 
-    if try_emit_common_inline(&mut bufs.scratch, raw, opts) {
-        out.push_str(&bufs.scratch);
-        bufs.scratch.clear();
+    // Emit straight into `out` and roll back on bail-out; staging in a scratch
+    // buffer cost a second copy of every simple paragraph.
+    let mark = out.len();
+    if try_emit_common_inline(out, raw, opts) {
         return;
     }
+    out.truncate(mark);
 
     if backtick_hint != 0 && backtick_hint < 3 {
         backtick_hint = count_backtick_hint_from(bytes, rescan_from, backtick_hint);

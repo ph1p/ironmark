@@ -64,7 +64,6 @@ pub(super) fn try_emit_common_inline(out: &mut String, raw: &str, opts: &ParseOp
     let mut seg_needs_escape = false;
     let mut i = 0usize;
 
-    out.clear();
     out.reserve(raw.len() + 16);
 
     macro_rules! flush_text {
