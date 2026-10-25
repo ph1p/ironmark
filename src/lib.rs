@@ -68,8 +68,11 @@
 // Core modules (always compiled)
 pub mod ast;
 mod block;
+#[cfg_attr(not(feature = "html"), allow(dead_code))]
 mod entities;
+#[cfg_attr(not(feature = "html"), allow(dead_code))]
 mod html;
+#[cfg_attr(not(feature = "html"), allow(dead_code))]
 mod inline;
 mod renderers;
 

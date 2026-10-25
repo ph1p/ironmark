@@ -20,17 +20,6 @@ use crate::inline::LinkRefMap;
 #[cfg(feature = "html")]
 use crate::render::render_block;
 
-/// Parse a Markdown string and return the rendered HTML.
-///
-/// # Examples
-///
-/// ```
-/// use ironmark::{render_html, ParseOptions};
-///
-/// let html = render_html("**bold** and *italic*", &ParseOptions::default());
-/// assert!(html.contains("<strong>bold</strong>"));
-/// ```
-#[cfg(feature = "html")]
 /// Truncate `s` to at most `limit` bytes, backing off to the nearest UTF-8 char
 /// boundary. A `limit` of 0 means unlimited and returns `s` unchanged.
 fn truncate_to_limit(s: &str, limit: usize) -> &str {
@@ -44,6 +33,17 @@ fn truncate_to_limit(s: &str, limit: usize) -> &str {
     &s[..end]
 }
 
+/// Parse a Markdown string and return the rendered HTML.
+///
+/// # Examples
+///
+/// ```
+/// use ironmark::{render_html, ParseOptions};
+///
+/// let html = render_html("**bold** and *italic*", &ParseOptions::default());
+/// assert!(html.contains("<strong>bold</strong>"));
+/// ```
+#[cfg(feature = "html")]
 pub fn render_html(markdown: &str, options: &ParseOptions) -> String {
     // Source byte offsets are tracked as u32 in render mode (`src_ranges`), so the
     // input is hard-capped at u32::MAX bytes to keep those casts from wrapping —
@@ -104,6 +104,7 @@ pub fn parse_markdown(markdown: &str, options: &ParseOptions) -> Block {
     parser.parse()
 }
 
+#[cfg(feature = "html")]
 pub fn benchmark_parse_table_row(line: &str, num_cols: usize) -> Vec<CompactString> {
     parse_table_row(line, num_cols).into_vec()
 }

@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 ## Project
 
-**ironmark** — a fast Markdown-to-HTML parser in Rust, fully CommonMark 0.31.2 compliant (652/652 spec tests). Also includes an ANSI terminal renderer for coloured, formatted terminal output. Published as both a Rust crate and an npm package (via WASM). Zero third-party parsing dependencies (only `memchr` and `rustc-hash`).
+**ironmark** — a fast Markdown-to-HTML parser in Rust, fully CommonMark 0.31.2 compliant (652/652 spec tests). Also includes an ANSI terminal renderer for coloured, formatted terminal output. Published as both a Rust crate and an npm package (via WASM). Zero third-party parsing dependencies (only `memchr`, `rustc-hash`, `compact_str`, `smallvec`).
 
 ## Commands
 
@@ -125,4 +125,5 @@ Two-phase pipeline: **block parsing → inline parsing → HTML rendering**.
 - WASM uses a separate `release-wasm` profile inheriting from release with `wasm-opt -O3`
 - Commits follow conventional commits (semantic-release via `.releaserc.cjs`)
 - Workspace members: root crate (`ironmark`) + `wasm/` crate (`ironmark-wasm`)
-- Dependencies: only `memchr` and `rustc-hash` at runtime; `serde` optional for AST serialization
+- Dependencies: only `memchr`, `rustc-hash`, `compact_str`, `smallvec` at runtime; `serde` optional for AST serialization (also enables `compact_str/serde` — never enable it unconditionally)
+- Feature combos (`html`, `ansi`, `html-parser`, `serde`) must each build alone with `--no-default-features`; CI checks this with `-D warnings`

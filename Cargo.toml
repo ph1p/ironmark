@@ -38,7 +38,7 @@ crate-type = ["staticlib", "rlib"]
 default = ["html", "ansi", "html-parser"]
 
 # Core serialization support for AST
-serde = ["dep:serde"]
+serde = ["dep:serde", "compact_str/serde"]
 
 # CLI binary
 cli = []
@@ -60,7 +60,7 @@ ansi = []
 html-parser = []
 
 [dependencies]
-compact_str = { version = "0.10", features = ["serde"] }
+compact_str = "0.10"
 memchr = "2"
 rustc-hash = "2.1"
 smallvec = { version = "1", features = ["union"] }

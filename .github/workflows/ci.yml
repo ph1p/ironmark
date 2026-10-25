@@ -18,6 +18,11 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test
+      - name: Check feature combinations
+        run: |
+          for f in "" html ansi html-parser serde; do
+            RUSTFLAGS="-D warnings" cargo check --lib --no-default-features --features "$f"
+          done
 
   lint:
     name: Lint & Format

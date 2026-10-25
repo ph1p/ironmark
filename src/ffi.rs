@@ -1,8 +1,9 @@
-use std::ffi::{CStr, CString, c_char};
+use std::ffi::{CString, c_char};
 
-use crate::ParseOptions;
 #[cfg(feature = "html")]
-use crate::render_html;
+use crate::{ParseOptions, render_html};
+#[cfg(feature = "html")]
+use std::ffi::CStr;
 
 /// Parse markdown input and return a heap-allocated HTML string.
 ///
