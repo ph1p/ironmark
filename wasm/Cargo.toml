@@ -11,7 +11,12 @@ wasm-opt = true
 name = "ironmark"
 crate-type = ["cdylib"]
 
+[features]
+default = ["full"]
+full = ["html-only", "ironmark/serde", "ironmark/ansi", "ironmark/html-parser", "dep:serde_json"]
+html-only = ["ironmark/html"]
+
 [dependencies]
-ironmark = { path = "..", features = ["serde", "html", "ansi", "html-parser"] }
-serde_json = "1"
+ironmark = { path = "..", default-features = false }
+serde_json = { version = "1", optional = true }
 wasm-bindgen = "0.2.129"

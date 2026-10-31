@@ -1,7 +1,9 @@
+#[cfg(feature = "full")]
 use ironmark::{
-    AnsiOptions, Block, HtmlParseOptions, ParseOptions, UnknownInlineHandling, parse_markdown,
-    render_ansi_terminal, render_html,
+    AnsiOptions, Block, HtmlParseOptions, UnknownInlineHandling, parse_markdown,
+    render_ansi_terminal,
 };
+use ironmark::{ParseOptions, render_html};
 use std::borrow::Cow;
 use wasm_bindgen::prelude::*;
 
@@ -121,6 +123,7 @@ pub fn parse_default(markdown: &[u8]) -> String {
     )
 }
 
+#[cfg(feature = "full")]
 #[wasm_bindgen(js_name = "parseToAst")]
 pub fn parse_to_ast(
     markdown: &[u8],
@@ -181,6 +184,7 @@ pub fn parse_to_ast(
 /// @param width - Terminal column width for word-wrap and underlines (default: 80, 0 = use default).
 /// @param color - Emit ANSI colour codes (default: true).
 /// @param lineNumbers - Show line numbers in fenced code blocks (default: false).
+#[cfg(feature = "full")]
 #[wasm_bindgen(js_name = "renderAnsi")]
 pub fn render_ansi(
     markdown: &[u8],
@@ -239,6 +243,7 @@ pub fn render_ansi(
     render_ansi_terminal(&utf8(markdown), &parse_opts, Some(&ansi_opts))
 }
 
+#[cfg(feature = "full")]
 fn build_html_parse_options(preserve_unknown_as_html: Option<bool>) -> HtmlParseOptions {
     HtmlParseOptions {
         max_nesting_depth: 128,
@@ -260,6 +265,7 @@ fn build_html_parse_options(preserve_unknown_as_html: Option<bool>) -> HtmlParse
 /// @param preserveUnknownAsHtml - If true, unknown HTML tags are preserved as raw HTML.
 ///                                If false (default), unknown tags are stripped but text is kept.
 /// @returns JSON string representing the AST.
+#[cfg(feature = "full")]
 #[wasm_bindgen(js_name = "parseHtmlToAst")]
 pub fn parse_html_to_ast(
     html: &str,
@@ -279,6 +285,7 @@ pub fn parse_html_to_ast(
 /// @param preserveUnknownAsHtml - If true, unknown HTML tags are preserved as raw HTML in output.
 ///                                If false (default), unknown tags are stripped but text is kept.
 /// @returns Markdown string.
+#[cfg(feature = "full")]
 #[wasm_bindgen(js_name = "htmlToMarkdown")]
 pub fn html_to_markdown(html: &str, preserve_unknown_as_html: Option<bool>) -> String {
     ironmark::html_to_markdown(html, &build_html_parse_options(preserve_unknown_as_html))
@@ -290,6 +297,7 @@ pub fn html_to_markdown(html: &str, preserve_unknown_as_html: Option<bool>) -> S
 ///
 /// @param astJson - JSON string representing the AST (as returned by `parseToAst` or `parseHtmlToAst`).
 /// @returns Markdown string.
+#[cfg(feature = "full")]
 #[wasm_bindgen(js_name = "renderMarkdown")]
 pub fn render_markdown(ast_json: &str) -> Result<String, JsValue> {
     let ast: Block = serde_json::from_str(ast_json)
