@@ -102,3 +102,13 @@ strip = true
 [profile.release-wasm]
 inherits = "release"
 opt-level = 3
+
+# Opt-in measurements only; the speed-first default above is unchanged.
+[profile.release-wasm-size]
+inherits = "release-wasm"
+opt-level = "s"
+
+# Explicitly experimental: smallest code can have substantial runtime costs.
+[profile.release-wasm-size-z]
+inherits = "release-wasm"
+opt-level = "z"

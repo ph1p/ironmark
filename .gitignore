@@ -3,9 +3,11 @@
 /plans/
 /wasm/pkg
 /wasm/pkg-html
+/wasm/pkg-size
 /wasm/target
 /wasm/node.js
 /wasm/html-node.js
+/wasm/size-*.js
 /node_modules
 /.wasm-tools
 /.cargo-home
