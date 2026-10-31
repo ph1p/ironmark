@@ -112,7 +112,13 @@ pub fn parse(
 
 #[wasm_bindgen(js_name = "parseDefault")]
 pub fn parse_default(markdown: &[u8]) -> String {
-    render_html(&utf8(markdown), &ParseOptions::default())
+    render_html(
+        &utf8(markdown),
+        &ParseOptions {
+            max_input_size: WASM_MAX_INPUT_SIZE,
+            ..ParseOptions::default()
+        },
+    )
 }
 
 #[wasm_bindgen(js_name = "parseToAst")]
@@ -289,4 +295,83 @@ pub fn render_markdown(ast_json: &str) -> Result<String, JsValue> {
     let ast: Block = serde_json::from_str(ast_json)
         .map_err(|err| JsValue::from_str(&format!("Invalid AST JSON: {err}")))?;
     Ok(ironmark::render_markdown(&ast))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn limited_defaults() -> ParseOptions {
+        ParseOptions {
+            max_input_size: WASM_MAX_INPUT_SIZE,
+            ..ParseOptions::default()
+        }
+    }
+
+    fn fenced_input(bytes: usize) -> String {
+        let prefix = "ordinary paragraph\n\n```\n";
+        format!("{prefix}{}", "x".repeat(bytes - prefix.len()))
+    }
+
+    fn assert_limited_default(input: &str) {
+        let expected = render_html(input, &limited_defaults());
+        let actual = parse_default(input.as_bytes());
+        // Avoid dumping a ten-megabyte HTML assertion on a regression.
+        assert!(
+            actual == expected,
+            "default output differs from limited rendering: input={} actual={} expected={} bytes",
+            input.len(),
+            actual.len(),
+            expected.len()
+        );
+    }
+
+    #[test]
+    fn wasm_default_limit_matches_configured_policy() {
+        assert_eq!(WASM_MAX_INPUT_SIZE, 10 * 1024 * 1024);
+        let configured = build_options(
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None,
+        );
+        assert_eq!(configured.max_input_size, WASM_MAX_INPUT_SIZE);
+        let input = "ordinary & **bold** *em* ~~del~~ ==mark== ++u++ `code`\nnext";
+        let expected = "<p>ordinary &amp; <strong>bold</strong> <em>em</em> <del>del</del> <mark>mark</mark> <u>u</u> <code>code</code><br />\nnext</p>\n";
+        assert_eq!(parse_default(input.as_bytes()), expected);
+        assert_eq!(render_html(input, &configured), expected);
+    }
+
+    #[test]
+    fn wasm_default_limit_discards_oversized_suffix() {
+        let input = format!(
+            "{}SUFFIX_BEYOND_WASM_LIMIT",
+            fenced_input(WASM_MAX_INPUT_SIZE)
+        );
+        let actual = parse_default(input.as_bytes());
+        assert!(
+            !actual.contains("SUFFIX_BEYOND_WASM_LIMIT"),
+            "default rendering retained suffix beyond the 10 MiB input limit"
+        );
+        assert_limited_default(&input);
+    }
+
+    #[test]
+    fn wasm_default_limit_handles_exact_and_adjacent_sizes() {
+        for bytes in [
+            WASM_MAX_INPUT_SIZE - 1,
+            WASM_MAX_INPUT_SIZE,
+            WASM_MAX_INPUT_SIZE + 1,
+        ] {
+            assert_limited_default(&fenced_input(bytes));
+        }
+    }
+
+    #[test]
+    fn wasm_default_limit_preserves_utf8_boundary() {
+        let input = format!("{}éSUFFIX", fenced_input(WASM_MAX_INPUT_SIZE - 1));
+        assert_limited_default(&input);
+        let actual = parse_default(input.as_bytes());
+        assert!(!actual.contains('é'));
+        assert!(!actual.contains('\u{fffd}'));
+        assert!(!actual.contains("SUFFIX"));
+    }
 }

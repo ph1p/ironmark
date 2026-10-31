@@ -311,8 +311,7 @@ impl<'a> BlockParser<'a> {
                     };
                     if let OpenBlockType::Table(td) = &mut self.open[tip_idx].block_type {
                         let num_cols = td.alignments.len();
-                        let row = parse_table_row(rest, num_cols);
-                        td.rows.push(row);
+                        append_table_row(rest, num_cols, &mut td.rows);
                     }
                     return;
                 }
@@ -339,7 +338,6 @@ impl<'a> BlockParser<'a> {
                     {
                         self.materialize_paragraph(tip_idx);
                         let num_cols = alignments.len();
-                        let paragraph_len = self.open[tip_idx].content.len();
                         let header = parse_table_row(&self.open[tip_idx].content, num_cols);
                         if header.len() == num_cols {
                             self.open.pop();
@@ -347,7 +345,7 @@ impl<'a> BlockParser<'a> {
                                 TableData {
                                     alignments,
                                     header,
-                                    rows: Vec::with_capacity((paragraph_len / 16).max(8)),
+                                    rows: Vec::new(),
                                 },
                             ))));
                             return;
@@ -892,16 +890,13 @@ impl<'a> BlockParser<'a> {
             }),
             OpenBlockType::Table(td) => {
                 let num_cols = td.alignments.len();
-                let total_cells = td.rows.iter().map(SmallVec::len).sum();
-                let mut rows_flat = Vec::with_capacity(total_cells);
-                for row in td.rows {
-                    rows_flat.extend(row);
-                }
+                debug_assert!(num_cols > 0);
+                debug_assert!(td.rows.len().is_multiple_of(num_cols));
                 Some(Block::Table(Box::new(crate::ast::TableData {
                     alignments: td.alignments.into_vec(),
                     num_cols,
                     header: td.header.into_vec(),
-                    rows: rows_flat,
+                    rows: td.rows,
                 })))
             }
             OpenBlockType::Paragraph => {
@@ -982,12 +977,8 @@ impl<'a> BlockParser<'a> {
             }
         }
         let remaining = content[pos..].trim();
-        if pos == 0 && remaining.len() == content.len() {
-            // No ref defs extracted and no trimming needed — return borrowed
-            Cow::Borrowed(content)
-        } else {
-            Cow::Owned(remaining.to_string())
-        }
+        // Prefix removal and trimming only shorten the supplied slice.
+        Cow::Borrowed(remaining)
     }
 
     #[inline]
@@ -1053,3 +1044,60 @@ static LEAF_START_BYTE: [bool; 256] = {
     }
     t
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_borrowed_remainder(content: &str, expected: &str) {
+        let options = ParseOptions::default();
+        let mut parser = BlockParser::new(content, &options);
+        let result = parser.extract_ref_defs(content);
+        assert_eq!(result, expected);
+        let Cow::Borrowed(remaining) = result else {
+            panic!("reference-definition remainder should borrow the supplied content");
+        };
+        // Both addresses belong to this exact supplied slice, not another allocation.
+        let start = content.as_ptr() as usize;
+        let offset = (remaining.as_ptr() as usize)
+            .checked_sub(start)
+            .expect("remainder starts before supplied content");
+        assert!(offset <= content.len());
+        assert!(remaining.len() <= content.len() - offset);
+        assert_eq!(&content[offset..offset + remaining.len()], expected);
+    }
+
+    #[test]
+    fn ref_def_removed_prefix_remainder_borrows_source_slice() {
+        let source = String::from(
+            "outside prefix\n[r]: /url\n[s]: /second \"title\"\n  surviving α [r] \t\noutside suffix",
+        );
+        let content = &source["outside prefix\n".len()..source.len() - "outside suffix".len()];
+        assert_borrowed_remainder(content, "surviving α [r]");
+    }
+
+    #[test]
+    fn ref_def_trimmed_remainders_borrow_source_slice() {
+        for (content, expected) in [
+            (" \t plain α \u{2003}\n", "plain α"),
+            ("  [not a definition] Ω \t\n", "[not a definition] Ω"),
+            ("[r]: /url\n", ""),
+            ("unchanged", "unchanged"),
+        ] {
+            assert_borrowed_remainder(content, expected);
+        }
+    }
+
+    #[test]
+    fn ref_def_owned_helper_materializes_local_remainder() {
+        let options = ParseOptions::default();
+        let mut parser = BlockParser::new("", &options);
+        parser.render_mode = true;
+        let remaining = parser.extract_ref_defs_owned("[r]: /url\n  local α [r] \t\n".to_owned());
+        assert_eq!(remaining, "local α [r]");
+        assert!(
+            parser.src_ranges.is_empty(),
+            "local content must not be deferred"
+        );
+    }
+}

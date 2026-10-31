@@ -100,6 +100,99 @@ Kinds matter when comparing: WASM parsers pay to copy strings across the JS↔WA
 - Rerun if a result surprises you. Trust "within noise" over small ratios.
 - Each parser warms up separately, and the inputs are identical across parsers and runtimes.
 
+## Allocation, size, startup, and public API diagnostics
+
+These reports are separate from competitor history and the playground schema.
+They never build implicitly, publish packages, or write `benchmark/history/`.
+Build the optimized WASM first for the two Node runners:
+
+```bash
+pnpm build
+cargo bench --bench allocations > target/allocations.json
+node benchmark/measure.mjs > target/measure.json
+node benchmark/api.mjs > target/api.json
+node --test benchmark/measure.test.mjs benchmark/api.test.mjs
+```
+
+Aliases: `pnpm bench:allocations`, `pnpm bench:measure`, `pnpm bench:api`,
+and `pnpm test:benchmark`. Use the direct commands above when redirecting JSON:
+package-manager banners are not part of the report. CI tests the tools' behavior,
+not timing, memory, or size thresholds.
+
+### Native requested allocation bytes
+
+`allocations.rs` wraps `System` only in its own bench executable; the production
+allocator is unchanged. Each case warms once, then runs once single-threaded with
+counting enabled only around the parser call. Input, options, and output machinery
+are prepared beforehand. Returned HTML/AST/ANSI stays alive through the snapshot;
+counting stops before formatting, serialization, and dropping the result.
+
+- `alloc_calls`: allocation and zeroed-allocation calls, including failed calls.
+- `realloc_calls`: resize calls, including failed calls.
+- `requested_bytes`: sum of requested allocation sizes and full new realloc sizes,
+  not net growth. Failed requests are included.
+- `live_requested_bytes`: successfully allocated requested bytes still alive at
+  return, including the result. Deallocation subtracts its original layout size.
+- `peak_live_requested_bytes`: maximum logical live requested bytes during the
+  call. Successful realloc replaces old size with new size; failed realloc keeps
+  the old allocation live. This does not include transient allocator internals.
+- `failed_calls`: null allocation/reallocation returns.
+
+These are **not RSS**, allocator usable size, or process-wide memory. The region
+assumes no concurrent allocation work and no freeing of pre-region allocations;
+an accounting underflow aborts the diagnostic rather than reporting a valid
+measurement. Cases include empty/plain/common and complex inline text, references,
+code, tables at 1/8/9/10 columns, and a one-column table with discarded extra cells
+and an escaped pipe. All three APIs use Rust defaults, including ANSI defaults.
+
+### Artifact and npm package sizes
+
+`measure.mjs` reports raw WASM bytes, gzip level 9 bytes, and Brotli quality 11
+bytes **for the WASM alone**. Package tarball bytes are a separate metric: the
+Node entry reads the packaged WASM file; the npm tarball also includes JavaScript
+glue, types, and documentation, so it is not the compressed WASM size.
+Unpacked package bytes are the sum of file sizes from npm's pack manifest.
+
+The runner uses `npm pack --dry-run --ignore-scripts --json`, then
+`npm pack --ignore-scripts --json --pack-destination <temporary-directory>`.
+It stats the actual filename returned by npm, checks manifest consistency, and
+removes only its own temporary directory under ignored `target/`. npm's local
+cache is also under `target/`. Pack/prepack scripts do not run.
+
+```bash
+node benchmark/measure.mjs --artifact target/alternate.wasm  # size only, no startup/package
+node benchmark/measure.mjs --entry target/alternate-node.mjs # default WASM/package + alternate startup
+node benchmark/api.mjs --entry target/alternate-node.mjs
+```
+
+Paths are resolved from the current directory. `--artifact` and `--entry` cannot
+be combined in the size runner. Missing files fail clearly, with no fabricated
+zeros or implicit build. Alternate paths never overwrite default build outputs.
+
+### Cold startup versus warm API calls
+
+Startup uses 20 independent fresh Node processes (no module-cache reuse). Each
+child starts its clock immediately before dynamic import, renders the fixed tiny
+input `Hello, **world**.\n` with omitted options, and reports import and first-render
+milliseconds separately. Parent-observed whole-process wall time includes process
+creation, Node startup, reporting, and exit; it is not the import measurement.
+These are process-cold samples, **not disk-cache-cold** samples. Raw samples,
+medians, interpolated quartiles, runtime, and machine metadata are included.
+
+`api.mjs` uses the shared warmup/batched sampler and generators for HTML with no
+options, HTML with `{}`, explicit GFM HTML, AST, and default ANSI. Explicit GFM
+matches the existing comparison profile; it is not equivalent work to defaults.
+Reports include exact options and median/quartile milliseconds per call. Missing
+AST/ANSI exports are `unsupported`, never zero-time results. Corpus labels
+distinguish real repository documents (`README.md`, `benchmark/all_features.md`)
+from synthetic cases, including table boundaries. No competitor settings change.
+
+Rerun at least twice on the same idle machine and record variability alongside
+artifact/tool versions. Allocation totals should be stable; timing differences
+inside overlapping quartiles are not speedups. Baselines precede parser/binding
+changes. Keep local diagnostic reports with their exact commands and environment.
+Quick timings remain diagnostic and must not be committed to history.
+
 ## Recording a snapshot
 
 ```bash

@@ -63,7 +63,8 @@ const ast = parseMarkdown("# Hello\n\n**World**");
 
 ### Node.js
 
-WASM is embedded and loaded synchronously — no `init()` needed:
+Node loads the packaged `wasm/pkg/ironmark_bg.wasm` synchronously relative to the
+module — no `init()` needed:
 
 ```ts
 import { renderHtml, parseMarkdown } from "ironmark";
@@ -71,6 +72,11 @@ import { renderHtml, parseMarkdown } from "ironmark";
 const html = renderHtml("# Hello\n\nThis is **fast**.");
 const ast = parseMarkdown("# Hello");
 ```
+
+Keep the WASM asset and glue alongside the Node entry when copying or bundling
+the package; it is not a self-contained single-file JavaScript bundle.
+Node bundlers may need asset-copy configuration to preserve this layout.
+The browser entry still uses asynchronous `init()`.
 
 ### Markdown → HTML
 

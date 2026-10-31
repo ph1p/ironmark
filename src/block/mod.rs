@@ -319,7 +319,8 @@ type TableRow = SmallVec<[CompactString; 8]>;
 struct TableData {
     alignments: SmallVec<[TableAlignment; 8]>,
     header: TableRow,
-    rows: Vec<TableRow>,
+    // Flat row-major cells, with row width given by alignments.len().
+    rows: Vec<CompactString>,
 }
 
 #[derive(Clone, Debug)]

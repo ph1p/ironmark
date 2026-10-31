@@ -86,7 +86,7 @@ Two-phase pipeline: **block parsing → inline parsing → HTML rendering**.
 ### WASM layer (`wasm/`)
 
 - `wasm/src/lib.rs` — wasm-bindgen bindings exposing `parse()` and `parseToAst()`
-- `wasm/node.js` / `wasm/web.js` — JS entry points (node: sync embedded, web: async init)
+- `wasm/node.js` / `wasm/web.js` — JS entry points (node: sync file-backed packaged WASM, web: async init)
 - `wasm/shared.js` — shared JS logic between node/web
 - `wasm/index.d.ts` — TypeScript type definitions
 - `wasm/build.mjs` — post-build script for WASM packaging

@@ -164,7 +164,7 @@ export interface AstSummary {
 /**
  * Initialize the WASM module.
  *
- * - **Node.js**: no-op — WASM is embedded and loaded synchronously at import time.
+ * - **Node.js**: no-op — packaged WASM is read from disk synchronously at import time.
  * - **Browser/Bundler**: must be awaited before calling any other function.
  *   Accepts a URL or `WebAssembly.Module` to override the default WASM location.
  *   Safe to call multiple times.

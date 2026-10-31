@@ -1,5 +1,6 @@
 /target
 /pkg
+/plans/
 /wasm/pkg
 /wasm/target
 /wasm/node.js

@@ -317,11 +317,12 @@ pub(crate) struct InlineBuffers {
 impl InlineBuffers {
     pub(crate) fn new() -> Self {
         Self {
-            items: Vec::with_capacity(64),
-            delims: Vec::with_capacity(16),
-            brackets: Vec::with_capacity(8),
-            links: Vec::with_capacity(8),
-            em_delims: Vec::with_capacity(16),
+            // Fast paths may never use these; retain any grown capacity across paragraphs.
+            items: Vec::new(),
+            delims: Vec::new(),
+            brackets: Vec::new(),
+            links: Vec::new(),
+            em_delims: Vec::new(),
             scan_table: build_scan_table(DEFAULT_SCAN_KEY),
             scan_key: DEFAULT_SCAN_KEY,
             scratch: String::new(),
@@ -643,4 +644,112 @@ fn char_at(s: &str, byte_pos: usize) -> char {
     let len = utf8_char_len(b);
     let end = (byte_pos + len).min(s.len());
     s[byte_pos..end].chars().next().unwrap_or(' ')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn capacities(bufs: &InlineBuffers) -> [usize; 5] {
+        [
+            bufs.items.capacity(),
+            bufs.delims.capacity(),
+            bufs.brackets.capacity(),
+            bufs.links.capacity(),
+            bufs.em_delims.capacity(),
+        ]
+    }
+
+    fn render(
+        raw: &str,
+        refs: &LinkRefMap,
+        opts: &ParseOptions,
+        bufs: &mut InlineBuffers,
+    ) -> String {
+        let mut out = String::new();
+        bufs.prepare(opts);
+        parse_inline_pass(&mut out, raw, refs, opts, bufs);
+        out
+    }
+
+    #[test]
+    fn inline_buffers_start_with_zero_working_capacity() {
+        let bufs = InlineBuffers::new();
+        assert_eq!(capacities(&bufs), [0; 5]);
+        assert_eq!(bufs.scan_key, DEFAULT_SCAN_KEY);
+        assert_eq!(bufs.scan_table, build_scan_table(DEFAULT_SCAN_KEY));
+        assert_eq!(bufs.scratch.capacity(), 0);
+    }
+
+    #[test]
+    fn inline_plain_path_leaves_working_vectors_unallocated() {
+        let mut bufs = InlineBuffers::new();
+        let refs = LinkRefMap::default();
+        let opts = ParseOptions::default();
+        for (raw, expected) in [
+            ("", ""),
+            ("plain α text", "plain α text"),
+            ("plain > text", "plain &gt; text"),
+            ("\"quoted\"", "&quot;quoted&quot;"),
+        ] {
+            assert_eq!(render(raw, &refs, &opts, &mut bufs), expected);
+            assert_eq!(capacities(&bufs), [0; 5], "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn inline_buffers_reuse_capacity_without_leaking_options_or_references() {
+        let mut bufs = InlineBuffers::new();
+        let defaults = ParseOptions::default();
+        let disabled = ParseOptions {
+            enable_strikethrough: false,
+            enable_highlight: false,
+            enable_underline: false,
+            enable_autolink: false,
+            hard_breaks: false,
+            ..ParseOptions::default()
+        };
+        let mut refs = LinkRefMap::default();
+        refs.insert(
+            "r".into(),
+            LinkReference {
+                href: Rc::from("https://one.example"),
+                title: Some(Rc::from("title")),
+            },
+        );
+        assert_eq!(
+            render("**warm**", &refs, &defaults, &mut bufs),
+            "<strong>warm</strong>"
+        );
+        let complex = "[**outer *inner***][r] ~~gone~~";
+        let expected = "<a href=\"https://one.example\" title=\"title\"><strong>outer <em>inner</em></strong></a> <del>gone</del>";
+        assert_eq!(render(complex, &refs, &defaults, &mut bufs), expected);
+        let warmed = capacities(&bufs);
+        assert!(warmed.into_iter().all(|capacity| capacity > 0));
+
+        for _ in 0..3 {
+            assert_eq!(render("plain α", &refs, &defaults, &mut bufs), "plain α");
+            assert_eq!(
+                render("~~gone~~ ==mark== ++u++\nnext", &refs, &disabled, &mut bufs),
+                "~~gone~~ ==mark== ++u++\nnext"
+            );
+            assert_eq!(
+                render(
+                    "`a < b` [simple](https://two.example)",
+                    &refs,
+                    &defaults,
+                    &mut bufs
+                ),
+                "<code>a &lt; b</code> <a href=\"https://two.example\">simple</a>"
+            );
+            assert_eq!(render(complex, &refs, &defaults, &mut bufs), expected);
+            assert_eq!(capacities(&bufs), warmed);
+        }
+        refs.clear();
+        assert_eq!(
+            render("[**outer *inner***][r]", &refs, &defaults, &mut bufs),
+            "[<strong>outer <em>inner</em></strong>][r]"
+        );
+        assert_eq!(capacities(&bufs), warmed);
+    }
 }

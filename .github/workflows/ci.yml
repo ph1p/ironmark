@@ -37,6 +37,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm oxlint
       - run: pnpm oxfmt --check .
+      - name: Test measurement tools (no performance thresholds)
+        run: node --test benchmark/measure.test.mjs benchmark/api.test.mjs
 
   wasm:
     name: WASM
@@ -48,3 +50,6 @@ jobs:
 
       - name: Build WASM
         run: pnpm build
+
+      - name: Test built WASM adapter and package
+        run: node --test wasm/api.test.mjs wasm/package.test.mjs

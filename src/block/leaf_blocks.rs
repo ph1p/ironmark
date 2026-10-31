@@ -228,6 +228,20 @@ pub(super) fn parse_table_separator(line: &str) -> Option<SmallVec<[TableAlignme
 }
 
 pub(crate) fn parse_table_row(line: &str, num_cols: usize) -> SmallVec<[CompactString; 8]> {
+    let mut cells = SmallVec::with_capacity(num_cols);
+    emit_table_cells(line, num_cols, |cell| cells.push(cell));
+    cells
+}
+
+pub(super) fn append_table_row(line: &str, num_cols: usize, cells: &mut Vec<CompactString>) {
+    cells.reserve(num_cols);
+    emit_table_cells(line, num_cols, |cell| cells.push(cell));
+}
+
+fn emit_table_cells(line: &str, num_cols: usize, mut emit: impl FnMut(CompactString)) {
+    if num_cols == 0 {
+        return;
+    }
     let trimmed = trim_space_tab(line);
 
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
@@ -247,57 +261,51 @@ pub(crate) fn parse_table_row(line: &str, num_cols: usize) -> SmallVec<[CompactS
         }
     });
 
+    let mut emitted = 0;
     if !has_escaped_pipe {
-        let mut cells: SmallVec<[CompactString; 8]> = SmallVec::with_capacity(num_cols);
         let bytes = inner.as_bytes();
         let mut start = 0;
-        while cells.len() < num_cols {
+        while emitted < num_cols {
             match memchr::memchr(b'|', &bytes[start..]) {
                 Some(offset) => {
                     let end = start + offset;
-                    cells.push(CompactString::new(trim_space_tab(&inner[start..end])));
+                    emit(CompactString::new(trim_space_tab(&inner[start..end])));
+                    emitted += 1;
                     start = end + 1;
                 }
                 None => {
-                    cells.push(CompactString::new(trim_space_tab(&inner[start..])));
+                    emit(CompactString::new(trim_space_tab(&inner[start..])));
+                    emitted += 1;
                     break;
                 }
             }
         }
-        while cells.len() < num_cols {
-            cells.push(CompactString::const_new(""));
+    } else {
+        let bytes = inner.as_bytes();
+        let mut i = 0;
+        let mut start = 0;
+        while i < bytes.len() && emitted < num_cols {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] == b'|' {
+                // Preserve the original backslashes for inline parsing.
+                i += 2;
+            } else if bytes[i] == b'|' {
+                emit(CompactString::new(trim_space_tab(&inner[start..i])));
+                emitted += 1;
+                i += 1;
+                start = i;
+            } else {
+                i += 1;
+            }
         }
-        return cells;
-    }
-
-    let mut cells: SmallVec<[CompactString; 8]> = SmallVec::with_capacity(num_cols);
-    let mut current = CompactString::default();
-    let bytes = inner.as_bytes();
-    let mut i = 0;
-    let mut seg_start = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] == b'|' {
-            current.push_str(&inner[seg_start..i + 2]);
-            i += 2;
-            seg_start = i;
-        } else if bytes[i] == b'|' {
-            current.push_str(&inner[seg_start..i]);
-            cells.push(CompactString::new(trim_space_tab(&current)));
-            current.clear();
-            i += 1;
-            seg_start = i;
-        } else {
-            i += 1;
+        if emitted < num_cols {
+            emit(CompactString::new(trim_space_tab(&inner[start..])));
+            emitted += 1;
         }
     }
-    current.push_str(&inner[seg_start..]);
-    cells.push(CompactString::new(trim_space_tab(&current)));
-
-    while cells.len() < num_cols {
-        cells.push(CompactString::const_new(""));
+    while emitted < num_cols {
+        emit(CompactString::const_new(""));
+        emitted += 1;
     }
-    cells.truncate(num_cols);
-    cells
 }
 
 #[inline(always)]
@@ -408,6 +416,89 @@ pub(super) fn can_interrupt_paragraph(marker: &ListMarkerInfo) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn table_row_current_splitting_and_padding() {
+        for (line, cols, expected) in [
+            ("", 3, vec!["", "", ""]),
+            ("||", 3, vec!["", "", ""]),
+            ("a|b", 2, vec!["a", "b"]),
+            ("| a | b |", 2, vec!["a", "b"]),
+            ("\t a \t|\tβ\t", 3, vec!["a", "β", ""]),
+            ("a|b|discarded", 1, vec!["a"]),
+            ("a||c|", 4, vec!["a", "", "c", ""]),
+            (r"| a\|b | c |", 2, vec![r"a\|b", "c"]),
+            (r"| a\\|b | c |", 2, vec![r"a\\|b", "c"]),
+            (r"| a\\\|b | c |", 2, vec![r"a\\\|b", "c"]),
+            ("`a|b`|c", 3, vec!["`a", "b`", "c"]),
+            (r"`a\|b`|c", 2, vec![r"`a\|b`", "c"]),
+            ("a|b\r", 2, vec!["a", "b\r"]),
+            ("|a|b|\r", 2, vec!["a", "b"]),
+            ("a|b", 0, vec![]),
+            (r"a\|b|discarded", 0, vec![]),
+        ] {
+            let cells = parse_table_row(line, cols);
+            assert_eq!(
+                cells.iter().map(CompactString::as_str).collect::<Vec<_>>(),
+                expected,
+                "{line:?}, cols={cols}"
+            );
+        }
+    }
+
+    #[test]
+    fn table_row_width_boundaries_and_many_discarded_cells() {
+        for cols in [1, 8, 9, 10] {
+            let expected: Vec<String> = (0..cols).map(|i| format!("cell{i}")).collect();
+            let line = format!("| {} | discarded |", expected.join(" | "));
+            let row = parse_table_row(&line, cols);
+            assert_eq!(
+                row.iter().map(CompactString::as_str).collect::<Vec<_>>(),
+                expected.iter().map(String::as_str).collect::<Vec<_>>()
+            );
+        }
+        let line = format!(
+            r"| kept\|pipe |{}|",
+            format!("{}\\|tail|", "x".repeat(80)).repeat(2000)
+        );
+        assert_eq!(parse_table_row(&line, 1).as_slice(), &[r"kept\|pipe"]);
+    }
+
+    #[test]
+    fn table_row_append_matches_wrapper_and_preserves_existing_cells() {
+        for line in ["", "a|b|c", r"| a\|b | c | extra |", r"`a\\|b`|Ω", "a|b\r"] {
+            for cols in [0, 1, 2, 8, 9, 10] {
+                let expected = parse_table_row(line, cols);
+                let mut cells = vec![CompactString::const_new("existing")];
+                append_table_row(line, cols, &mut cells);
+                assert_eq!(cells[0], "existing");
+                assert_eq!(&cells[1..], expected.as_slice());
+            }
+        }
+    }
+
+    #[test]
+    fn table_row_escaped_excess_only_emits_retained_cells() {
+        let line = format!(
+            r"| kept\|pipe |{}|",
+            format!("{}\\|tail|", "x".repeat(80)).repeat(2000)
+        );
+        let mut emitted = 0;
+        emit_table_cells(&line, 1, |cell| {
+            emitted += 1;
+            assert_eq!(cell, r"kept\|pipe");
+        });
+        assert_eq!(emitted, 1);
+        let row = parse_table_row(&line, 1);
+        assert!(
+            !row.spilled(),
+            "discarded cells must not grow the header wrapper"
+        );
+        let mut cells = Vec::with_capacity(1);
+        append_table_row(&line, 1, &mut cells);
+        assert_eq!(cells.capacity(), 1);
+        assert_eq!(cells.as_slice(), row.as_slice());
+    }
 
     #[test]
     fn atx_heading_basic() {

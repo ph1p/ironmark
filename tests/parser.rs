@@ -9,6 +9,25 @@ fn assert_html(md: &str, expected: &str) {
 }
 
 #[test]
+fn alternating_plain_and_complex_inline_paragraphs_do_not_leak_state() {
+    assert_html(
+        concat!(
+            "plain α & text\n\n",
+            "[**outer *inner***][r] ~~gone~~\n\n",
+            "plain again\n\n",
+            "`a < b` [simple](https://two.example)\n\n",
+            "[r]: https://one.example \"Title\"\n",
+        ),
+        concat!(
+            "<p>plain α &amp; text</p>\n",
+            "<p><a href=\"https://one.example\" title=\"Title\"><strong>outer <em>inner</em></strong></a> <del>gone</del></p>\n",
+            "<p>plain again</p>\n",
+            "<p><code>a &lt; b</code> <a href=\"https://two.example\">simple</a></p>\n",
+        ),
+    );
+}
+
+#[test]
 fn parses_empty_and_whitespace_input() {
     assert_html("", "");
     assert_html("   \n\n\t\n", "");
@@ -301,6 +320,138 @@ fn table_cells_support_inline_markup() {
     assert_html(
         "| Col |\n| --- |\n| **bold** and [link](https://example.com) |",
         "<table>\n<thead>\n<tr>\n<th>Col</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><strong>bold</strong> and <a href=\"https://example.com\">link</a></td>\n</tr>\n</tbody>\n</table>\n",
+    );
+}
+
+#[test]
+fn table_flat_ast_and_html_match_width_boundaries() {
+    use ironmark::{Block, TableAlignment, TableData, parse_markdown};
+
+    for cols in [1, 8, 9, 10] {
+        let header: Vec<String> = (0..cols).map(|i| format!("h{i}")).collect();
+        let values: Vec<String> = (0..cols + 2).map(|i| format!("v{i}")).collect();
+        let input = format!(
+            "|{}|\n|{}|\nonly\n|{}|\n",
+            header.join("|"),
+            vec!["---"; cols].join("|"),
+            values.join("|")
+        );
+        let mut rows = vec![String::new(); cols];
+        rows[0] = "only".to_owned();
+        rows.extend_from_slice(&values[..cols]);
+        assert_eq!(
+            parse_markdown(&input, &ParseOptions::default()),
+            Block::Document {
+                children: vec![Block::Table(Box::new(TableData {
+                    alignments: vec![TableAlignment::None; cols],
+                    num_cols: cols,
+                    header: header.iter().map(|s| s.as_str().into()).collect(),
+                    rows: rows.iter().map(|s| s.as_str().into()).collect(),
+                }))],
+            }
+        );
+        let mut expected = "<table>\n<thead>\n<tr>\n".to_owned();
+        for cell in &header {
+            expected.push_str(&format!("<th>{cell}</th>\n"));
+        }
+        expected.push_str("</tr>\n</thead>\n<tbody>\n");
+        for row in rows.chunks(cols) {
+            expected.push_str("<tr>\n");
+            for cell in row {
+                expected.push_str(&format!("<td>{cell}</td>\n"));
+            }
+            expected.push_str("</tr>\n");
+        }
+        expected.push_str("</tbody>\n</table>\n");
+        assert_html(&input, &expected);
+    }
+}
+
+#[test]
+fn table_crlf_escaped_pipes_and_code_preserve_current_grammar() {
+    use ironmark::{Block, TableAlignment, TableData, parse_markdown};
+
+    let input = "A | B | C\r\n---|:---:|---:\r\n a\\|b | `c\\|d` | Ω \r\n | | short |\r\n x | y | z | discarded\r\n";
+    assert_eq!(
+        parse_markdown(input, &ParseOptions::default()),
+        Block::Document {
+            children: vec![Block::Table(Box::new(TableData {
+                alignments: vec![
+                    TableAlignment::None,
+                    TableAlignment::Center,
+                    TableAlignment::Right
+                ],
+                num_cols: 3,
+                header: vec!["A".into(), "B".into(), "C".into()],
+                rows: [r"a\|b", r"`c\|d`", "Ω", "", "short", "", "x", "y", "z"]
+                    .map(Into::into)
+                    .to_vec(),
+            }))],
+        }
+    );
+    assert_html(
+        input,
+        concat!(
+            "<table>\n<thead>\n<tr>\n<th>A</th>\n",
+            "<th style=\"text-align: center\">B</th>\n<th style=\"text-align: right\">C</th>\n",
+            "</tr>\n</thead>\n<tbody>\n<tr>\n<td>a|b</td>\n",
+            "<td style=\"text-align: center\"><code>c\\|d</code></td>\n",
+            "<td style=\"text-align: right\">Ω</td>\n</tr>\n<tr>\n<td></td>\n",
+            "<td style=\"text-align: center\">short</td>\n<td style=\"text-align: right\"></td>\n",
+            "</tr>\n<tr>\n<td>x</td>\n<td style=\"text-align: center\">y</td>\n",
+            "<td style=\"text-align: right\">z</td>\n</tr>\n</tbody>\n</table>\n",
+        ),
+    );
+}
+
+#[test]
+fn table_narrow_row_discards_thousands_of_long_escaped_cells() {
+    let input = format!(
+        "| H |\n| --- |\n| kept\\|pipe |{}|\n",
+        format!("{}\\|tail|", "x".repeat(80)).repeat(2000)
+    );
+    assert_html(
+        &input,
+        "<table>\n<thead>\n<tr>\n<th>H</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>kept|pipe</td>\n</tr>\n</tbody>\n</table>\n",
+    );
+}
+
+#[cfg(feature = "ansi")]
+#[test]
+fn table_ansi_escaped_pipe_and_discarded_cell_exact_output() {
+    let options = ironmark::AnsiOptions {
+        color: false,
+        ..Default::default()
+    };
+    assert_eq!(
+        ironmark::render_ansi_terminal(
+            "| H |\n| --- |\n| a\\|b | discarded |\n",
+            &ParseOptions::default(),
+            Some(&options)
+        ),
+        "┌─────┐\n│ H   │\n├─────┤\n│ a|b │\n└─────┘\n\n"
+    );
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn table_serde_retains_flat_public_shape() {
+    let ast =
+        ironmark::parse_markdown("A|B\n---|---\nx\ny|z|discarded\n", &ParseOptions::default());
+    assert_eq!(
+        serde_json::to_value(ast).unwrap(),
+        serde_json::json!({
+            "Document": {
+                "children": [{
+                    "Table": {
+                        "alignments": ["None", "None"],
+                        "num_cols": 2,
+                        "header": ["A", "B"],
+                        "rows": ["x", "", "y", "z"]
+                    }
+                }]
+            }
+        })
     );
 }
 
@@ -1307,6 +1458,72 @@ fn ref_def_only_paragraph_emits_nothing_but_resolves() {
     assert!(html.contains("<a href=\"/bar\">foo</a>"), "{html}");
     assert!(!html.contains("[foo]:"), "{html}");
     assert!(html.contains(">H<"), "{html}");
+}
+
+#[test]
+fn ref_def_same_paragraph_remainder_keeps_range_order() {
+    assert_html(
+        concat!(
+            "[r]: /first \"title\"\n[r]: /ignored\nSee [r] α & text.   \n\n",
+            "#\n\n```\n```\n\n## Tail\n\n```txt\ncode\n```\n\nlast [r]\n",
+        ),
+        concat!(
+            "<p>See <a href=\"/first\" title=\"title\">r</a> α &amp; text.</p>\n",
+            "<h1></h1>\n<pre><code></code></pre>\n<h2>Tail</h2>\n",
+            "<pre><code class=\"language-txt\">code\n</code></pre>\n",
+            "<p>last <a href=\"/first\" title=\"title\">r</a></p>\n",
+        ),
+    );
+}
+
+#[test]
+fn ref_def_remainder_invalid_bracket_and_crlf_keep_exact_output() {
+    assert_html(
+        "[r]: /url\r\n[not a definition] Ω [r]   \r\n\r\n# Next\r\n",
+        "<p>[not a definition] Ω <a href=\"/url\">r</a></p>\n<h1>Next</h1>\n",
+    );
+}
+
+#[test]
+fn ref_def_setext_and_owned_container_remainders_keep_exact_output() {
+    assert_html(
+        "[r]: /url\nTitle [r]\n===\n\nnext\n",
+        "<h1>Title <a href=\"/url\">r</a></h1>\n<p>next</p>\n",
+    );
+    assert_html(
+        "> [r]: /url\n> text [r] α\n\n# after\n",
+        "<blockquote>\n<p>text <a href=\"/url\">r</a> α</p>\n</blockquote>\n<h1>after</h1>\n",
+    );
+}
+
+#[test]
+fn ref_def_public_ast_owns_remainder_after_source_and_parser_drop() {
+    use ironmark::{Block, parse_markdown};
+
+    let ast = {
+        let source = String::from(
+            "[r]: /url\nsurviving α [r]   \n\n[s]: /second\nTitle [s]\n===\n\n```\ncode\n```\n",
+        );
+        parse_markdown(&source, &ParseOptions::default())
+    };
+    assert_eq!(
+        ast,
+        Block::Document {
+            children: vec![
+                Block::Paragraph {
+                    raw: "surviving α [r]".to_owned(),
+                },
+                Block::Heading {
+                    level: 1,
+                    raw: "Title [s]".to_owned(),
+                },
+                Block::CodeBlock {
+                    info: "".into(),
+                    literal: "code\n".to_owned(),
+                },
+            ],
+        }
+    );
 }
 
 #[test]

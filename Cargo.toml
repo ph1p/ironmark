@@ -83,6 +83,12 @@ name = "parse"
 path = "benchmark/parse.rs"
 harness = false
 
+[[bench]]
+name = "allocations"
+path = "benchmark/allocations.rs"
+harness = false
+required-features = ["html", "ansi"]
+
 [profile.release]
 opt-level = 3
 lto = true
