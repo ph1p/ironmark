@@ -52,6 +52,15 @@ pub enum Block {
     /// A raw HTML block (type 1–7 per the CommonMark spec).
     /// `literal` contains the verbatim HTML source.
     HtmlBlock { literal: String },
+    /// An MDX flow construct: one or more JSX tags and/or `{expressions}` that
+    /// make up whole lines. Only produced when
+    /// [`enable_mdx`](crate::ParseOptions::enable_mdx) is set. `literal` is the
+    /// verbatim source.
+    MdxFlow { literal: String },
+    /// A top-level MDX `import`/`export` block. Only produced when
+    /// [`enable_mdx`](crate::ParseOptions::enable_mdx) is set. `literal` is the
+    /// verbatim JavaScript source.
+    MdxEsm { literal: String },
     /// A thematic break (`---`, `***`, or `___`). Renders as `<hr />`.
     ThematicBreak,
     /// A pipe table. See [`TableData`] for the cell layout.

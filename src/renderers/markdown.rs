@@ -131,7 +131,7 @@ fn render_block(block: &Block, out: &mut String, depth: usize, in_list_item: boo
                 render_block(child, out, depth, i == 0);
             }
         }
-        Block::HtmlBlock { literal } => {
+        Block::HtmlBlock { literal } | Block::MdxFlow { literal } | Block::MdxEsm { literal } => {
             out.push_str(literal);
             if !literal.ends_with('\n') {
                 out.push('\n');

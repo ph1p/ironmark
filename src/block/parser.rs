@@ -25,6 +25,49 @@ fn advance_past_blockquote_marker(line: &mut Line) {
 }
 
 impl<'a> BlockParser<'a> {
+    /// Whether `rest` (a line remainder starting at `<` or `{`) begins an MDX
+    /// flow construct. `Some(true)`: it is complete on this line;
+    /// `Some(false)`: it spans several lines and does complete later in the
+    /// input; `None`: not a flow construct (falls back to a paragraph).
+    fn mdx_flow_start(&self, rest: &str) -> Option<bool> {
+        match crate::mdx::lex_flow(rest.as_bytes(), |_, _, _| {}) {
+            crate::mdx::Lex::Done(_) => Some(true),
+            crate::mdx::Lex::Invalid => None,
+            crate::mdx::Lex::Incomplete => {
+                // Look ahead through the raw input. Container prefixes on later
+                // lines are not stripped here, so this is a heuristic gate; the
+                // open block itself re-lexes the stripped lines.
+                let base = self.input.as_ptr() as usize;
+                let start = (rest.as_ptr() as usize).checked_sub(base)?;
+                let tail = self.input.get(start..)?;
+                match crate::mdx::lex_flow(tail.as_bytes(), |_, _, _| {}) {
+                    crate::mdx::Lex::Done(_) => Some(false),
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    /// Start an MDX flow block whose first line is `rest` (see [`Self::mdx_flow_start`]).
+    fn push_mdx_flow(&mut self, rest: &str, complete: bool) {
+        if complete {
+            let parent = self.open.last_mut().unwrap();
+            parent.children.push(Block::MdxFlow {
+                literal: rest.trim_end().to_string(),
+            });
+        } else {
+            self.open_raw_block(HtmlBlockEnd::MdxFlow, rest);
+        }
+    }
+
+    /// Open a multi-line MDX block (stored as an HTML block) whose first line is `rest`.
+    fn open_raw_block(&mut self, end_condition: HtmlBlockEnd, rest: &str) {
+        let mut block =
+            OpenBlock::with_content_capacity(OpenBlockType::HtmlBlock { end_condition }, 128);
+        block.content.push_str(rest);
+        self.open.push(block);
+    }
+
     /// Byte range of `s` within `self.input`. `s` MUST be a subslice of the
     /// input (all `Line.raw` slices are) and non-empty — `Line::remainder()`
     /// returns a static `""` past the end, which has no input-relative address.
@@ -284,7 +327,11 @@ impl<'a> BlockParser<'a> {
                 }
                 OpenBlockType::HtmlBlock { end_condition } => {
                     let end_condition = *end_condition;
-                    if end_condition == HtmlBlockEnd::BlankLine && line.is_blank() {
+                    if matches!(
+                        end_condition,
+                        HtmlBlockEnd::BlankLine | HtmlBlockEnd::MdxEsm
+                    ) && line.is_blank()
+                    {
                         self.close_top_block();
                         return;
                     }
@@ -292,7 +339,15 @@ impl<'a> BlockParser<'a> {
                         self.open[tip_idx].content.push('\n');
                     }
                     self.open[tip_idx].content.push_str(line.remainder());
-                    if html_block_ends(&end_condition, line.remainder()) {
+                    let ends = if end_condition == HtmlBlockEnd::MdxFlow {
+                        // Close once the accumulated lines lex as a whole construct
+                        // (or turn out invalid — the lines are already committed).
+                        crate::mdx::lex_flow(self.open[tip_idx].content.as_bytes(), |_, _, _| {})
+                            != crate::mdx::Lex::Incomplete
+                    } else {
+                        html_block_ends(&end_condition, line.remainder())
+                    };
+                    if ends {
                         self.close_top_block();
                     }
                     return;
@@ -364,7 +419,7 @@ impl<'a> BlockParser<'a> {
                                 | b'>'
                                 | b'+'
                                 | b'0'..=b'9' | b'|' | b':'
-                        )
+                        ) && !(self.enable_mdx && ns_byte == b'{')
                     {
                         line.advance_to_nonspace();
                         let rem = line.remainder();
@@ -446,7 +501,15 @@ impl<'a> BlockParser<'a> {
                             self.open.push(block);
                             return;
                         }
-                        if let Some(end_condition) = parse_html_block_start(rest, true) {
+                        if self.enable_mdx {
+                            if matches!(ns_byte, b'<' | b'{')
+                                && let Some(complete) = self.mdx_flow_start(rest)
+                            {
+                                self.close_top_block();
+                                self.push_mdx_flow(rest, complete);
+                                return;
+                            }
+                        } else if let Some(end_condition) = parse_html_block_start(rest, true) {
                             self.close_top_block();
                             let mut block = OpenBlock::with_content_capacity(
                                 OpenBlockType::HtmlBlock { end_condition },
@@ -508,7 +571,10 @@ impl<'a> BlockParser<'a> {
                                     .is_some()
                                 || parse_fence_start(rest).is_some()
                                 || (!self.no_html_blocks
-                                    && parse_html_block_start(rest, false).is_some()))));
+                                    && parse_html_block_start(rest, false).is_some())))
+                        || (self.enable_mdx
+                            && matches!(rb, b'<' | b'{')
+                            && self.mdx_flow_start(rest).is_some()));
 
                 if !can_start_new {
                     let marker = if indent <= 3 && LEAF_START_BYTE[rb as usize] {
@@ -592,6 +658,13 @@ impl<'a> BlockParser<'a> {
                 self.open.push(OpenBlock::new(OpenBlockType::BlockQuote));
                 self.open_blockquotes += 1;
                 continue;
+            }
+
+            if indent <= 3
+                && self.enable_mdx
+                && self.try_open_mdx(&line, indent, ns_off, first_byte)
+            {
+                return;
             }
 
             if indent <= 3 {
@@ -710,6 +783,33 @@ impl<'a> BlockParser<'a> {
             self.push_paragraph_line(line);
             return;
         }
+    }
+
+    /// Open an MDX ESM or flow block for this line if it starts one.
+    #[cold]
+    fn try_open_mdx(
+        &mut self,
+        line: &Line<'a>,
+        indent: usize,
+        ns_off: usize,
+        first_byte: u8,
+    ) -> bool {
+        let rest = line.raw.get(ns_off..).unwrap_or("");
+        if indent == 0
+            && self.open.len() == 1
+            && matches!(first_byte, b'i' | b'e')
+            && crate::mdx::is_esm_start(rest)
+        {
+            self.open_raw_block(HtmlBlockEnd::MdxEsm, rest);
+            return true;
+        }
+        if matches!(first_byte, b'<' | b'{')
+            && let Some(complete) = self.mdx_flow_start(rest)
+        {
+            self.push_mdx_flow(rest, complete);
+            return true;
+        }
+        false
     }
 
     #[inline]
@@ -883,6 +983,17 @@ impl<'a> BlockParser<'a> {
                 Some(Block::CodeBlock {
                     info: CompactString::default(),
                     literal,
+                })
+            }
+            OpenBlockType::HtmlBlock {
+                end_condition: end @ (HtmlBlockEnd::MdxFlow | HtmlBlockEnd::MdxEsm),
+            } => {
+                let mut literal = block.content;
+                literal.truncate(literal.trim_end().len());
+                Some(if end == HtmlBlockEnd::MdxFlow {
+                    Block::MdxFlow { literal }
+                } else {
+                    Block::MdxEsm { literal }
                 })
             }
             OpenBlockType::HtmlBlock { .. } => Some(Block::HtmlBlock {

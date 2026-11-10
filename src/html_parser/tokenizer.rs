@@ -5,6 +5,8 @@
 
 use std::borrow::Cow;
 
+use crate::entities::decode_entities;
+
 /// An HTML token produced by the tokenizer.
 #[derive(Clone, Debug, PartialEq)]
 pub enum HtmlToken<'a> {
@@ -446,32 +448,6 @@ fn is_void_element(name: &str) -> bool {
             | "track"
             | "wbr"
     )
-}
-
-/// Decode HTML entities in a string, using the full HTML5 entity table.
-/// Clean runs between entities are bulk-copied; entity-free text stays borrowed.
-fn decode_entities(s: &str) -> Cow<'_, str> {
-    let bytes = s.as_bytes();
-    if memchr::memchr(b'&', bytes).is_none() {
-        return Cow::Borrowed(s);
-    }
-
-    let mut result = String::with_capacity(s.len());
-    let mut i = 0;
-    let mut seg_start = 0;
-    while let Some(off) = memchr::memchr(b'&', &bytes[i..]) {
-        let amp = i + off;
-        result.push_str(&s[seg_start..amp]);
-        if let Some(end) = crate::entities::resolve_entity_in_bytes(bytes, amp, &mut result) {
-            i = end;
-        } else {
-            result.push('&');
-            i = amp + 1;
-        }
-        seg_start = i;
-    }
-    result.push_str(&s[seg_start..]);
-    Cow::Owned(result)
 }
 
 #[cfg(test)]

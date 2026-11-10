@@ -360,7 +360,7 @@ impl<'a> AnsiRenderer<'a> {
                 self.render_list_item(block, &ListKind::Bullet(b'-'));
             }
 
-            Block::HtmlBlock { .. } => {}
+            Block::HtmlBlock { .. } | Block::MdxFlow { .. } | Block::MdxEsm { .. } => {}
 
             Block::Table(table) => {
                 self.render_table(table);

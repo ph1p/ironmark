@@ -242,3 +242,29 @@ pub(crate) fn resolve_entity_in_bytes(
         }
     }
 }
+
+/// Decode HTML entities in a string, using the full HTML5 entity table.
+/// Clean runs between entities are bulk-copied; entity-free text stays borrowed.
+pub(crate) fn decode_entities(s: &str) -> std::borrow::Cow<'_, str> {
+    let bytes = s.as_bytes();
+    if memchr::memchr(b'&', bytes).is_none() {
+        return std::borrow::Cow::Borrowed(s);
+    }
+
+    let mut result = String::with_capacity(s.len());
+    let mut i = 0;
+    let mut seg_start = 0;
+    while let Some(off) = memchr::memchr(b'&', &bytes[i..]) {
+        let amp = i + off;
+        result.push_str(&s[seg_start..amp]);
+        if let Some(end) = resolve_entity_in_bytes(bytes, amp, &mut result) {
+            i = end;
+        } else {
+            result.push('&');
+            i = amp + 1;
+        }
+        seg_start = i;
+    }
+    result.push_str(&s[seg_start..]);
+    std::borrow::Cow::Owned(result)
+}

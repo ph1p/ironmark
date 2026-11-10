@@ -64,6 +64,7 @@
 //! | `# heading` with `id=` | `<h1 id="heading">` | [`enable_heading_ids`](ParseOptions::enable_heading_ids) |
 //! | `# heading` with anchor | `<h1>… <a class="anchor">` | [`enable_heading_anchors`](ParseOptions::enable_heading_anchors) |
 //! | `#Heading` (no space) | `<h1>` | [`permissive_atx_headers`](ParseOptions::permissive_atx_headers) |
+//! | `<Jsx />`, `{expr}`, `import`/`export` | JSX via [`render_jsx`] | [`enable_mdx`](ParseOptions::enable_mdx) |
 
 // Core modules (always compiled)
 pub mod ast;
@@ -74,6 +75,8 @@ mod entities;
 mod html;
 #[cfg_attr(not(feature = "html"), allow(dead_code))]
 mod inline;
+#[cfg_attr(not(feature = "html"), allow(dead_code))]
+mod mdx;
 mod renderers;
 
 // Feature-gated modules
@@ -110,6 +113,8 @@ pub use html_parser::{
 #[cfg(feature = "html")]
 #[doc(hidden)]
 pub use inline::benchmark_parse_inline as __benchmark_parse_inline;
+#[cfg(feature = "html")]
+pub use mdx::convert::{JsxOptions, MdxError, MdxOutput, render_jsx, render_jsx_with};
 #[cfg(feature = "html")]
 #[doc(hidden)]
 pub use render::benchmark_heading_slug as __benchmark_heading_slug;
@@ -214,6 +219,21 @@ pub struct ParseOptions {
     /// `<span class="math-display">` for client-side rendering.
     /// Default: `false`.
     pub enable_latex_math: bool,
+    /// Enable MDX syntax: JSX tags (`<Note>`, `<Chart data={d} />`),
+    /// `{expressions}` and top-level `import`/`export` blocks.
+    ///
+    /// Following MDX, this also turns off indented code blocks, HTML blocks,
+    /// inline HTML and `<url>` autolinks — `<` always means JSX.
+    ///
+    /// Use [`render_jsx`] to get JSX output. With [`render_html`], MDX pieces
+    /// are emitted verbatim (escaped when `disable_raw_html` is set) and ESM
+    /// blocks are dropped.
+    ///
+    /// **Security:** MDX is code. Only enable it for trusted authors —
+    /// `disable_raw_html` does not make compiled MDX safe.
+    ///
+    /// Default: `false`.
+    pub enable_mdx: bool,
 }
 
 impl Default for ParseOptions {
@@ -239,6 +259,7 @@ impl Default for ParseOptions {
             permissive_atx_headers: false,
             enable_wiki_links: false,
             enable_latex_math: false,
+            enable_mdx: false,
         }
     }
 }

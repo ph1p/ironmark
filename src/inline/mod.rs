@@ -126,6 +126,7 @@ static SPECIAL: [u8; 256] = {
     t[b':' as usize] = both;
     t[b'@' as usize] = both;
     t[b'$' as usize] = both;
+    t[b'{' as usize] = both;
     t
 };
 
@@ -312,6 +313,8 @@ pub(crate) struct InlineBuffers {
     pub(crate) scan_table: [u8; 256],
     scan_key: u8,
     pub(crate) scratch: String,
+    /// Wrap MDX pieces in NUL sentinels for the JSX converter instead of emitting them raw.
+    pub(crate) mdx_sentinels: bool,
 }
 
 impl InlineBuffers {
@@ -326,6 +329,7 @@ impl InlineBuffers {
             scan_table: build_scan_table(DEFAULT_SCAN_KEY),
             scan_key: DEFAULT_SCAN_KEY,
             scratch: String::new(),
+            mdx_sentinels: false,
         }
     }
 
@@ -346,6 +350,7 @@ fn scan_key(opts: &ParseOptions) -> u8 {
         | ((opts.enable_underline as u8) << 2)
         | ((opts.enable_autolink as u8) << 3)
         | ((opts.enable_latex_math as u8) << 4)
+        | ((opts.enable_mdx as u8) << 5)
 }
 
 const DEFAULT_SCAN_KEY: u8 = 0b0_1111;
@@ -379,6 +384,9 @@ fn build_scan_table(key: u8) -> [u8; 256] {
     }
     if key & 16 != 0 {
         t[b'$' as usize] = SCAN_FULL;
+    }
+    if key & 32 != 0 {
+        t[b'{' as usize] = SCAN_FULL;
     }
     t
 }
@@ -466,6 +474,10 @@ enum InlineItem {
     MathInline(usize, usize),
     /// `$$...$$` display math. Range covers content (excluding delimiters).
     MathDisplay(usize, usize),
+    /// MDX JSX tag (`enable_mdx`). Range covers the whole tag.
+    MdxJsx(usize, usize, crate::mdx::TagKind),
+    /// MDX `{expression}` (`enable_mdx`). Range covers the braces too.
+    MdxExpr(usize, usize),
 }
 
 #[derive(Clone, Debug)]
@@ -493,6 +505,8 @@ struct InlineScanner<'a> {
     has_backtick_index: bool,
     backtick_last: [u32; 64],
     backtick_last_long: Option<rustc_hash::FxHashMap<u32, u32>>,
+    /// Copied from [`InlineBuffers::mdx_sentinels`].
+    mdx_sentinels: bool,
 }
 
 impl<'a> InlineScanner<'a> {
@@ -515,7 +529,9 @@ impl<'a> InlineScanner<'a> {
         } else {
             ([u32::MAX; 64], None)
         };
+        let mdx_sentinels = bufs.mdx_sentinels;
         Self {
+            mdx_sentinels,
             input,
             bytes: input.as_bytes(),
             pos: 0,

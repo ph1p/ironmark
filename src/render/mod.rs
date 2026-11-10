@@ -243,6 +243,12 @@ fn render_document_children<'a>(
                     out.push('\n');
                 }
             }
+            Block::MdxFlow { literal } => render_mdx_flow(out, literal, ctx, bufs),
+            Block::MdxEsm { literal } => {
+                if bufs.mdx_sentinels {
+                    crate::mdx::push_sentinel(out, 'M', literal);
+                }
+            }
             Block::Table(td) => {
                 // Tables at document level: call render_one with a local stack (tables
                 // never push extra Work items, so the stack stays empty after the call).
@@ -317,6 +323,18 @@ fn render_single_child_doc(
     }
 }
 
+/// Emit an MDX flow block. In JSX mode every piece is wrapped in a flow
+/// sentinel for the converter; in HTML mode the literal passes through raw.
+#[cold]
+fn render_mdx_flow(out: &mut String, literal: &str, ctx: RenderCtx<'_>, bufs: &InlineBuffers) {
+    if bufs.mdx_sentinels {
+        crate::mdx::push_flow_sentinels(out, literal);
+    } else {
+        crate::mdx::push_raw(out, literal, ctx.opts.disable_raw_html);
+    }
+    out.push('\n');
+}
+
 fn list_close_tag(kind: &ListKind) -> &'static str {
     match kind {
         ListKind::Bullet(_) => "</ul>\n",
@@ -377,6 +395,12 @@ fn render_one<'a>(
             }
             if !literal.ends_with('\n') {
                 out.push('\n');
+            }
+        }
+        Block::MdxFlow { literal } => render_mdx_flow(out, literal, ctx, bufs),
+        Block::MdxEsm { literal } => {
+            if bufs.mdx_sentinels {
+                crate::mdx::push_sentinel(out, 'M', literal);
             }
         }
         Block::BlockQuote { children } => {

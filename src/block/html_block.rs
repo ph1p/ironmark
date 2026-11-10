@@ -337,6 +337,6 @@ pub(super) fn html_block_ends(condition: &HtmlBlockEnd, line: &str) -> bool {
             }
             false
         }
-        HtmlBlockEnd::BlankLine => false,
+        HtmlBlockEnd::BlankLine | HtmlBlockEnd::MdxFlow | HtmlBlockEnd::MdxEsm => false,
     }
 }

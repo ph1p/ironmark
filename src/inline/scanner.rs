@@ -138,6 +138,33 @@ impl<'a> InlineScanner<'a> {
                     self.handle_close_bracket();
                     text_start = self.pos;
                 }
+                b'<' if self.opts.enable_mdx => {
+                    self.flush_text_range(text_start, self.pos);
+                    match crate::mdx::lex_jsx_tag(bytes, self.pos) {
+                        Ok((end, kind)) => {
+                            self.items.push(InlineItem::MdxJsx(self.pos, end, kind));
+                            self.pos = end;
+                        }
+                        _ => {
+                            self.items.push(InlineItem::TextStatic("&lt;"));
+                            self.pos += 1;
+                        }
+                    }
+                    text_start = self.pos;
+                }
+                b'{' => {
+                    if self.opts.enable_mdx
+                        && let crate::mdx::Lex::Done(end) =
+                            crate::mdx::lex_expression(bytes, self.pos)
+                    {
+                        self.flush_text_range(text_start, self.pos);
+                        self.items.push(InlineItem::MdxExpr(self.pos, end));
+                        self.pos = end;
+                        text_start = self.pos;
+                    } else {
+                        self.pos += 1;
+                    }
+                }
                 b'<' => {
                     self.flush_text_range(text_start, self.pos);
                     if self.try_autolink() || self.try_html_inline() {

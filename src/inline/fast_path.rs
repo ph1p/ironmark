@@ -87,6 +87,7 @@ pub(super) fn try_emit_common_inline(out: &mut String, raw: &str, opts: &ParseOp
             }
             b':' | b'@' if opts.enable_autolink => return false,
             b'$' if opts.enable_latex_math => return false,
+            b'{' if opts.enable_mdx => return false,
             b'[' => {
                 flush_text!(i);
                 let Some(next_i) = emit_simple_link(out, raw, opts, i, i) else {

@@ -45,6 +45,17 @@ fn truncate_to_limit(s: &str, limit: usize) -> &str {
 /// ```
 #[cfg(feature = "html")]
 pub fn render_html(markdown: &str, options: &ParseOptions) -> String {
+    render_html_impl(markdown, options, false)
+}
+
+/// [`render_html`] with an internal switch: `mdx_sentinels` wraps every MDX
+/// piece in NUL sentinels for the JSX converter instead of emitting it raw.
+#[cfg(feature = "html")]
+pub(crate) fn render_html_impl(
+    markdown: &str,
+    options: &ParseOptions,
+    mdx_sentinels: bool,
+) -> String {
     // Source byte offsets are tracked as u32 in render mode (`src_ranges`), so the
     // input is hard-capped at u32::MAX bytes to keep those casts from wrapping —
     // a wrapped range would slice the source out of bounds and panic. This is below
@@ -68,6 +79,7 @@ pub fn render_html(markdown: &str, options: &ParseOptions) -> String {
     let src_ranges = parser.src_ranges;
     let mut bufs = InlineBuffers::new();
     bufs.prepare(options);
+    bufs.mdx_sentinels = mdx_sentinels;
     render_block(
         &doc,
         &refs,
@@ -352,6 +364,11 @@ enum HtmlBlockEnd {
     Declaration,
     Cdata,
     BlankLine,
+    /// MDX JSX tags / expressions spanning several lines; ends once the
+    /// accumulated content lexes as a complete flow construct.
+    MdxFlow,
+    /// MDX `import`/`export` block; ends at a blank line.
+    MdxEsm,
 }
 
 #[derive(Clone, Debug)]
@@ -441,6 +458,7 @@ pub(crate) struct BlockParser<'a> {
     enable_indented_code_blocks: bool,
     permissive_atx_headers: bool,
     no_html_blocks: bool,
+    enable_mdx: bool,
     /// Render-mode deferred-text stream, shared by code blocks, paragraphs, and
     /// headings. Each entry is `(start, end)` into `self.input`, pushed in document
     /// order by `defer_raw`/`finalize_block`. The corresponding `literal`/`raw` is
@@ -469,9 +487,13 @@ impl<'a> BlockParser<'a> {
             list_indent_sum: 0,
             last_list_item_idx: None,
             max_nesting_depth: options.max_nesting_depth,
-            enable_indented_code_blocks: options.enable_indented_code_blocks,
+            // MDX has no indented code and no HTML blocks.
+            enable_indented_code_blocks: options.enable_indented_code_blocks && !options.enable_mdx,
             permissive_atx_headers: options.permissive_atx_headers,
-            no_html_blocks: options.no_html_blocks || options.disable_raw_html,
+            no_html_blocks: options.no_html_blocks
+                || options.disable_raw_html
+                || options.enable_mdx,
+            enable_mdx: options.enable_mdx,
             src_ranges: Vec::new(),
             render_mode: false,
         }

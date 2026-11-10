@@ -45,6 +45,12 @@ impl<'a> InlineScanner<'a> {
                         out.push_str(html);
                     }
                 }
+                InlineItem::MdxJsx(start, end, kind) => {
+                    self.push_mdx_piece(out, opts, kind.marker(false), *start, *end);
+                }
+                InlineItem::MdxExpr(start, end) => {
+                    self.push_mdx_piece(out, opts, 'e', *start, *end);
+                }
                 InlineItem::Autolink(start, end, is_email) => {
                     let content = &self.input[*start as usize..*end as usize];
                     out.push_str("<a href=\"");
@@ -228,6 +234,25 @@ impl<'a> InlineScanner<'a> {
             }
         }
         s
+    }
+
+    /// Emit one inline MDX piece: sentinel-wrapped for the JSX converter, or
+    /// raw in HTML mode (escaped under `disable_raw_html`).
+    #[cold]
+    fn push_mdx_piece(
+        &self,
+        out: &mut String,
+        opts: &ParseOptions,
+        marker: char,
+        start: usize,
+        end: usize,
+    ) {
+        let lit = &self.input[start..end];
+        if self.mdx_sentinels {
+            crate::mdx::push_sentinel(out, marker, lit);
+        } else {
+            crate::mdx::push_raw(out, lit, opts.disable_raw_html);
+        }
     }
 }
 
