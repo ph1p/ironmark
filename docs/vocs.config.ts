@@ -30,6 +30,7 @@ export default defineConfig({
       items: [
         { text: "Getting started", link: "/getting-started" },
         { text: "Which function?", link: "/which-function" },
+        { text: "Playground", link: PLAYGROUND },
       ],
     },
     {
