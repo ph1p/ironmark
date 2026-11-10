@@ -28,6 +28,7 @@
 //! | `--no-task-lists` | Disable `- [x]` task list syntax |
 //! | `--math` | Enable `$inline$` and `$$display$$` math syntax |
 //! | `--wiki-links` | Enable `[[wiki link]]` syntax |
+//! | `--frontmatter` | Skip a leading `---`/`+++` front matter block |
 //! | `--max-size N` | Truncate input to N bytes (0 = unlimited, default: 0) |
 //! | `--help`, `-h` | Print this help and exit |
 //! | `--version`, `-V` | Print version and exit |
@@ -66,6 +67,7 @@ OPTIONS (all formats):
     --no-task-lists               Disable - [x] task list syntax
     --math                        Enable $inline$ and $$display$$ math
     --wiki-links                  Enable [[wiki link]] syntax
+    --frontmatter                 Skip a leading ---/+++ front matter block
     --max-size N                  Truncate input to N bytes (0 = unlimited)
     -h, --help                    Print this help and exit
     -V, --version                 Print version and exit
@@ -133,6 +135,7 @@ fn main() {
             "--no-task-lists" => parse_opts.enable_task_lists = false,
             "--math" => parse_opts.enable_latex_math = true,
             "--wiki-links" => parse_opts.enable_wiki_links = true,
+            "--frontmatter" => parse_opts.enable_frontmatter = true,
             "-w" | "--width" => {
                 i += 1;
                 if i >= args.len() {

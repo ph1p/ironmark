@@ -140,15 +140,7 @@ pub fn render_ansi_terminal(
             &default_aopts
         }
     };
-    let markdown = if options.max_input_size > 0 && markdown.len() > options.max_input_size {
-        let mut end = options.max_input_size;
-        while end > 0 && !markdown.is_char_boundary(end) {
-            end -= 1;
-        }
-        &markdown[..end]
-    } else {
-        markdown
-    };
+    let markdown = crate::block::prepare_input(markdown, options, usize::MAX);
 
     let mut parser = crate::block::BlockParser::new(markdown, options);
     let doc = parser.parse();

@@ -2,6 +2,13 @@
 
 export type MarkdownInput = string | Uint8Array | ArrayBuffer | ArrayBufferView;
 
+/** `T` with every nested property and array element read-only. */
+export type DeepReadonly<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends object
+    ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+    : T;
+
 // ─── Preset names ─────────────────────────────────────────────────────────────
 
 /**
@@ -26,14 +33,16 @@ export interface ParseOptions {
   preset?: PresetName;
 
   /**
-   * Enable safe rendering. Equivalent to `{ disableRawHtml: true, tagFilter: true }`.
-   * Explicit `disableRawHtml` / `tagFilter` values override this.
+   * Enable safe rendering. Equivalent to `{ disableRawHtml: true, tagFilter: true }`;
+   * `false` sets both back to `false`. Explicit `disableRawHtml` / `tagFilter` values
+   * override this.
    */
   safe?: boolean;
 
   /**
    * When true, output is normalized for deterministic comparison:
    * whitespace is collapsed and output is stable across runs.
+   * Shorthand for `collapseWhitespace`; `false` turns it back off.
    */
   deterministic?: boolean;
 
@@ -87,6 +96,12 @@ export interface ParseOptions {
    * Default: false.
    */
   enableMdx?: boolean;
+  /**
+   * Skip a leading front matter block (`---` YAML or `+++` TOML) instead of rendering
+   * it; `doc.frontmatter()` returns its raw text. Off by default because CommonMark
+   * reads a leading `---` as a thematic break. Default: false.
+   */
+  enableFrontmatter?: boolean;
 }
 
 // ─── ANSI options ─────────────────────────────────────────────────────────────
@@ -207,6 +222,32 @@ export interface HeadingInfo {
   id: string;
 }
 
+/** A link from `doc.links()`: inline, reference, wiki, auto, or raw `<a href>`. */
+export interface LinkInfo {
+  /** The rendered destination; empty when it was stripped as dangerous (`javascript:`…). */
+  url: string;
+  title: string | null;
+  /** The link text as plain text. */
+  text: string;
+}
+
+/** An image from `doc.images()`: Markdown `![alt](src)` or raw `<img src>`. */
+export interface ImageInfo {
+  url: string;
+  title: string | null;
+  alt: string;
+}
+
+/** Counts from `doc.stats()`, taken over `doc.text()`. */
+export interface DocumentStats {
+  /** Runs of letters and digits (`don't` is one word). */
+  words: number;
+  /** Non-whitespace characters (code points). */
+  characters: number;
+  /** Minutes at 200 words per minute, rounded up. */
+  readingTime: number;
+}
+
 export interface AstSummary {
   blockCount: number;
   nodeCounts: Record<string, number>;
@@ -217,7 +258,7 @@ export interface AstSummary {
 /**
  * Initialize the WASM module.
  *
- * - **Node.js**: no-op — packaged WASM is read from disk synchronously at import time.
+ * - **Node.js**: resolves at once — packaged WASM is read from disk synchronously at import time.
  * - **Browser/Bundler**: must be awaited before calling any other function.
  *   Accepts a URL or `WebAssembly.Module` to override the default WASM location.
  *   Safe to call multiple times.
@@ -294,7 +335,23 @@ export declare function markdownToHtml(input: MarkdownInput, options?: ParseOpti
  * const md = astToMarkdown(ast);
  * ```
  */
-export declare function astToMarkdown(ast: MarkdownAst | string): string;
+export declare function astToMarkdown(ast: DeepReadonly<MarkdownAst> | string): string;
+
+/**
+ * Render Markdown as plain text.
+ *
+ * Inline markup is removed, entities and escapes are resolved, and hard line breaks
+ * become `\n`. Blocks are separated by a blank line, tight list items by one newline,
+ * and table cells by tabs. Raw HTML blocks, MDX blocks and thematic breaks are dropped.
+ *
+ * @example
+ * ```ts
+ * import { markdownToText } from "ironmark";
+ *
+ * markdownToText("# Hi *there*\n\na &lt; b"); // "Hi there\n\na < b"
+ * ```
+ */
+export declare function markdownToText(input: MarkdownInput, options?: ParseOptions): string;
 
 /**
  * Render Markdown as ANSI-coloured terminal output.
@@ -421,7 +478,9 @@ export declare const PRESETS: Readonly<Record<PresetName, Readonly<Partial<Parse
  * // [{ level: 1, text: "Hello", id: "hello" }, { level: 2, text: "World", id: "world" }]
  * ```
  */
-export declare function extractHeadings(ast: MarkdownAst | AstNode[]): HeadingInfo[];
+export declare function extractHeadings(
+  ast: DeepReadonly<MarkdownAst> | DeepReadonly<AstNode[]>,
+): HeadingInfo[];
 
 /**
  * Summarize an AST: count top-level blocks and every node type (the root excluded).
@@ -434,4 +493,157 @@ export declare function extractHeadings(ast: MarkdownAst | AstNode[]): HeadingIn
  * // { blockCount: 3, nodeCounts: { Heading: 1, Paragraph: 1, List: 1, ... } }
  * ```
  */
-export declare function summarizeAst(ast: MarkdownAst | AstNode[]): AstSummary;
+export declare function summarizeAst(
+  ast: DeepReadonly<MarkdownAst> | DeepReadonly<AstNode[]>,
+): AstSummary;
+
+// ─── Fluent API (default export) ──────────────────────────────────────────────
+
+/** A heading from `doc.toc()`, with the deeper headings that follow it nested inside. */
+export interface TocEntry extends HeadingInfo {
+  children: TocEntry[];
+}
+
+/** Parse options after presets and shorthands are expanded, as `doc.options` holds them. */
+export type ResolvedOptions = Readonly<
+  Omit<ParseOptions, "preset" | "safe" | "deterministic" | "stableAst">
+>;
+
+/** Terminal layout for `doc.ansi()`. Parse options go through `parse()` / `with()`. */
+export type AnsiRenderOptions = Pick<AnsiOptions, "width" | "color" | "lineNumbers" | "padding">;
+
+/** JSX output settings for `doc.jsx()`. Parse options go through `parse()` / `with()`. */
+export type JsxRenderOptions = Pick<JsxOptions, "components" | "providerImportSource">;
+
+/**
+ * What every document has, in every entry. Each output renders on first call and is
+ * cached (per render-option values for `ansi()` / `jsx()`). Results are frozen: use
+ * `structuredClone()` for a copy you can edit. Methods must be called on the document.
+ */
+export interface BaseDocument {
+  /** The Markdown source: the original string, or the input bytes decoded once. */
+  readonly source: string;
+  /** The document's parse options, presets and shorthands expanded. Frozen. */
+  readonly options: ResolvedOptions;
+  /** Render to HTML. */
+  html(this: BaseDocument): string;
+  /** Plain text: inline markup stripped, blocks separated by blank lines, raw HTML dropped. */
+  text(this: BaseDocument): string;
+  /** Every heading in document order; `id` matches what `enableHeadingIds` renders. */
+  headings(this: BaseDocument): DeepReadonly<HeadingInfo[]>;
+  /** Headings nested by level, ready to render as a table of contents. */
+  toc(this: BaseDocument): DeepReadonly<TocEntry[]>;
+  /** Every link in document order, including links in headings and table cells. */
+  links(this: BaseDocument): DeepReadonly<LinkInfo[]>;
+  /** Every image in document order. */
+  images(this: BaseDocument): DeepReadonly<ImageInfo[]>;
+  /**
+   * The raw front matter between the fences (unparsed: bring your own YAML/TOML
+   * parser), or `null`. Always `null` unless `enableFrontmatter` is on.
+   */
+  frontmatter(this: BaseDocument): string | null;
+  /** Word count, character count and reading time of the plain text. */
+  stats(this: BaseDocument): Readonly<DocumentStats>;
+  /**
+   * The same source with these parse options layered on top, as a new document.
+   * A layer with `preset` starts over from that preset instead of the current options.
+   */
+  with<D extends BaseDocument>(this: D, options: ParseOptions): D;
+}
+
+/** Document methods backed by the AST. */
+export interface AstDocumentMethods {
+  /** The parsed AST. Frozen: `structuredClone()` it before editing. */
+  ast(this: AstDocumentMethods): DeepReadonly<MarkdownAst>;
+  /** Normalized Markdown, re-rendered from the AST. */
+  markdown(this: AstDocumentMethods): string;
+  /** Top-level block count and per-type node counts. */
+  summary(this: AstDocumentMethods): DeepReadonly<AstSummary>;
+}
+
+/** Document methods backed by the MDX compiler. */
+export interface JsxDocumentMethods {
+  /** Compile as MDX (`enableMdx` is implied). */
+  jsx(this: JsxDocumentMethods, options?: JsxRenderOptions): Readonly<JsxOutput>;
+}
+
+/** A document from `ironmark/html`: HTML, text and headings. */
+export interface HtmlDocument extends BaseDocument {}
+
+/** A document from `ironmark/mdx`: adds JSX. */
+export interface MdxDocument extends BaseDocument, JsxDocumentMethods {}
+
+/** A document from `ironmark/ast`: adds the AST and everything derived from it. */
+export interface AstDocument extends BaseDocument, AstDocumentMethods {}
+
+/** A document from the full `ironmark` entry: every output. */
+export interface Document extends BaseDocument, AstDocumentMethods, JsxDocumentMethods {
+  /** Render for a terminal. */
+  ansi(this: Document, options?: AnsiRenderOptions): string;
+}
+
+/** Document outputs that the default export also offers as one-shot shortcuts. */
+export type ShortcutName =
+  | "html"
+  | "text"
+  | "headings"
+  | "toc"
+  | "links"
+  | "images"
+  | "frontmatter"
+  | "stats"
+  | "ast"
+  | "markdown"
+  | "ansi"
+  | "jsx";
+
+/** `ironmark.html(md)` for `ironmark.parse(md).html()`, for each output `Doc` has. */
+export type Shortcuts<Doc> = {
+  [K in ShortcutName & keyof Doc]: Doc[K] extends (...args: infer A) => infer R
+    ? (input: MarkdownInput, ...args: A) => R
+    : never;
+};
+
+/** An entry's default export without its shortcuts. */
+export interface IronmarkBase<Doc> {
+  /** Options every `parse()` starts from (empty unless built with `with()`). Frozen. */
+  readonly options: ResolvedOptions;
+  /** Wrap Markdown in a document. Nothing renders until you ask for an output. */
+  parse(input: MarkdownInput, options?: ParseOptions): Doc;
+  /** A copy whose `parse()` starts from these options, e.g. `ironmark.with({ preset: "safe" })`. */
+  with(options: ParseOptions): this;
+  /** Load the WASM binary. Resolves at once under Node; must be awaited in the browser. */
+  init(input?: string | URL | WebAssembly.Module): Promise<void>;
+  /** `init()` with the default WASM location; await it once before the first parse. */
+  readonly ready: Promise<void>;
+}
+
+/** An entry's default export. `Doc` is the document type `parse()` returns. */
+export type IronmarkApi<Doc> = IronmarkBase<Doc> & Shortcuts<Doc>;
+
+/** The full entry's default export. */
+export interface Ironmark extends IronmarkApi<Document> {
+  /** Convert HTML to Markdown and wrap the result in a document. */
+  fromHtml(html: string, options?: ParseOptions & HtmlParseOptions): Document;
+}
+
+/**
+ * Chainable API: wrap Markdown once, ask for any output. Each output is its own
+ * WASM call; results are cached on the document.
+ *
+ * @example
+ * ```ts
+ * import ironmark from "ironmark";
+ *
+ * const doc = ironmark.parse("# Hello\n\n**World**");
+ * doc.html();     // "<h1>Hello</h1>\n<p><strong>World</strong></p>\n"
+ * doc.ansi();     // coloured terminal output
+ * doc.headings(); // [{ level: 1, text: "Hello", id: "hello" }]
+ * ironmark.html("*one-shot*"); // same as ironmark.parse(...).html()
+ *
+ * const safe = ironmark.with({ preset: "safe" });
+ * safe.parse(userInput).html();
+ * ```
+ */
+declare const ironmark: Ironmark;
+export default ironmark;

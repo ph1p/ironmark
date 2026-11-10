@@ -25,7 +25,7 @@ import {readFileSync} from "node:fs";
 const [fullURL, htmlURL, assetURL] = process.argv.slice(1);
 const full = await import(fullURL);
 const html = await import(htmlURL);
-assert.deepEqual(Object.keys(html).sort(), ["CAPABILITIES","DEFAULT_OPTIONS","PRESETS","init","markdownToHtml"]);
+assert.deepEqual(Object.keys(html).sort(), ["CAPABILITIES","DEFAULT_OPTIONS","PRESETS","default","init","markdownToHtml","markdownToText"]);
 const before = full.markdownToHtml("**full**");
 const module = new WebAssembly.Module(readFileSync(new URL(assetURL)));
 const initialized = html.init(module);

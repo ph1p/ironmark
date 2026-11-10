@@ -40,12 +40,14 @@ const api = await import(process.argv[2]);
 const entry = process.argv[3];
 assert.strictEqual(api, await import(entry));
 assert.deepEqual(Object.keys(api).sort(), [
-  "init", "markdownToAst", "markdownToHtml", "astToMarkdown", "markdownToAnsi", "mdxToJsx",
+  "default", "init", "markdownToAst", "markdownToHtml", "markdownToText", "astToMarkdown", "markdownToAnsi", "mdxToJsx",
   "htmlToAst", "htmlToMarkdown", "CAPABILITIES", "AST_SCHEMA_VERSION",
   "DEFAULT_OPTIONS", "PRESETS", "extractHeadings", "summarizeAst"
 ].sort());
-assert.equal(api.init(), undefined);
-assert.equal(api.init(), undefined);
+assert.ok(api.init() instanceof Promise);
+assert.equal(await api.init(), undefined);
+assert.equal(api.default.parse("# Hi").html(), "<h1>Hi</h1>\\n");
+assert.equal(api.default.init, api.init);
 const html = api.markdownToHtml("Hello **world**.");
 assert.equal(typeof html, "string"); // Not a Promise; no async initialization.
 assert.equal(html, "<p>Hello <strong>world</strong>.</p>\\n");
@@ -65,7 +67,7 @@ assert.deepEqual(api.htmlToAst("<h2>Hello</h2><p>Text</p>"), {Document:{children
 assert.equal(api.htmlToMarkdown("<h2>Hello</h2><p>Text</p>"), "## Hello\\n\\nText\\n");
 assert.equal(api.AST_SCHEMA_VERSION, "2");
 assert.equal(api.CAPABILITIES.astSchemaVersion, "2");
-assert.deepEqual(api.CAPABILITIES.formats, ["html","ast","markdown","ansi","jsx"]);
+assert.deepEqual(api.CAPABILITIES.formats, ["html","text","ast","markdown","ansi","jsx"]);
 const jsx = api.mdxToJsx("import X from './x'\\n\\n# Hi {props.name}\\n\\n<X />\\n");
 assert.equal(jsx.esm, "import X from './x'");
 assert.equal(jsx.jsx, "<>\\n<h1>Hi {props.name}</h1>\\n<X />\\n</>");
@@ -180,7 +182,7 @@ test("packed package resolves its file-backed assets independently of cwd", asyn
 
   await t.test("direct file URL keeps all existing exports usable and synchronous", () => {
     const report = JSON.parse(successful(run(NODE, [probe, entry, entry], { cwd: elsewhere })));
-    assert.equal(report.exports, 14);
+    assert.equal(report.exports, 16);
     assert.equal(report.synchronous, true);
     t.diagnostic(`Packed consumer runtime: ${report.node}`);
   });
@@ -189,7 +191,7 @@ test("packed package resolves its file-backed assets independently of cwd", asyn
     const report = JSON.parse(
       successful(run(NODE, [probe, "ironmark", entry], { cwd: elsewhere })),
     );
-    assert.equal(report.exports, 14);
+    assert.equal(report.exports, 16);
     assert.equal(report.synchronous, true);
   });
 
@@ -201,6 +203,7 @@ const out = {
   mdx: Object.keys(mdx).sort(),
   ast: Object.keys(ast).sort(),
   rendered: html.markdownToHtml("**x**"),
+  chained: html.default.parse("**x**").html(),
   jsx: typeof mdx.mdxToJsx("# Hi").module,
   heading: ast.markdownToAst("# Hi").Document.children[0].Heading.raw,
 };
@@ -212,15 +215,19 @@ console.log(JSON.stringify(out));`;
       "CAPABILITIES",
       "DEFAULT_OPTIONS",
       "PRESETS",
+      "default",
       "init",
       "markdownToHtml",
+      "markdownToText",
     ]);
     assert.deepEqual(report.mdx, [
       "CAPABILITIES",
       "DEFAULT_OPTIONS",
       "PRESETS",
+      "default",
       "init",
       "markdownToHtml",
+      "markdownToText",
       "mdxToJsx",
     ]);
     assert.deepEqual(report.ast, [
@@ -229,13 +236,16 @@ console.log(JSON.stringify(out));`;
       "DEFAULT_OPTIONS",
       "PRESETS",
       "astToMarkdown",
+      "default",
       "extractHeadings",
       "init",
       "markdownToAst",
       "markdownToHtml",
+      "markdownToText",
       "summarizeAst",
     ]);
     assert.equal(report.rendered, "<p><strong>x</strong></p>\n");
+    assert.equal(report.chained, report.rendered);
     assert.equal(report.jsx, "string");
     assert.equal(report.heading, "Hi");
   });

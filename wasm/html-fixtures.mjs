@@ -16,10 +16,18 @@ function assertSurface(full, html, { wasmModule, htmlOnly, fullApi = full }) {
   assert.deepEqual(
     Object.keys(html).sort(),
     htmlOnly
-      ? ["CAPABILITIES", "DEFAULT_OPTIONS", "PRESETS", "init", "markdownToHtml"]
+      ? [
+          "CAPABILITIES",
+          "DEFAULT_OPTIONS",
+          "PRESETS",
+          "default",
+          "init",
+          "markdownToHtml",
+          "markdownToText",
+        ]
       : Object.keys(full).sort(),
   );
-  assert.equal(html.init(), undefined);
+  assert.ok(html.init() instanceof Promise);
   const names = WebAssembly.Module.exports(wasmModule).map((entry) => entry.name);
   assert.ok(names.includes("parse"));
   assert.ok(names.includes("parseDefault"));
@@ -42,7 +50,7 @@ function assertSurface(full, html, { wasmModule, htmlOnly, fullApi = full }) {
     assert.ok(html.markdownToAnsi("full", { color: false }).includes("full"));
     assert.deepEqual(html.htmlToAst("<p>full</p>"), ast);
     assert.equal(html.htmlToMarkdown("<p>full</p>"), "full\n");
-    assert.deepEqual(html.CAPABILITIES.formats, ["html", "ast", "markdown", "ansi"]);
+    assert.deepEqual(html.CAPABILITIES.formats, ["html", "text", "ast", "markdown", "ansi"]);
     assert.equal(html.AST_SCHEMA_VERSION, full.AST_SCHEMA_VERSION);
     assert.deepEqual(html.DEFAULT_OPTIONS, full.DEFAULT_OPTIONS);
     assert.deepEqual(html.PRESETS, full.PRESETS);
@@ -94,6 +102,7 @@ function assertOptions(full, html) {
     ["permissiveAtxHeaders", "#Heading"],
     ["enableWikiLinks", "[[Page]]"],
     ["enableLatexMath", "$x$"],
+    ["enableFrontmatter", "---\ntitle: x\n---\n# Hi"],
     ["safe", "<b>raw</b>"],
     ["deterministic", "a   b"],
   ];
@@ -231,5 +240,5 @@ export const htmlChecks = [
 
 export function runHtmlChecks(reference, candidate, context) {
   for (const [, check] of htmlChecks) check(reference, candidate, context);
-  return { groups: htmlChecks.length, spec_examples: 652, public_option_keys: 22 };
+  return { groups: htmlChecks.length, spec_examples: 652, public_option_keys: 23 };
 }

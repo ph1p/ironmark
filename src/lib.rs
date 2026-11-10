@@ -71,6 +71,7 @@ pub mod ast;
 mod block;
 #[cfg_attr(not(feature = "html"), allow(dead_code))]
 mod entities;
+mod frontmatter;
 #[cfg_attr(not(feature = "html"), allow(dead_code))]
 mod html;
 #[cfg_attr(not(feature = "html"), allow(dead_code))]
@@ -93,6 +94,7 @@ pub mod ffi;
 // Core exports (always available)
 pub use ast::{Block, ListKind, TableAlignment, TableData};
 pub use block::parse_markdown;
+pub use frontmatter::split_frontmatter;
 pub use renderers::markdown::render_markdown;
 
 // Feature-gated exports
@@ -118,6 +120,8 @@ pub use mdx::convert::{JsxOptions, MdxError, MdxOutput, render_jsx, render_jsx_w
 #[cfg(feature = "html")]
 #[doc(hidden)]
 pub use render::benchmark_heading_slug as __benchmark_heading_slug;
+#[cfg(feature = "html")]
+pub use renderers::text::{HeadingInfo, LinkInfo, extract_headings, extract_links, render_text};
 
 #[inline(always)]
 pub(crate) fn is_ascii_punctuation(b: u8) -> bool {
@@ -150,6 +154,7 @@ pub(crate) fn utf8_char_len(first: u8) -> usize {
 ///     ..Default::default()
 /// });
 /// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseOptions {
     /// When `true`, every newline inside a paragraph becomes a hard line break (`<br />`),
     /// similar to GitHub Flavored Markdown. Default: `true`.
@@ -234,6 +239,11 @@ pub struct ParseOptions {
     ///
     /// Default: `false`.
     pub enable_mdx: bool,
+    /// Skip a leading front matter block (`---` YAML or `+++` TOML, see
+    /// [`split_frontmatter`]) instead of rendering it. Off by default because
+    /// CommonMark reads a leading `---` as a thematic break or setext underline.
+    /// Default: `false`.
+    pub enable_frontmatter: bool,
 }
 
 impl Default for ParseOptions {
@@ -260,6 +270,7 @@ impl Default for ParseOptions {
             enable_wiki_links: false,
             enable_latex_math: false,
             enable_mdx: false,
+            enable_frontmatter: false,
         }
     }
 }

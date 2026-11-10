@@ -7,6 +7,7 @@ Fast Markdown parser written in Rust with **zero third-party** parsing dependenc
 ## Table of Contents
 
 - [Quick start](#quick-start)
+  - [Documents: wrap once, ask for anything](#documents-wrap-once-ask-for-anything)
 - [Which function should I use?](#which-function-should-i-use)
 - [JavaScript / TypeScript](#javascript--typescript)
   - [Node.js](#nodejs)
@@ -43,25 +44,97 @@ pnpm add ironmark
 ```
 
 ```ts
+import ironmark from "ironmark";
+
+const doc = ironmark.parse("# Hello\n\n**World**");
+
+doc.html(); // "<h1>Hello</h1>\n<p><strong>World</strong></p>\n"
+doc.ast(); // { Document: { children: [...] } }
+doc.headings(); // [{ level: 1, text: "Hello", id: "hello" }]
+```
+
+Prefer plain functions? Every output also has a named export:
+
+```ts
 import { markdownToHtml, markdownToAst } from "ironmark";
 
-// Markdown → HTML
 const html = markdownToHtml("# Hello\n\n**World**");
-
-// Markdown → AST (parsed JavaScript object)
 const ast = markdownToAst("# Hello\n\n**World**");
 ```
 
+### Documents: wrap once, ask for anything
+
+`ironmark.parse(input, options?)` wraps the input in a document. Nothing renders until you ask for an output. Each output is its own WASM call, made once and cached, so calling `doc.html()` twice costs one render.
+
+| Method                      | Returns                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| `doc.html()`                | HTML string                                                                                |
+| `doc.text()`                | Plain text for search indexes, excerpts or embeddings                                      |
+| `doc.headings()`            | `[{ level, text, id }]`; `id` matches `enableHeadingIds`                                   |
+| `doc.toc()`                 | Headings nested by level: `[{ level, text, id, children }]`                                |
+| `doc.ast()`                 | The AST (deeply frozen; `structuredClone(doc.ast())` to edit)                              |
+| `doc.markdown()`            | Normalized Markdown                                                                        |
+| `doc.links()`               | `[{ url, title, text }]` for every link, in document order (dangerous URLs come back `""`) |
+| `doc.images()`              | `[{ url, title, alt }]` for every image                                                    |
+| `doc.frontmatter()`         | The raw front matter string, or `null` (needs `enableFrontmatter`)                         |
+| `doc.stats()`               | `{ words, characters, readingTime }`; `readingTime` is minutes at 200 words per minute     |
+| `doc.summary()`             | `{ blockCount, nodeCounts }`                                                               |
+| `doc.ansi(render?)`         | Terminal output; `render` = `{ width, color, lineNumbers, padding }`                       |
+| `doc.jsx(render?)`          | MDX compiled to `{ esm, jsx, module }`; `render` = `{ components, providerImportSource }`  |
+| `doc.with(options)`         | A new document over the same source with `options` layered on top                          |
+| `doc.source`, `doc.options` | The original input and the resolved, frozen options                                        |
+
+Parse options (`preset`, `safe`, `enableTables`, …) are set only through `parse()` and `with()`, so every output of one document agrees on them. `ansi()` and `jsx()` take render options only; each distinct set is cached separately.
+
+`text()`, `headings()`, `toc()`, `links()`, `images()`, `frontmatter()` and `stats()` exist in every entry. `ast()`, `summary()` and `markdown()` need `ironmark/ast` or the main entry, `jsx()` needs `ironmark/mdx` or the main entry, and `ansi()` the main entry. Methods a binary cannot run are absent from its documents, and the types say so.
+
+How `with()` layers options:
+
+- A layer that sets `preset` starts again from that preset; earlier options are dropped.
+- Otherwise the layer's keys override the base and the rest is kept.
+- `safe: false` turns `disableRawHtml` and `tagFilter` off; `deterministic: false` turns `collapseWhitespace` off.
+
+```ts
+import ironmark from "ironmark";
+
+// Configure once, reuse everywhere.
+const md = ironmark.with({ preset: "safe", enableHeadingIds: true });
+
+const post = md.parse(userInput);
+const article = `<article>${post.html()}</article>`;
+const sidebar = post.toc(); // nested headings, ids match the rendered ones
+const excerpt = post.text().slice(0, 160);
+
+process.stdout.write(post.ansi({ width: 100 }));
+post.with({ enableTables: false }).html(); // same source, other options
+
+// HTML in, clean Markdown out.
+ironmark.fromHtml("<h1>Hi</h1><p><b>bold</b></p>").markdown(); // "# Hi\n\n**bold**\n"
+```
+
+For a single output, skip the document: every document method is also a shortcut on the instance, taking the input first. `ironmark.html(md)` is `ironmark.parse(md).html()`, and `md.text(input)` on a configured instance uses its options. An entry has the shortcuts its documents have.
+
+Front matter is off by default. With `enableFrontmatter: true`, a leading `---` YAML (closed by `---` or `...`) or `+++` TOML block is removed before parsing, and `doc.frontmatter()` returns its raw text for your own YAML/TOML parser:
+
+```ts
+const post = ironmark.parse(file, { enableFrontmatter: true });
+const meta = yaml.parse(post.frontmatter() ?? "");
+```
+
+In the browser, `await ironmark.ready` (or `await ironmark.init()`) once first; both return the same cached promise. `init()` returns a Promise in every entry; under Node it resolves immediately.
+
 ## Which function should I use?
 
-| Goal                            | Function                                                       |
-| ------------------------------- | -------------------------------------------------------------- |
-| Render Markdown to HTML         | `markdownToHtml(input, options?)`                              |
-| Parse Markdown to AST object    | `markdownToAst(input, options?)`                               |
-| Normalize / round-trip Markdown | `markdownToAst()` + `astToMarkdown()`                          |
-| Terminal / CLI output           | `markdownToAnsi(input, options?)`                              |
-| Convert HTML back to Markdown   | `htmlToMarkdown(html, options?)` / `htmlToAst(html, options?)` |
-| Compile MDX to JSX              | `mdxToJsx(input, options?)` — see [MDX](#mdx)                  |
+| Goal                            | Function                                                                         |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| Several outputs from one input  | `ironmark.parse(input)` — see [Documents](#documents-wrap-once-ask-for-anything) |
+| Render Markdown to HTML         | `markdownToHtml(input, options?)`                                                |
+| Plain text (search, excerpts)   | `markdownToText(input, options?)`                                                |
+| Parse Markdown to AST object    | `markdownToAst(input, options?)`                                                 |
+| Normalize / round-trip Markdown | `markdownToAst()` + `astToMarkdown()`                                            |
+| Terminal / CLI output           | `markdownToAnsi(input, options?)`                                                |
+| Convert HTML back to Markdown   | `htmlToMarkdown(html, options?)` / `htmlToAst(html, options?)`                   |
+| Compile MDX to JSX              | `mdxToJsx(input, options?)` — see [MDX](#mdx)                                    |
 
 ## JavaScript / TypeScript
 
@@ -88,6 +161,16 @@ The browser entry still uses asynchronous `init()`.
 import { markdownToHtml } from "ironmark";
 
 const html = markdownToHtml("# Hello\n\nThis is **fast**.");
+```
+
+### Markdown → plain text
+
+`markdownToText` runs the real inline parser, so emphasis, links, code spans, entities and escapes come out as a reader of the rendered HTML sees them. Blocks are separated by a blank line, tight list items by a newline and table cells by tabs; raw HTML blocks, MDX blocks and thematic breaks are dropped.
+
+```ts
+import { markdownToText } from "ironmark";
+
+markdownToText("# Hi *there*\n\na &lt; b &copy;"); // "Hi there\n\na < b ©"
 ```
 
 ### Markdown → AST
@@ -232,22 +315,30 @@ const html = markdownToHtml("# Hello\n\nThis is **fast**.");
 
 WASM can't be tree-shaken, so `import { markdownToHtml } from "ironmark"` still downloads the whole binary (AST serialization, ANSI, MDX and the HTML parser included). Each subpath ships its own binary, compiled with only the code its functions need:
 
-| Import          | Exports                                                                                                     | WASM (brotli) |
-| --------------- | ----------------------------------------------------------------------------------------------------------- | ------------- |
-| `ironmark`      | everything                                                                                                  | ~155 KB       |
-| `ironmark/ast`  | `markdownToAst`, `astToMarkdown`, `markdownToHtml`, `extractHeadings`, `summarizeAst`, `AST_SCHEMA_VERSION` | ~123 KB       |
-| `ironmark/mdx`  | `mdxToJsx`, `markdownToHtml`                                                                                | ~97 KB        |
-| `ironmark/html` | `markdownToHtml`                                                                                            | ~89 KB        |
+| Import          | Exports                                                                                                                       | WASM (brotli) |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `ironmark`      | everything                                                                                                                    | ~155 KB       |
+| `ironmark/ast`  | `markdownToAst`, `astToMarkdown`, `markdownToHtml`, `markdownToText`, `extractHeadings`, `summarizeAst`, `AST_SCHEMA_VERSION` | ~123 KB       |
+| `ironmark/mdx`  | `mdxToJsx`, `markdownToHtml`, `markdownToText`                                                                                | ~97 KB        |
+| `ironmark/html` | `markdownToHtml`, `markdownToText`                                                                                            | ~89 KB        |
 
 ```ts
 import { init, mdxToJsx } from "ironmark/mdx";
 
-await init(); // browser only; a no-op under Node, where the subpaths load synchronously
+await init(); // browser only; resolves immediately under Node, where the subpaths load synchronously
 
 const { module } = mdxToJsx("# Hello {props.name}");
 ```
 
-Every subpath also exports `DEFAULT_OPTIONS`, `PRESETS` and `CAPABILITIES`; its `CAPABILITIES.formats` lists only what that binary can do (`["html"]` for `ironmark/html`). Options and output are identical to the main entry; only the set of functions differs. Types come from the same declarations, so `ParseOptions`, `JsxOutput` and friends are shared.
+Every subpath has the same default export, with only the document methods its binary supports: `ironmark/html` documents have `html()`, `ironmark/mdx` adds `jsx()`, and `ironmark/ast` adds the AST methods (`ast()`, `markdown()`, `text()`, `headings()`, `toc()`, `summary()`). `fromHtml()` and `ansi()` need the full entry.
+
+```ts
+import ironmark from "ironmark/html";
+
+ironmark.parse("# Hello").html();
+```
+
+Every subpath also exports `DEFAULT_OPTIONS`, `PRESETS` and `CAPABILITIES`; its `CAPABILITIES.formats` lists only what that binary can do (`["html", "text"]` for `ironmark/html`). Options and output are identical to the main entry; only the set of functions differs. Types come from the same declarations, so `ParseOptions`, `JsxOutput` and friends are shared.
 
 Pick **one** entry per app. Each subpath has its own WASM instance, so importing `ironmark/mdx` and `ironmark/ast` together loads the shared parser core twice. That is larger than `ironmark` alone. If you need functions from two subpaths, use `ironmark`.
 
@@ -261,7 +352,7 @@ ironmark is designed to be a reliable, deterministic parsing layer for AI agents
 import { markdownToAst, markdownToHtml, astToMarkdown, CAPABILITIES } from "ironmark";
 
 // 1. Inspect capabilities at startup
-CAPABILITIES.formats; // ["html", "ast", "markdown", "ansi", "jsx"]
+CAPABILITIES.formats; // ["html", "text", "ast", "markdown", "ansi", "jsx"]
 
 // 2. Parse with deterministic options
 const ast = markdownToAst(content, { preset: "llm" });
@@ -322,7 +413,7 @@ import { CAPABILITIES, AST_SCHEMA_VERSION, DEFAULT_OPTIONS, PRESETS } from "iron
 CAPABILITIES;
 // {
 //   astSchemaVersion: "2",
-//   formats: ["html", "ast", "markdown", "ansi", "jsx"], // only what this entry supports
+//   formats: ["html", "text", "ast", "markdown", "ansi", "jsx"], // only what this entry supports
 //   presets: ["default", "safe", "strict", "llm"],
 //   extensions: [...],
 //   security: [...]
@@ -377,6 +468,9 @@ getters became frozen constants. The Rust API is unchanged.
 | type `RenderHtmlOptions`                 | `ParseOptions`                                          |
 | type `AstNode` (`{ t, c, text }`)        | `AstNode`: the real tagged union (`{ Heading: { … } }`) |
 
+`init()` now returns a Promise in every entry, including Node, so the same
+`await init()` works everywhere.
+
 `extractHeadings()` and `summarizeAst()` now read the real AST shape. Before, they
 expected the documented-but-wrong `{ t, c }` nodes and found nothing.
 
@@ -396,6 +490,7 @@ expected the documented-but-wrong `{ t, c }` nodes and found nothing.
 | Indented code       | `enableIndentedCodeBlocks` | `enable_indented_code_blocks` | 4-space indent → `<pre><code>`                         |
 | Wiki links          | `enableWikiLinks`          | `enable_wiki_links`           | `[[page]]` → `<a href="page">`                         |
 | LaTeX math          | `enableLatexMath`          | `enable_latex_math`           | `$inline$` and `$$display$$` → `<span class="math-…">` |
+| Front matter        | `enableFrontmatter`        | `enable_frontmatter`          | Skip a leading `---`/`+++` block (off by default)      |
 | Heading IDs         | `enableHeadingIds`         | `enable_heading_ids`          | Auto `id=` on headings from slugified text             |
 | Heading anchors     | `enableHeadingAnchors`     | `enable_heading_anchors`      | `<a class="anchor">` inside each heading (implies IDs) |
 | Permissive headings | `permissiveAtxHeaders`     | `permissive_atx_headers`      | Allow `#Heading` without space after `#`               |
@@ -658,6 +753,7 @@ OPTIONS (all formats):
     --no-task-lists             Disable - [x] task list syntax
     --math                      Enable $inline$ and $$display$$ math
     --wiki-links                Enable [[wiki link]] syntax
+    --frontmatter               Skip a leading ---/+++ front matter block
     --capabilities              Print machine-readable capabilities JSON and exit
     --default-options           Print resolved default options JSON and exit
     --list-presets              Print all presets and exit
@@ -837,6 +933,29 @@ fn main() {
     let ast = parse_markdown("# Hello\n\n**World**", &ParseOptions::default());
     let md = render_markdown(&ast);
     // Returns: "# Hello\n\n**World**"
+}
+```
+
+### Plain text, headings and links
+
+`render_text()` returns the document as plain text; `extract_headings()` returns every heading with the `id` the HTML renderer would give it; `extract_links()` returns every link and image with its resolved URL. All three need the `html` feature. `split_frontmatter()` splits a leading front matter block from the body; with `enable_frontmatter: true` every renderer skips that block.
+
+```rust
+use ironmark::{ParseOptions, extract_headings, extract_links, render_text, split_frontmatter};
+
+fn main() {
+    let opts = ParseOptions::default();
+    assert_eq!(render_text("# Hi *there*", &opts), "Hi there");
+
+    let headings = extract_headings("# Hello *world*\n\n## Next", &opts);
+    assert_eq!(headings[0].id, "hello-world");
+    assert_eq!(headings[1].level, 2);
+
+    let links = extract_links("[docs](/docs) ![logo](l.png)", &opts);
+    assert_eq!((links[0].url.as_str(), links[1].image), ("/docs", true));
+
+    let (matter, body) = split_frontmatter("---\ntitle: x\n---\n# Hi").unwrap();
+    assert_eq!((matter, body), ("title: x\n", "# Hi"));
 }
 ```
 

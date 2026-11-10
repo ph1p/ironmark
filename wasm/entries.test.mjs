@@ -19,15 +19,19 @@ test("slim entries expose only their own API", () => {
     "CAPABILITIES",
     "DEFAULT_OPTIONS",
     "PRESETS",
+    "default",
     "init",
     "markdownToHtml",
+    "markdownToText",
   ]);
   assert.deepEqual(Object.keys(mdx).sort(), [
     "CAPABILITIES",
     "DEFAULT_OPTIONS",
     "PRESETS",
+    "default",
     "init",
     "markdownToHtml",
+    "markdownToText",
     "mdxToJsx",
   ]);
   assert.deepEqual(Object.keys(ast).sort(), [
@@ -36,18 +40,20 @@ test("slim entries expose only their own API", () => {
     "DEFAULT_OPTIONS",
     "PRESETS",
     "astToMarkdown",
+    "default",
     "extractHeadings",
     "init",
     "markdownToAst",
     "markdownToHtml",
+    "markdownToText",
     "summarizeAst",
   ]);
 });
 
 test("each entry advertises only the formats its binary supports", () => {
-  assert.deepEqual(html.CAPABILITIES.formats, ["html"]);
-  assert.deepEqual(mdx.CAPABILITIES.formats, ["html", "jsx"]);
-  assert.deepEqual(ast.CAPABILITIES.formats, ["html", "ast", "markdown"]);
+  assert.deepEqual(html.CAPABILITIES.formats, ["html", "text"]);
+  assert.deepEqual(mdx.CAPABILITIES.formats, ["html", "text", "jsx"]);
+  assert.deepEqual(ast.CAPABILITIES.formats, ["html", "text", "ast", "markdown"]);
   for (const entry of [html, mdx, ast]) {
     assert.deepEqual({ ...entry.CAPABILITIES, formats: [] }, { ...full.CAPABILITIES, formats: [] });
     assert.strictEqual(entry.DEFAULT_OPTIONS, full.DEFAULT_OPTIONS);

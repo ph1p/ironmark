@@ -37,6 +37,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm oxlint
       - run: pnpm oxfmt --check .
+      - name: Type-check the published .d.ts files
+        run: pnpm test:types
       - name: Test measurement tools (no performance thresholds)
         run: node --test benchmark/measure.test.mjs benchmark/api.test.mjs
 

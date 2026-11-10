@@ -39,7 +39,8 @@ export async function instantiateWasm(glue, importName, input, defaultUrl) {
 
 /** Recursively freeze exported data so callers cannot corrupt shared defaults. */
 function deepFreeze(value) {
-  for (const inner of Object.values(value)) {
+  for (const key in value) {
+    const inner = value[key];
     if (inner && typeof inner === "object") deepFreeze(inner);
   }
   return Object.freeze(value);
@@ -84,39 +85,33 @@ export const PRESETS = deepFreeze({
   },
 });
 
+// `safe: false` and `deterministic: false` switch their flags back off, so a layer added
+// with `with()` can undo what an earlier layer turned on.
+const UNSAFE = { disableRawHtml: false, tagFilter: false };
+
 export function resolveOptions(options) {
   if (options == null) return {};
   const preset = options.preset != null ? (PRESETS[options.preset] ?? {}) : {};
-  const safe = options.safe === true ? PRESETS.safe : {};
-  const deterministic = options.deterministic === true ? { collapseWhitespace: true } : {};
+  const safe = options.safe === true ? PRESETS.safe : options.safe === false ? UNSAFE : {};
+  const deterministic =
+    options.deterministic != null ? { collapseWhitespace: options.deterministic === true } : {};
   const { preset: _p, safe: _s, deterministic: _d, stableAst: _a, ...rest } = options;
   return { ...preset, ...safe, ...deterministic, ...rest };
 }
 
+// Parse options cross the boundary as one integer: bit `i` is the `i`-th key of
+// `DEFAULT_OPTIONS` (`build_options` in wasm/src/lib.rs decodes it).
 function optionArgs(markdown, options) {
-  const r = resolveOptions(options);
-  return [
-    toBytes(markdown),
-    r.hardBreaks,
-    r.enableHighlight,
-    r.enableStrikethrough,
-    r.enableUnderline,
-    r.enableTables,
-    r.enableAutolink,
-    r.enableTaskLists,
-    r.disableRawHtml,
-    r.enableHeadingIds,
-    r.enableHeadingAnchors,
-    r.enableIndentedCodeBlocks,
-    r.noHtmlBlocks,
-    r.noHtmlSpans,
-    r.tagFilter,
-    r.collapseWhitespace,
-    r.permissiveAtxHeaders,
-    r.enableWikiLinks,
-    r.enableLatexMath,
-    r.enableMdx,
-  ];
+  let flags = DEFAULT_FLAGS;
+  if (options != null) {
+    const r = resolveOptions(options);
+    for (const key in r) {
+      const bit = FLAG_BITS[key];
+      if (bit === undefined || r[key] == null) continue;
+      flags = r[key] ? flags | bit : flags & ~bit;
+    }
+  }
+  return [toBytes(markdown), flags];
 }
 
 // ─── Public API factories ─────────────────────────────────────────────────────
@@ -131,6 +126,57 @@ export function createMarkdownToHtml(wasmParse, wasmParseDefault = null) {
   return function markdownToHtml(input, options) {
     if (options == null && wasmParseDefault) return wasmParseDefault(toBytes(input));
     return wasmParse(...optionArgs(input, options));
+  };
+}
+
+export function createMarkdownToText(wasmRenderText) {
+  return function markdownToText(input, options) {
+    return wasmRenderText(...optionArgs(input, options));
+  };
+}
+
+/** Rust heading extraction; the binding returns a flat `[level, id, text, …]` list. */
+export function createMarkdownHeadings(wasmExtractHeadings) {
+  return function markdownHeadings(input, options) {
+    const flat = wasmExtractHeadings(...optionArgs(input, options));
+    const headings = [];
+    for (let i = 0; i < flat.length; i += 3) {
+      headings.push({ level: Number(flat[i]), text: flat[i + 2], id: flat[i + 1] });
+    }
+    return headings;
+  };
+}
+
+/**
+ * Rust link extraction, split into `{ links, images }` in one pass; the binding
+ * returns a flat `[image, url, title | null, text, …]` list.
+ */
+export function createMarkdownLinks(wasmExtractLinks) {
+  return function markdownLinks(input, options) {
+    const flat = wasmExtractLinks(...optionArgs(input, options));
+    const links = [];
+    const images = [];
+    for (let i = 0; i < flat.length; i += 4) {
+      const url = flat[i + 1];
+      const title = flat[i + 2];
+      const text = flat[i + 3];
+      if (flat[i]) images.push({ url, title, alt: text });
+      else links.push({ url, title, text });
+    }
+    return { links, images };
+  };
+}
+
+/** The raw front matter, or `null` (always `null` unless `enableFrontmatter` is on). */
+export function createMarkdownFrontmatter(wasmFrontmatter) {
+  return function markdownFrontmatter(input, options) {
+    return wasmFrontmatter(...optionArgs(input, options)) ?? null;
+  };
+}
+
+export function createNormalizeMarkdown(wasmNormalizeMarkdown) {
+  return function normalizeMarkdown(input, options) {
+    return wasmNormalizeMarkdown(...optionArgs(input, options));
   };
 }
 
@@ -186,7 +232,7 @@ export function createHtmlToMarkdown(wasmHtmlToMarkdown) {
 export const AST_SCHEMA_VERSION = "2";
 
 /** Every output format, in the order `CAPABILITIES.formats` lists them. */
-export const ALL_FORMATS = ["html", "ast", "markdown", "ansi", "jsx"];
+export const ALL_FORMATS = ["html", "text", "ast", "markdown", "ansi", "jsx"];
 
 /** Machine-readable metadata; `formats` lists only what the importing entry's binary can do. */
 export function createCapabilities(formats) {
@@ -208,6 +254,7 @@ export function createCapabilities(formats) {
       "enableWikiLinks",
       "enableLatexMath",
       "enableMdx",
+      "enableFrontmatter",
     ],
     security: ["disableRawHtml", "noHtmlBlocks", "noHtmlSpans", "tagFilter"],
   });
@@ -233,7 +280,14 @@ export const DEFAULT_OPTIONS = deepFreeze({
   enableWikiLinks: false,
   enableLatexMath: false,
   enableMdx: false,
+  enableFrontmatter: false,
 });
+
+const FLAG_BITS = Object.fromEntries(Object.keys(DEFAULT_OPTIONS).map((key, i) => [key, 1 << i]));
+const DEFAULT_FLAGS = Object.keys(DEFAULT_OPTIONS).reduce(
+  (flags, key) => (DEFAULT_OPTIONS[key] ? flags | FLAG_BITS[key] : flags),
+  0,
+);
 
 // ─── Utility functions ────────────────────────────────────────────────────────
 
@@ -381,4 +435,218 @@ function headingSlug(raw) {
     }
   }
   return slug.replace(/-+$/, "");
+}
+
+/** Nest a flat heading list by level: each heading owns the deeper ones that follow it. */
+function buildToc(headings) {
+  const root = [];
+  const stack = [];
+  for (const heading of headings) {
+    const entry = { ...heading, children: [] };
+    while (stack.length && stack.at(-1).level >= heading.level) stack.pop();
+    (stack.at(-1)?.children ?? root).push(entry);
+    stack.push(entry);
+  }
+  return root;
+}
+
+// ─── Fluent API ──────────────────────────────────────────────────────────────
+
+const decoder = new TextDecoder();
+
+/** `Document` methods also offered on `ironmark` itself as one-shot shortcuts. */
+const SHORTCUTS = [
+  "html",
+  "text",
+  "headings",
+  "toc",
+  "links",
+  "images",
+  "frontmatter",
+  "stats",
+  "ast",
+  "markdown",
+  "ansi",
+  "jsx",
+];
+
+const WORD = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu;
+
+/** Word and character counts plus reading time (minutes at 200 words per minute). */
+function textStats(text) {
+  const words = text.match(WORD)?.length ?? 0;
+  const characters = text.match(/\S/gu)?.length ?? 0;
+  return { words, characters, readingTime: Math.ceil(words / 200) };
+}
+
+/** Methods that need an entry function; dropped from `Document` when the entry lacks it. */
+const REQUIRES = {
+  markdownToText: ["text", "stats"],
+  markdownHeadings: ["headings", "toc"],
+  markdownLinks: ["links", "images"],
+  markdownFrontmatter: ["frontmatter"],
+  markdownToAst: ["ast", "summary"],
+  normalizeMarkdown: ["markdown"],
+  markdownToAnsi: ["ansi"],
+  mdxToJsx: ["jsx"],
+};
+
+/**
+ * Layer parse options over already-resolved `base`. A layer with a `preset` starts over
+ * from that preset; otherwise its keys (after `safe`/`deterministic` expansion) win.
+ */
+function mergeOptions(base, options) {
+  if (options == null) return base;
+  return Object.freeze({ ...(options.preset != null ? {} : base), ...resolveOptions(options) });
+}
+
+/** Copy byte input so later writes to the caller's buffer cannot change the document. */
+function ownedBytes(input) {
+  return typeof input === "string" ? encoder.encode(input) : toBytes(input).slice();
+}
+
+/**
+ * Build an entry's default export: `ironmark.parse(md)` returns a `Document` that renders
+ * lazily and caches each output. `api` holds the entry's functions; a `Document` method
+ * whose function is missing is left off the prototype, so `"ansi" in doc` tells the truth.
+ */
+export function createIronmark(api) {
+  class Document {
+    #bytes;
+    #options;
+    #source;
+    #cache = new Map();
+
+    constructor(bytes, options, source) {
+      this.#bytes = bytes;
+      this.#options = options;
+      this.#source = source;
+    }
+
+    /** The Markdown source; byte input is decoded once on first access. */
+    get source() {
+      return (this.#source ??= decoder.decode(this.#bytes));
+    }
+
+    get options() {
+      return this.#options;
+    }
+
+    #output(key, render) {
+      if (!this.#cache.has(key)) this.#cache.set(key, render());
+      return this.#cache.get(key);
+    }
+
+    html() {
+      // No options at all keeps the `parseDefault` fast path.
+      const options = Object.keys(this.#options).length ? this.#options : undefined;
+      return this.#output("html", () => api.markdownToHtml(this.#bytes, options));
+    }
+
+    text() {
+      return this.#output("text", () => api.markdownToText(this.#bytes, this.#options));
+    }
+
+    headings() {
+      return this.#output("headings", () =>
+        deepFreeze(api.markdownHeadings(this.#bytes, this.#options)),
+      );
+    }
+
+    toc() {
+      return this.#output("toc", () => deepFreeze(buildToc(this.headings())));
+    }
+
+    /** Links and images come from one extraction, cached together. */
+    #links() {
+      return this.#output("links", () => deepFreeze(api.markdownLinks(this.#bytes, this.#options)));
+    }
+
+    links() {
+      return this.#links().links;
+    }
+
+    images() {
+      return this.#links().images;
+    }
+
+    frontmatter() {
+      return this.#output("frontmatter", () => api.markdownFrontmatter(this.#bytes, this.#options));
+    }
+
+    stats() {
+      return this.#output("stats", () => Object.freeze(textStats(this.text())));
+    }
+
+    ast() {
+      return this.#output("ast", () => deepFreeze(api.markdownToAst(this.#bytes, this.#options)));
+    }
+
+    summary() {
+      return this.#output("summary", () => deepFreeze(summarizeAst(this.ast())));
+    }
+
+    markdown() {
+      return this.#output("markdown", () => api.normalizeMarkdown(this.#bytes, this.#options));
+    }
+
+    ansi({ width, color, lineNumbers, padding } = {}) {
+      return this.#output(`ansi:${width}:${color}:${lineNumbers}:${padding}`, () =>
+        api.markdownToAnsi(this.#bytes, { ...this.#options, width, color, lineNumbers, padding }),
+      );
+    }
+
+    jsx({ components, providerImportSource } = {}) {
+      return this.#output(`jsx:${components}:${providerImportSource}`, () =>
+        Object.freeze(
+          api.mdxToJsx(this.#bytes, { ...this.#options, components, providerImportSource }),
+        ),
+      );
+    }
+
+    /** A new document over the same source with these parse options layered on top. */
+    with(options) {
+      return new Document(this.#bytes, mergeOptions(this.#options, options), this.#source);
+    }
+  }
+
+  for (const [fn, methods] of Object.entries(REQUIRES)) {
+    if (!api[fn]) for (const method of methods) delete Document.prototype[method];
+  }
+  const shortcuts = SHORTCUTS.filter((method) => method in Document.prototype);
+
+  function create(defaults) {
+    const ironmark = {
+      options: defaults,
+      init: api.init,
+      parse: (input, options) =>
+        new Document(
+          ownedBytes(input),
+          mergeOptions(defaults, options),
+          typeof input === "string" ? input : undefined,
+        ),
+      with: (options) => create(mergeOptions(defaults, options)),
+      get ready() {
+        return api.init();
+      },
+    };
+    // `ironmark.html(md)` is `ironmark.parse(md).html()` without the defensive copy:
+    // the input is read once, right away.
+    for (const method of shortcuts) {
+      ironmark[method] = (input, ...args) =>
+        new Document(toBytes(input), defaults, typeof input === "string" ? input : undefined)[
+          method
+        ](...args);
+    }
+    if (api.htmlToMarkdown) {
+      ironmark.fromHtml = (html, options) => {
+        const { preserveUnknownAsHtml, ...rest } = options ?? {};
+        const markdown = api.htmlToMarkdown(html, { preserveUnknownAsHtml });
+        return new Document(encoder.encode(markdown), mergeOptions(defaults, rest), markdown);
+      };
+    }
+    return Object.freeze(ironmark);
+  }
+
+  return create(Object.freeze({}));
 }

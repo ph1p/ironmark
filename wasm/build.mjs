@@ -25,12 +25,18 @@ import {
   createMarkdownToAst,
   createMarkdownToHtml,
   createAstToMarkdown,
+  createMarkdownToText,
+  createMarkdownHeadings,
+  createMarkdownLinks,
+  createMarkdownFrontmatter,
+  createNormalizeMarkdown,
   createMarkdownToAnsi,
   createMdxToJsx,
   createHtmlToAst,
   createHtmlToMarkdown,
   ALL_FORMATS,
   createCapabilities,
+  createIronmark,
   AST_SCHEMA_VERSION,
   DEFAULT_OPTIONS,
   PRESETS,
@@ -44,19 +50,39 @@ const wasmInstance = new WebAssembly.Instance(wasmModule, { "./ironmark_bg.js": 
 
 wasmGlue.__wbg_set_wasm(wasmInstance.exports);
 
-export function init() {}
+export async function init() {}
 
-export const markdownToAst = createMarkdownToAst(wasmGlue.parseToAst);
-export const markdownToHtml = createMarkdownToHtml(wasmGlue.parse, wasmGlue.parseDefault);
-export const astToMarkdown = createAstToMarkdown(wasmGlue.renderMarkdown);
-export const markdownToAnsi = createMarkdownToAnsi(wasmGlue.renderAnsi);
-export const mdxToJsx = createMdxToJsx(wasmGlue.renderJsx);
-export const htmlToAst = createHtmlToAst(wasmGlue.parseHtmlToAst);
-export const htmlToMarkdown = createHtmlToMarkdown(wasmGlue.htmlToMarkdown);
+export const markdownToAst = /* @__PURE__ */ createMarkdownToAst(wasmGlue.parseToAst);
+export const markdownToHtml = /* @__PURE__ */ createMarkdownToHtml(wasmGlue.parse, wasmGlue.parseDefault);
+export const astToMarkdown = /* @__PURE__ */ createAstToMarkdown(wasmGlue.renderMarkdown);
+export const markdownToAnsi = /* @__PURE__ */ createMarkdownToAnsi(wasmGlue.renderAnsi);
+export const mdxToJsx = /* @__PURE__ */ createMdxToJsx(wasmGlue.renderJsx);
+export const htmlToAst = /* @__PURE__ */ createHtmlToAst(wasmGlue.parseHtmlToAst);
+export const htmlToMarkdown = /* @__PURE__ */ createHtmlToMarkdown(wasmGlue.htmlToMarkdown);
+export const markdownToText = /* @__PURE__ */ createMarkdownToText(wasmGlue.renderText);
+const markdownHeadings = /* @__PURE__ */ createMarkdownHeadings(wasmGlue.extractHeadings);
+const normalizeMarkdown = /* @__PURE__ */ createNormalizeMarkdown(wasmGlue.normalizeMarkdown);
+const markdownLinks = /* @__PURE__ */ createMarkdownLinks(wasmGlue.extractLinks);
+const markdownFrontmatter = /* @__PURE__ */ createMarkdownFrontmatter(wasmGlue.frontmatter);
 
-export const CAPABILITIES = createCapabilities(ALL_FORMATS);
+export const CAPABILITIES = /* @__PURE__ */ createCapabilities(ALL_FORMATS);
 export { AST_SCHEMA_VERSION, DEFAULT_OPTIONS, PRESETS };
 export { extractHeadings, summarizeAst };
+
+export default /* @__PURE__ */ createIronmark({
+  init,
+  markdownToHtml,
+  markdownToText,
+  markdownHeadings,
+  markdownLinks,
+  markdownFrontmatter,
+  normalizeMarkdown,
+  markdownToAst,
+  astToMarkdown,
+  markdownToAnsi,
+  mdxToJsx,
+  htmlToMarkdown,
+});
 `;
 
 writeFileSync(outPath, source);

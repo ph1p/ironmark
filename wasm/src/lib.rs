@@ -22,101 +22,40 @@ fn utf8(bytes: &[u8]) -> Cow<'_, str> {
 /// Maximum input size for WASM: 10 MB
 const WASM_MAX_INPUT_SIZE: usize = 10 * 1024 * 1024;
 
-fn build_options(
-    hard_breaks: Option<bool>,
-    enable_highlight: Option<bool>,
-    enable_strikethrough: Option<bool>,
-    enable_underline: Option<bool>,
-    enable_tables: Option<bool>,
-    enable_autolink: Option<bool>,
-    enable_task_lists: Option<bool>,
-    disable_raw_html: Option<bool>,
-    enable_heading_ids: Option<bool>,
-    enable_heading_anchors: Option<bool>,
-    enable_indented_code_blocks: Option<bool>,
-    no_html_blocks: Option<bool>,
-    no_html_spans: Option<bool>,
-    tag_filter: Option<bool>,
-    collapse_whitespace: Option<bool>,
-    permissive_atx_headers: Option<bool>,
-    enable_wiki_links: Option<bool>,
-    enable_latex_math: Option<bool>,
-    enable_mdx: Option<bool>,
-) -> ParseOptions {
+/// Parse options cross the boundary as one `u32`: bit `i` is the `i`-th key of
+/// `DEFAULT_OPTIONS` in `wasm/shared.js`, already resolved against the defaults.
+/// One integer replaces an `Option<bool>` argument per option on every call.
+fn build_options(flags: u32) -> ParseOptions {
+    let on = |bit: u32| flags & (1 << bit) != 0;
     ParseOptions {
-        hard_breaks: hard_breaks.unwrap_or(true),
-        enable_highlight: enable_highlight.unwrap_or(true),
-        enable_strikethrough: enable_strikethrough.unwrap_or(true),
-        enable_underline: enable_underline.unwrap_or(true),
-        enable_tables: enable_tables.unwrap_or(true),
-        enable_autolink: enable_autolink.unwrap_or(true),
-        enable_task_lists: enable_task_lists.unwrap_or(true),
-        disable_raw_html: disable_raw_html.unwrap_or(false),
+        hard_breaks: on(0),
+        enable_highlight: on(1),
+        enable_strikethrough: on(2),
+        enable_underline: on(3),
+        enable_tables: on(4),
+        enable_autolink: on(5),
+        enable_task_lists: on(6),
+        disable_raw_html: on(7),
+        enable_heading_ids: on(8),
+        enable_heading_anchors: on(9),
+        enable_indented_code_blocks: on(10),
+        no_html_blocks: on(11),
+        no_html_spans: on(12),
+        tag_filter: on(13),
+        collapse_whitespace: on(14),
+        permissive_atx_headers: on(15),
+        enable_wiki_links: on(16),
+        enable_latex_math: on(17),
+        enable_mdx: on(18),
+        enable_frontmatter: on(19),
         max_nesting_depth: 128,
         max_input_size: WASM_MAX_INPUT_SIZE,
-        enable_heading_ids: enable_heading_ids.unwrap_or(false),
-        enable_heading_anchors: enable_heading_anchors.unwrap_or(false),
-        enable_indented_code_blocks: enable_indented_code_blocks.unwrap_or(true),
-        no_html_blocks: no_html_blocks.unwrap_or(false),
-        no_html_spans: no_html_spans.unwrap_or(false),
-        tag_filter: tag_filter.unwrap_or(false),
-        collapse_whitespace: collapse_whitespace.unwrap_or(false),
-        permissive_atx_headers: permissive_atx_headers.unwrap_or(false),
-        enable_wiki_links: enable_wiki_links.unwrap_or(false),
-        enable_latex_math: enable_latex_math.unwrap_or(false),
-        // In HTML mode MDX tags and expressions pass through as raw output;
-        // `renderJsx` compiles the document to JSX instead.
-        enable_mdx: enable_mdx.unwrap_or(false),
     }
 }
 
 #[wasm_bindgen]
-pub fn parse(
-    markdown: &[u8],
-    hard_breaks: Option<bool>,
-    enable_highlight: Option<bool>,
-    enable_strikethrough: Option<bool>,
-    enable_underline: Option<bool>,
-    enable_tables: Option<bool>,
-    enable_autolink: Option<bool>,
-    enable_task_lists: Option<bool>,
-    disable_raw_html: Option<bool>,
-    enable_heading_ids: Option<bool>,
-    enable_heading_anchors: Option<bool>,
-    enable_indented_code_blocks: Option<bool>,
-    no_html_blocks: Option<bool>,
-    no_html_spans: Option<bool>,
-    tag_filter: Option<bool>,
-    collapse_whitespace: Option<bool>,
-    permissive_atx_headers: Option<bool>,
-    enable_wiki_links: Option<bool>,
-    enable_latex_math: Option<bool>,
-    enable_mdx: Option<bool>,
-) -> String {
-    render_html(
-        &utf8(markdown),
-        &build_options(
-            hard_breaks,
-            enable_highlight,
-            enable_strikethrough,
-            enable_underline,
-            enable_tables,
-            enable_autolink,
-            enable_task_lists,
-            disable_raw_html,
-            enable_heading_ids,
-            enable_heading_anchors,
-            enable_indented_code_blocks,
-            no_html_blocks,
-            no_html_spans,
-            tag_filter,
-            collapse_whitespace,
-            permissive_atx_headers,
-            enable_wiki_links,
-            enable_latex_math,
-            enable_mdx,
-        ),
-    )
+pub fn parse(markdown: &[u8], flags: u32) -> String {
+    render_html(&utf8(markdown), &build_options(flags))
 }
 
 #[wasm_bindgen(js_name = "parseDefault")]
@@ -130,54 +69,65 @@ pub fn parse_default(markdown: &[u8]) -> String {
     )
 }
 
+/// Render Markdown as plain text (see `ironmark::render_text`).
+#[wasm_bindgen(js_name = "renderText")]
+pub fn render_text(markdown: &[u8], flags: u32) -> String {
+    let options = build_options(flags);
+    ironmark::render_text(&utf8(markdown), &options)
+}
+
+/// Every heading as a flat `[level, id, text, level, id, text, …]` list, which
+/// crosses the boundary without a JSON dependency (see `ironmark::extract_headings`).
+#[wasm_bindgen(js_name = "extractHeadings")]
+pub fn extract_headings(markdown: &[u8], flags: u32) -> Vec<String> {
+    let options = build_options(flags);
+    ironmark::extract_headings(&utf8(markdown), &options)
+        .into_iter()
+        .flat_map(|h| [h.level.to_string(), h.id, h.text])
+        .collect()
+}
+
+/// Every link and image as a flat `[image, url, title | null, text, …]` list
+/// (see `ironmark::extract_links`).
+#[wasm_bindgen(js_name = "extractLinks")]
+pub fn extract_links(markdown: &[u8], flags: u32) -> Vec<JsValue> {
+    let options = build_options(flags);
+    ironmark::extract_links(&utf8(markdown), &options)
+        .into_iter()
+        .flat_map(|link| {
+            [
+                JsValue::from_bool(link.image),
+                JsValue::from(link.url),
+                link.title.map_or(JsValue::NULL, JsValue::from),
+                JsValue::from(link.text),
+            ]
+        })
+        .collect()
+}
+
+/// The raw front matter block (without its fences), when `enableFrontmatter`
+/// is on and the input starts with one.
+#[wasm_bindgen(js_name = "frontmatter")]
+pub fn frontmatter(markdown: &[u8], flags: u32) -> Option<String> {
+    if !build_options(flags).enable_frontmatter {
+        return None;
+    }
+    ironmark::split_frontmatter(&utf8(markdown)).map(|(raw, _)| raw.to_string())
+}
+
+/// Parse Markdown and render it back as normalized Markdown, without the
+/// AST JSON round trip `renderMarkdown(parseToAst(…))` would take.
+#[cfg(feature = "ast")]
+#[wasm_bindgen(js_name = "normalizeMarkdown")]
+pub fn normalize_markdown(markdown: &[u8], flags: u32) -> String {
+    let options = build_options(flags);
+    ironmark::render_markdown(&parse_markdown(&utf8(markdown), &options))
+}
+
 #[cfg(feature = "ast")]
 #[wasm_bindgen(js_name = "parseToAst")]
-pub fn parse_to_ast(
-    markdown: &[u8],
-    hard_breaks: Option<bool>,
-    enable_highlight: Option<bool>,
-    enable_strikethrough: Option<bool>,
-    enable_underline: Option<bool>,
-    enable_tables: Option<bool>,
-    enable_autolink: Option<bool>,
-    enable_task_lists: Option<bool>,
-    disable_raw_html: Option<bool>,
-    enable_heading_ids: Option<bool>,
-    enable_heading_anchors: Option<bool>,
-    enable_indented_code_blocks: Option<bool>,
-    no_html_blocks: Option<bool>,
-    no_html_spans: Option<bool>,
-    tag_filter: Option<bool>,
-    collapse_whitespace: Option<bool>,
-    permissive_atx_headers: Option<bool>,
-    enable_wiki_links: Option<bool>,
-    enable_latex_math: Option<bool>,
-    enable_mdx: Option<bool>,
-) -> Result<String, JsValue> {
-    let ast = parse_markdown(
-        &utf8(markdown),
-        &build_options(
-            hard_breaks,
-            enable_highlight,
-            enable_strikethrough,
-            enable_underline,
-            enable_tables,
-            enable_autolink,
-            enable_task_lists,
-            disable_raw_html,
-            enable_heading_ids,
-            enable_heading_anchors,
-            enable_indented_code_blocks,
-            no_html_blocks,
-            no_html_spans,
-            tag_filter,
-            collapse_whitespace,
-            permissive_atx_headers,
-            enable_wiki_links,
-            enable_latex_math,
-            enable_mdx,
-        ),
-    );
+pub fn parse_to_ast(markdown: &[u8], flags: u32) -> Result<String, JsValue> {
+    let ast = parse_markdown(&utf8(markdown), &build_options(flags));
     serde_json::to_string(&ast)
         .map_err(|err| JsValue::from_str(&format!("AST serialization failed: {err}")))
 }
@@ -197,25 +147,7 @@ pub fn parse_to_ast(
 #[wasm_bindgen(js_name = "renderAnsi")]
 pub fn render_ansi(
     markdown: &[u8],
-    hard_breaks: Option<bool>,
-    enable_highlight: Option<bool>,
-    enable_strikethrough: Option<bool>,
-    enable_underline: Option<bool>,
-    enable_tables: Option<bool>,
-    enable_autolink: Option<bool>,
-    enable_task_lists: Option<bool>,
-    disable_raw_html: Option<bool>,
-    enable_heading_ids: Option<bool>,
-    enable_heading_anchors: Option<bool>,
-    enable_indented_code_blocks: Option<bool>,
-    no_html_blocks: Option<bool>,
-    no_html_spans: Option<bool>,
-    tag_filter: Option<bool>,
-    collapse_whitespace: Option<bool>,
-    permissive_atx_headers: Option<bool>,
-    enable_wiki_links: Option<bool>,
-    enable_latex_math: Option<bool>,
-    enable_mdx: Option<bool>,
+    flags: u32,
     // Plain u32, not Option<u32>: Option<u32> generates i32.trunc_sat_f64_u
     // (nontrapping-fptoint) which wasm-opt rejects without --enable-nontrapping-fptoint.
     // 0 means "use default (80)".
@@ -224,27 +156,7 @@ pub fn render_ansi(
     line_numbers: Option<bool>,
     padding: u32,
 ) -> String {
-    let parse_opts = build_options(
-        hard_breaks,
-        enable_highlight,
-        enable_strikethrough,
-        enable_underline,
-        enable_tables,
-        enable_autolink,
-        enable_task_lists,
-        disable_raw_html,
-        enable_heading_ids,
-        enable_heading_anchors,
-        enable_indented_code_blocks,
-        no_html_blocks,
-        no_html_spans,
-        tag_filter,
-        collapse_whitespace,
-        permissive_atx_headers,
-        enable_wiki_links,
-        enable_latex_math,
-        enable_mdx,
-    );
+    let parse_opts = build_options(flags);
     let ansi_opts = AnsiOptions {
         width: if width == 0 { 80 } else { width as usize },
         color: color.unwrap_or(true),
@@ -292,49 +204,11 @@ impl JsxOutput {
 #[wasm_bindgen(js_name = "renderJsx")]
 pub fn render_jsx(
     markdown: &[u8],
-    hard_breaks: Option<bool>,
-    enable_highlight: Option<bool>,
-    enable_strikethrough: Option<bool>,
-    enable_underline: Option<bool>,
-    enable_tables: Option<bool>,
-    enable_autolink: Option<bool>,
-    enable_task_lists: Option<bool>,
-    disable_raw_html: Option<bool>,
-    enable_heading_ids: Option<bool>,
-    enable_heading_anchors: Option<bool>,
-    enable_indented_code_blocks: Option<bool>,
-    no_html_blocks: Option<bool>,
-    no_html_spans: Option<bool>,
-    tag_filter: Option<bool>,
-    collapse_whitespace: Option<bool>,
-    permissive_atx_headers: Option<bool>,
-    enable_wiki_links: Option<bool>,
-    enable_latex_math: Option<bool>,
-    enable_mdx: Option<bool>,
+    flags: u32,
     components: Option<bool>,
     provider_import_source: Option<String>,
 ) -> Result<JsxOutput, JsError> {
-    let options = build_options(
-        hard_breaks,
-        enable_highlight,
-        enable_strikethrough,
-        enable_underline,
-        enable_tables,
-        enable_autolink,
-        enable_task_lists,
-        disable_raw_html,
-        enable_heading_ids,
-        enable_heading_anchors,
-        enable_indented_code_blocks,
-        no_html_blocks,
-        no_html_spans,
-        tag_filter,
-        collapse_whitespace,
-        permissive_atx_headers,
-        enable_wiki_links,
-        enable_latex_math,
-        enable_mdx,
-    );
+    let options = build_options(flags);
     let jsx = ironmark::JsxOptions {
         components: components.unwrap_or(false),
         provider_import_source,
@@ -410,6 +284,15 @@ pub fn render_markdown(ast_json: &str) -> Result<String, JsValue> {
 mod tests {
     use super::*;
 
+    /// `DEFAULT_OPTIONS` packed the way `wasm/shared.js` packs it.
+    const DEFAULT_FLAGS: u32 = 0b111_1111 | 1 << 10;
+
+    #[test]
+    fn default_flags_decode_to_default_options() {
+        let decoded = build_options(DEFAULT_FLAGS);
+        assert_eq!(decoded, limited_defaults());
+    }
+
     fn limited_defaults() -> ParseOptions {
         ParseOptions {
             max_input_size: WASM_MAX_INPUT_SIZE,
@@ -438,10 +321,7 @@ mod tests {
     #[test]
     fn wasm_default_limit_matches_configured_policy() {
         assert_eq!(WASM_MAX_INPUT_SIZE, 10 * 1024 * 1024);
-        let configured = build_options(
-            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None,
-        );
+        let configured = build_options(DEFAULT_FLAGS);
         assert_eq!(configured.max_input_size, WASM_MAX_INPUT_SIZE);
         let input = "ordinary & **bold** *em* ~~del~~ ==mark== ++u++ `code`\nnext";
         let expected = "<p>ordinary &amp; <strong>bold</strong> <em>em</em> <del>del</del> <mark>mark</mark> <u>u</u> <code>code</code><br />\nnext</p>\n";

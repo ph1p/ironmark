@@ -108,7 +108,8 @@
     "bench:measure": "node benchmark/measure.mjs",
     "bench:api": "node benchmark/api.mjs",
     "test:benchmark": "node --test benchmark/measure.test.mjs benchmark/api.test.mjs",
-    "test:wasm": "node --test wasm/api.test.mjs wasm/package.test.mjs wasm/html.test.mjs wasm/entries.test.mjs",
+    "test:types": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --lib ES2022,DOM wasm/types.test.ts",
+    "test:wasm": "node --test wasm/api.test.mjs wasm/package.test.mjs wasm/html.test.mjs wasm/entries.test.mjs wasm/document.test.mjs",
     "test": "cargo test --offline"
   },
   "devDependencies": {
@@ -124,7 +125,8 @@
     "md4w": "^0.2.7",
     "oxfmt": "^0.78.0",
     "oxlint": "^1.93.0",
-    "semantic-release": "^25.0.9"
+    "semantic-release": "^25.0.9",
+    "typescript": "7.0.2"
   },
   "engines": {
     "node": ">=18"

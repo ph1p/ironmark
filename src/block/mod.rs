@@ -33,6 +33,23 @@ fn truncate_to_limit(s: &str, limit: usize) -> &str {
     &s[..end]
 }
 
+/// The part of `markdown` every entry point parses: truncated to
+/// `max_input_size` (`cap` bounds it further), then front matter skipped when
+/// [`ParseOptions::enable_frontmatter`] is set.
+pub(crate) fn prepare_input<'a>(markdown: &'a str, options: &ParseOptions, cap: usize) -> &'a str {
+    let limit = match options.max_input_size {
+        0 => cap,
+        n => n.min(cap),
+    };
+    let markdown = truncate_to_limit(markdown, limit);
+    if options.enable_frontmatter
+        && let Some((_, body)) = crate::frontmatter::split_frontmatter(markdown)
+    {
+        return body;
+    }
+    markdown
+}
+
 /// Parse a Markdown string and return the rendered HTML.
 ///
 /// # Examples
@@ -60,12 +77,7 @@ pub(crate) fn render_html_impl(
     // input is hard-capped at u32::MAX bytes to keep those casts from wrapping —
     // a wrapped range would slice the source out of bounds and panic. This is below
     // any user `max_input_size` and applies even when that limit is 0 (unlimited).
-    let u32_cap = u32::MAX as usize;
-    let effective_limit = match options.max_input_size {
-        0 => u32_cap,
-        n => n.min(u32_cap),
-    };
-    let markdown = truncate_to_limit(markdown, effective_limit);
+    let markdown = prepare_input(markdown, options, u32::MAX as usize);
     let mut parser = BlockParser::new(markdown, options);
     parser.render_mode = true;
     parser.src_ranges = Vec::with_capacity(estimate_block_count(markdown.len()));
@@ -111,7 +123,7 @@ pub(crate) fn render_html_impl(
 /// }
 /// ```
 pub fn parse_markdown(markdown: &str, options: &ParseOptions) -> Block {
-    let markdown = truncate_to_limit(markdown, options.max_input_size);
+    let markdown = prepare_input(markdown, options, usize::MAX);
     let mut parser = BlockParser::new(markdown, options);
     parser.parse()
 }
