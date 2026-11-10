@@ -145,6 +145,8 @@ impl<'a> InlineScanner<'a> {
                             self.items.push(InlineItem::MdxJsx(self.pos, end, kind));
                             self.pos = end;
                         }
+                        // Not JSX (`<https://…>`, `<a@b.c>`): keep CommonMark autolinks.
+                        _ if self.try_autolink() => {}
                         _ => {
                             self.items.push(InlineItem::TextStatic("&lt;"));
                             self.pos += 1;
@@ -660,9 +662,22 @@ impl<'a> InlineScanner<'a> {
 
         while end > url_body_start {
             let last = bytes[end - 1];
+            // GFM: a trailing `&name;` looks like an entity reference, so it is not part of the URL.
+            if last == b';' {
+                let mut amp = end - 1;
+                while amp > url_body_start && bytes[amp - 1].is_ascii_alphanumeric() {
+                    amp -= 1;
+                }
+                if amp < end - 1 && amp > url_body_start && bytes[amp - 1] == b'&' {
+                    end = amp - 1;
+                    continue;
+                }
+            }
+            // `>` is trimmed too (unlike cmark-gfm): a URL never ends in `>`, but prose like
+            // `(see https://x.com>)` or a stray `<https://x.com>` in MDX does.
             if matches!(
                 last,
-                b'.' | b',' | b':' | b';' | b'!' | b'?' | b'"' | b'\'' | b')' | b']'
+                b'.' | b',' | b':' | b';' | b'!' | b'?' | b'"' | b'\'' | b')' | b']' | b'>'
             ) {
                 if last == b')' {
                     let url_slice = &bytes[scheme_start..end];

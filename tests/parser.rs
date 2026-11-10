@@ -1586,3 +1586,31 @@ fn unmatched_backtick_before_other_inlines() {
     let html = render_html("` \\* *em*", &opts);
     assert_eq!(html, "<p>` * <em>em</em></p>\n");
 }
+
+#[test]
+fn bare_url_trims_trailing_angle_bracket() {
+    assert_html(
+        "https://x.com> ok",
+        "<p><a href=\"https://x.com\">https://x.com</a>&gt; ok</p>\n",
+    );
+    assert_html(
+        "https://x.com/a>b",
+        "<p><a href=\"https://x.com/a%3Eb\">https://x.com/a&gt;b</a></p>\n",
+    );
+}
+
+#[test]
+fn bare_url_excludes_trailing_entity() {
+    assert_html(
+        "https://x.com&gt; ok",
+        "<p><a href=\"https://x.com\">https://x.com</a>&gt; ok</p>\n",
+    );
+    assert_html(
+        "https://x.com/?a=1&b;",
+        "<p><a href=\"https://x.com/?a=1\">https://x.com/?a=1</a>&amp;b;</p>\n",
+    );
+    assert_html(
+        "https://x.com/a;",
+        "<p><a href=\"https://x.com/a\">https://x.com/a</a>;</p>\n",
+    );
+}

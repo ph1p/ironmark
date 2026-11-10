@@ -261,3 +261,11 @@ function _missingMdxReference(id) {
 "#
     );
 }
+
+#[test]
+fn angle_autolinks_survive() {
+    assert_eq!(
+        body("Visit <https://x.com> or <a@b.co>."),
+        "<p>Visit <a href=\"https://x.com\">https://x.com</a> or <a href=\"mailto:a@b.co\">a@b.co</a>.</p>"
+    );
+}
