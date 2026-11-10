@@ -1,0 +1,45 @@
+# AI pipelines
+
+ironmark is built to be a reliable, deterministic parsing layer for AI agents and code generation tools: one parser, the same output for the same input, and machine-readable metadata about what it supports.
+
+## Recommended pattern
+
+```ts
+import { markdownToAst, markdownToHtml, astToMarkdown, CAPABILITIES } from "ironmark";
+
+// 1. Inspect capabilities at startup
+CAPABILITIES.formats; // ["html", "text", "ast", "markdown", "ansi", "jsx"]
+
+// 2. Parse with deterministic options
+const ast = markdownToAst(content, { preset: "llm" });
+
+// 3. Render or transform
+const html = markdownToHtml(content, { preset: "llm" });
+const normalized = astToMarkdown(ast);
+```
+
+## The `llm` preset
+
+The `llm` [preset](/config/presets) produces deterministic, structure-first output:
+
+- Disables autolinks, wiki links, math and hard breaks, which are ambiguous in AI-generated text.
+- Enables heading ids and whitespace normalization.
+- Disables raw HTML passthrough, so it is safe by default.
+
+## Document structure
+
+```ts
+import { markdownToAst, extractHeadings, summarizeAst } from "ironmark";
+
+const ast = markdownToAst(content, { preset: "llm" });
+
+// Extract document structure
+const headings = extractHeadings(ast);
+// [{ level: 1, text: "Introduction", id: "introduction" }, ...]
+
+// Summarize node types
+const summary = summarizeAst(ast);
+// { blockCount: 5, nodeCounts: { Heading: 2, Paragraph: 3, ... } }
+```
+
+For chunking and embeddings, `markdownToText()` gives the words without markup; see [Plain text](/js/text). A [document](/js/documents) returns text, headings and links from one parse.

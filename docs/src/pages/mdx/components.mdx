@@ -1,0 +1,61 @@
+# Components
+
+By default the output is plain JSX: every component must be imported by the document, and `<h1>` stays `<h1>`. The `components` option (Rust: `JsxOptions`) switches to the `@mdx-js/mdx` component model:
+
+- Markdown tags become `<_components.h1>`, so `props.components` can replace them (`{ h1: MyHeading, a: Link }`).
+- Capitalised components the document does not import are read from `props.components`. A missing one throws ``Expected component `Note` to be defined``.
+- `components.wrapper` wraps the whole document (a layout).
+- `providerImportSource: "@mdx-js/react"` (implies `components`) also reads components from an `MDXProvider`, so the module works anywhere `@mdx-js/react` does, including Storybook docs.
+
+The [build tool plugins](/plugins) turn `components` on by default.
+
+## Example
+
+```ts
+mdxToJsx("# Hi\n\n<Note />", { components: true }).module;
+```
+
+```js
+function _createMdxContent(props) {
+  const _components = { h1: "h1", ...props.components };
+  const { Note } = _components;
+  if (!Note) _missingMdxReference("Note");
+  return (
+    <>
+      <_components.h1>Hi</_components.h1>
+      <Note />
+    </>
+  );
+}
+
+export default function MDXContent(props = {}) {
+  const { wrapper: MDXLayout } = { ...props.components };
+  return MDXLayout ? (
+    <MDXLayout {...props}>
+      <_createMdxContent {...props} />
+    </MDXLayout>
+  ) : (
+    _createMdxContent(props)
+  );
+}
+// … plus the _missingMdxReference helper
+```
+
+In Rust:
+
+```rust
+use ironmark::{render_jsx_with, JsxOptions, ParseOptions};
+
+let jsx = JsxOptions { provider_import_source: Some("@mdx-js/react".into()), ..Default::default() };
+let out = render_jsx_with("# Hi\n\n<Note />", &ParseOptions::default(), &jsx).unwrap();
+```
+
+## Using the module with React
+
+```jsx
+import Guide from "./Guide.mdx";
+
+<Guide components={{ Note, h1: (p) => <h1 className="title" {...p} />, wrapper: Layout }} />;
+```
+
+On a [document](/js/documents), pass the same options to `jsx()`: `doc.jsx({ components: true })`.

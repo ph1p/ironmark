@@ -1,0 +1,54 @@
+# Constants and utilities
+
+## Introspection constants
+
+Stable, machine-readable metadata for agents and tooling. All four are frozen.
+
+```ts
+import { CAPABILITIES, AST_SCHEMA_VERSION, DEFAULT_OPTIONS, PRESETS } from "ironmark";
+
+CAPABILITIES;
+// {
+//   astSchemaVersion: "2",
+//   formats: ["html", "text", "ast", "markdown", "ansi", "jsx"], // only what this entry supports
+//   presets: ["default", "safe", "strict", "llm"],
+//   extensions: [...],
+//   security: [...]
+// }
+
+AST_SCHEMA_VERSION; // "2": bumps on any breaking change to the AST shape
+DEFAULT_OPTIONS.enableTables; // true: the effective value of every option
+PRESETS.llm; // the options the "llm" preset applies
+
+// Copy before changing: the constants are frozen
+const mine = { ...DEFAULT_OPTIONS, hardBreaks: false };
+```
+
+| Constant             | Contents                                                        |
+| -------------------- | --------------------------------------------------------------- |
+| `CAPABILITIES`       | Formats, presets, extensions and security options of this entry |
+| `AST_SCHEMA_VERSION` | Version of the [AST](/js/ast) shape                             |
+| `DEFAULT_OPTIONS`    | The effective default of every [option](/config/options)        |
+| `PRESETS`            | The options each [preset](/config/presets) applies              |
+
+## Utility functions
+
+```ts
+import { markdownToAst, extractHeadings, summarizeAst } from "ironmark";
+
+const ast = markdownToAst("# Hello\n\n## World\n\nA paragraph.");
+
+// Every heading, nested ones included. `text` has inline Markdown stripped;
+// `id` is exactly what `enableHeadingIds` renders.
+const headings = extractHeadings(ast);
+// [
+//   { level: 1, text: "Hello", id: "hello" },
+//   { level: 2, text: "World", id: "world" },
+// ]
+
+// Count node types
+const summary = summarizeAst(ast);
+// { blockCount: 3, nodeCounts: { Heading: 2, Paragraph: 1 } }
+```
+
+Both are in the main entry and in `ironmark/ast`.

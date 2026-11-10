@@ -1,0 +1,67 @@
+# Build tool plugins
+
+The npm package ships plugins that turn `.mdx` imports into components. They compile with [`mdxToJsx`](/mdx) and then let the build tool's own JSX transform finish the module, so no Babel or `@mdx-js/mdx` is needed.
+
+| Import             | Use it in                                               | Guide                       |
+| ------------------ | ------------------------------------------------------- | --------------------------- |
+| `ironmark/vite`    | Vite 5+ and tools built on it (SvelteKit, Nuxt, Vitest) | [Vite](/plugins/vite)       |
+| `ironmark/esbuild` | esbuild, `Bun.build()` / `Bun.plugin()`, tsup           | [esbuild](/plugins/esbuild) |
+| `ironmark/rollup`  | Rollup 4.24+ and Rolldown                               | [Rollup](/plugins/rollup)   |
+| `ironmark/webpack` | webpack 5 and Rspack (a loader)                         | [webpack](/plugins/webpack) |
+| `ironmark/astro`   | Astro, with `@astrojs/react` or `@astrojs/preact`       | [Astro](/plugins/astro)     |
+
+## Usage
+
+Every plugin gives the same module: a default-exported component, plus `frontmatter` when you pass a parser.
+
+```tsx
+import Guide, { frontmatter } from "./guide.mdx";
+
+<Guide components={{ Note }} />;
+```
+
+## Options
+
+Every plugin takes the same options, plus any [parse option](/config/options) (`enableTables`, `enableHeadingIds`, …):
+
+| Option                 | Default    | Description                                                                                         |
+| ---------------------- | ---------- | --------------------------------------------------------------------------------------------------- |
+| `include`              | `/\.mdx$/` | Files to compile                                                                                    |
+| `jsxImportSource`      | `"react"`  | Package that provides `jsx-runtime`: `"preact"`, `"vue"`, `"hono/jsx"`, …                           |
+| `components`           | `true`     | Route tags and undeclared components through `props.components` (see [Components](/mdx/components)) |
+| `providerImportSource` | —          | Also read components from an `MDXProvider`, for example `"@mdx-js/react"`                           |
+| `frontmatter`          | —          | `(raw, file) => value`: parse the front matter and export it as `frontmatter` (`{}` when absent)    |
+
+## Front matter
+
+Front matter is always stripped from the content. To read it, pass your YAML or TOML parser:
+
+```js
+import { parse } from "yaml";
+
+ironmarkMdx({ frontmatter: (raw) => parse(raw) });
+```
+
+The value is serialized with `JSON.stringify`, so dates become strings.
+
+## Errors
+
+Compile errors name the file and the problem, for example:
+
+```text
+guide.mdx: expected a closing tag for `<Note>` before the end of the document
+```
+
+## TypeScript
+
+Declare the module shape once so `.mdx` imports type-check:
+
+```ts
+// mdx.d.ts
+declare module "*.mdx" {
+  import type { ComponentType } from "react";
+  export const frontmatter: Record<string, unknown>;
+  const MDXContent: ComponentType<{ components?: Record<string, ComponentType<any>> }>;
+  export default MDXContent;
+}
+```

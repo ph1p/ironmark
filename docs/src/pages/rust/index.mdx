@@ -1,0 +1,60 @@
+# Rust
+
+```bash
+cargo add ironmark
+```
+
+```rust
+use ironmark::{render_html, ParseOptions};
+
+fn main() {
+    // with defaults
+    let html = render_html("# Hello\n\nThis is **fast**.", &ParseOptions::default());
+
+    // with custom options
+    let html = render_html("line one\nline two", &ParseOptions {
+        hard_breaks: false,
+        enable_strikethrough: false,
+        ..Default::default()
+    });
+
+    // safe mode for untrusted input
+    let html = render_html("<script>alert(1)</script>", &ParseOptions {
+        disable_raw_html: true,
+        max_input_size: 1_000_000, // 1 MB
+        ..Default::default()
+    });
+}
+```
+
+Every field of `ParseOptions` is listed on [Options](/config/options) and [Security](/config/security).
+
+## Cargo features
+
+| Feature       | Default | Enables                                            |
+| ------------- | ------- | -------------------------------------------------- |
+| `html`        | yes     | Markdown to HTML (`render_html`)                   |
+| `ansi`        | yes     | Markdown to ANSI terminal (`render_ansi_terminal`) |
+| `html-parser` | yes     | HTML to AST to Markdown (`html_to_markdown`)       |
+| `serde`       | no      | `Serialize`/`Deserialize` for the AST types        |
+| `cli`         | no      | The `ironmark` binary                              |
+
+Parsing to the AST (`parse_markdown`) and AST to Markdown (`render_markdown`) are always available. To build only what you use:
+
+```toml
+[dependencies]
+ironmark = { version = "2", default-features = false, features = ["html"] }
+```
+
+## Dependencies
+
+At runtime ironmark depends only on `memchr`, `rustc-hash`, `compact_str` and `smallvec`. `serde` is optional and only pulled in by the `serde` feature.
+
+## More
+
+- [AST](/rust/ast): the typed `Block` tree and AST to Markdown.
+- [Text, headings and links](/rust/text): plain text, extraction and one-parse analysis.
+- [Terminal (ANSI)](/rust/ansi): coloured terminal output.
+- [HTML to Markdown](/rust/html-to-markdown): convert HTML back to Markdown.
+- [MDX](/mdx): `render_jsx` compiles MDX to JSX.
+- [C and C++](/rust/c): use the static library from C.

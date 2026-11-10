@@ -1,0 +1,30 @@
+# Migrating from 2.x
+
+The JavaScript API was renamed so every function reads `sourceToTarget`, and the getters became frozen constants. The Rust API is unchanged.
+
+| 2.x                                      | Now                                                     |
+| ---------------------------------------- | ------------------------------------------------------- |
+| `renderHtml(md, opts)`                   | `markdownToHtml(md, opts)`                              |
+| `parseMarkdown(md, opts)`                | `markdownToAst(md, opts)`                               |
+| `renderMarkdown(ast)`                    | `astToMarkdown(ast)`                                    |
+| `renderAnsiTerminal(md, opts, ansiOpts)` | `markdownToAnsi(md, { ...opts, ...ansiOpts })`          |
+| `renderJsx(md, opts)`                    | `mdxToJsx(md, opts)`                                    |
+| `parseHtmlToAst(html, true)`             | `htmlToAst(html, { preserveUnknownAsHtml: true })`      |
+| `htmlToMarkdown(html, true)`             | `htmlToMarkdown(html, { preserveUnknownAsHtml: true })` |
+| `getCapabilities()`                      | `CAPABILITIES`                                          |
+| `getAstSchemaVersion()`                  | `AST_SCHEMA_VERSION`                                    |
+| `getDefaultOptions()`                    | `DEFAULT_OPTIONS` (frozen; spread to copy)              |
+| `getPresets()`                           | `PRESETS` (frozen; spread to copy)                      |
+| type `RenderHtmlOptions`                 | `ParseOptions`                                          |
+| type `AstNode` (`{ t, c, text }`)        | `AstNode`: the real tagged union (`{ Heading: { … } }`) |
+
+## Other changes
+
+- `init()` now returns a promise in every entry, including Node, so the same `await init()` works everywhere.
+- `extractHeadings()` and `summarizeAst()` now read the real AST shape. Before, they expected the documented-but-wrong `{ t, c }` nodes and found nothing.
+
+## Also new
+
+- [Documents](/js/documents): `ironmark.parse(input)` renders several outputs from one input, with `with()` for layered options.
+- [Plain text](/js/text) with `markdownToText()`, plus headings, links, images, front matter and stats.
+- [Build tool plugins](/plugins) for Vite, esbuild, Rollup, webpack and Astro.

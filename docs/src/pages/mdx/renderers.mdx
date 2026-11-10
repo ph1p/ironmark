@@ -1,0 +1,20 @@
+# Other renderers
+
+With `enableMdx` set, the other entry points parse MDX too, but only `mdxToJsx` / `render_jsx` compiles it:
+
+| Function                            | MDX handling                                                                               |
+| ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| `markdownToHtml` / `render_html`    | JSX and expressions pass through verbatim (escaped under `disableRawHtml`); ESM is dropped |
+| `markdownToAst` / `parse_to_ast`    | `MdxFlow { literal }` and `MdxEsm { literal }` nodes                                       |
+| `astToMarkdown` / `render_markdown` | MDX blocks are written back verbatim                                                       |
+| `markdownToAnsi` / `render_ansi`    | MDX blocks are skipped                                                                     |
+| `markdownToText` / `render_text`    | MDX blocks are dropped                                                                     |
+
+This lets you index, lint or reformat `.mdx` files with the same parser that compiles them.
+
+```ts
+import { markdownToText } from "ironmark";
+
+markdownToText("# Report\n\n<Chart />\n\nSome text.", { enableMdx: true });
+// "Report\n\nSome text."
+```

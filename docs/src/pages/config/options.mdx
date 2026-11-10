@@ -1,0 +1,62 @@
+# Options
+
+Every function takes the same options object. JavaScript uses `camelCase` keys; Rust uses the `snake_case` fields of `ParseOptions`.
+
+```ts
+import { markdownToHtml } from "ironmark";
+
+markdownToHtml(input, { hardBreaks: false, enableTables: false });
+```
+
+```rust
+use ironmark::{render_html, ParseOptions};
+
+render_html(input, &ParseOptions { hard_breaks: false, enable_tables: false, ..Default::default() });
+```
+
+## Extensions
+
+All extensions default to `true`, except front matter.
+
+| Option              | JS (`camelCase`)           | Rust (`snake_case`)           | Description                                                 |
+| ------------------- | -------------------------- | ----------------------------- | ----------------------------------------------------------- |
+| Hard breaks         | `hardBreaks`               | `hard_breaks`                 | Every newline becomes `<br />`                              |
+| Highlight           | `enableHighlight`          | `enable_highlight`            | `==text==` becomes `<mark>`                                 |
+| Strikethrough       | `enableStrikethrough`      | `enable_strikethrough`        | `~~text~~` becomes `<del>`                                  |
+| Underline           | `enableUnderline`          | `enable_underline`            | `++text++` becomes `<u>`                                    |
+| Tables              | `enableTables`             | `enable_tables`               | Pipe table syntax                                           |
+| Autolink            | `enableAutolink`           | `enable_autolink`             | Bare URLs and emails become `<a>`                           |
+| Task lists          | `enableTaskLists`          | `enable_task_lists`           | `- [ ]` / `- [x]` checkboxes                                |
+| Indented code       | `enableIndentedCodeBlocks` | `enable_indented_code_blocks` | 4-space indent becomes `<pre><code>`                        |
+| Wiki links          | `enableWikiLinks`          | `enable_wiki_links`           | `[[page]]` becomes `<a href="page">`                        |
+| LaTeX math          | `enableLatexMath`          | `enable_latex_math`           | `$inline$` and `$$display$$` become `<span class="math-…">` |
+| Front matter        | `enableFrontmatter`        | `enable_frontmatter`          | Skip a leading `---`/`+++` block (off by default)           |
+| Heading IDs         | `enableHeadingIds`         | `enable_heading_ids`          | Auto `id=` on headings from slugified text                  |
+| Heading anchors     | `enableHeadingAnchors`     | `enable_heading_anchors`      | `<a class="anchor">` inside each heading (implies IDs)      |
+| Permissive headings | `permissiveAtxHeaders`     | `permissive_atx_headers`      | Allow `#Heading` without a space after `#`                  |
+
+:::note
+Bare-URL autolinks follow the GFM trailing-punctuation rules, with one deliberate difference: a trailing `>` is not part of the link (`https://x.com>` links `https://x.com`), so URLs written inside `>`-terminated text do not swallow the bracket.
+:::
+
+## MDX
+
+`enableMdx` / `enable_mdx` (default `false`) parses JSX tags, expressions in braces and `import`/`export`. See [MDX](/mdx).
+
+## Security
+
+`safe`, `disableRawHtml`, `noHtmlBlocks`, `noHtmlSpans`, `tagFilter` and the size limits are covered in [Security](/config/security).
+
+## Other options
+
+| Option              | JS (`camelCase`)     | Rust (`snake_case`)   | Default | Description                                           |
+| ------------------- | -------------------- | --------------------- | ------- | ----------------------------------------------------- |
+| Collapse whitespace | `collapseWhitespace` | `collapse_whitespace` | `false` | Collapse runs of spaces and tabs in text to one space |
+| Preset              | `preset`             | —                     | —       | Apply a named [preset](/config/presets) (JS only)     |
+| Deterministic       | `deterministic`      | —                     | `false` | Normalize whitespace for stable output (JS only)      |
+
+`DEFAULT_OPTIONS` holds the effective default of every option; see [Constants](/js/constants).
+
+## CommonMark baseline
+
+The CommonMark spec tests run with `hardBreaks: false` and `enableAutolink: false`. For plain CommonMark behaviour, use the `strict` [preset](/config/presets).

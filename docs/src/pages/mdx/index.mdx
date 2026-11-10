@@ -1,0 +1,60 @@
+# MDX
+
+ironmark compiles [MDX](https://mdxjs.com/), which is Markdown with JSX tags, expressions in braces and `import`/`export`, to JSX. It is off by default (`enableMdx` / `enable_mdx`) and needs no extra dependencies.
+
+- To import `.mdx` files in an app, add one of the [build tool plugins](/plugins).
+- `mdxToJsx` itself returns a JavaScript module that still contains JSX, for your own JSX transform (esbuild, Babel, SWC, Oxc, TypeScript).
+
+:::danger[MDX is code]
+Expressions and components run with the page's privileges. Only compile MDX from trusted authors: `disableRawHtml` does not make compiled MDX safe.
+:::
+
+## Quick start
+
+:::code-group
+
+```ts [JavaScript]
+import { mdxToJsx } from "ironmark";
+
+const { esm, jsx, module } = mdxToJsx(`import { Chart } from './chart.js'
+export const year = 2026
+
+# Report {year}
+
+<Chart data={[1, 2]} />`);
+```
+
+```rust [Rust]
+use ironmark::{render_jsx, ParseOptions};
+
+let out = render_jsx("import X from './x'\n\n# Hi {props.name}\n\n<X />", &ParseOptions::default()).unwrap();
+// out.esm == "import X from './x'"
+// out.jsx == "<>\n<h1>Hi {props.name}</h1>\n<X />\n</>"
+let module = out.to_module(); // ESM + `export default function MDXContent(props) { … }`
+```
+
+:::
+
+`render_jsx` / `mdxToJsx` turn on `enable_mdx` themselves. Every other option (tables, task lists, highlight, …) applies as usual.
+
+## Output
+
+| Field (JS) | Rust                     | Contents                                                                         |
+| ---------- | ------------------------ | -------------------------------------------------------------------------------- |
+| `esm`      | `esm`                    | Top-level `import`/`export` statements, in document order                        |
+| `jsx`      | `jsx`                    | The document body as one JSX fragment (`<>…</>`)                                 |
+| `module`   | `to_module()`            | `esm` plus `export default function MDXContent(props)`: import this              |
+| —          | `elements`, `references` | Markdown tags routed through `_components`, and components used but not declared |
+
+Markdown becomes plain JSX elements (`<h1>`, `<p>`, `<pre><code className="language-js">`). Code block content becomes a JS string, so braces and whitespace survive. Braces in text are escaped to `&#123;` / `&#125;`.
+
+## Next
+
+- [Syntax](/mdx/syntax): what MDX accepts and how it differs from Markdown.
+- [Components](/mdx/components): replace Markdown tags and pass components through props or a provider.
+- [Other renderers](/mdx/renderers): what HTML, AST and ANSI output do with MDX.
+
+## Examples
+
+- [`examples/mdx`](https://github.com/ph1p/ironmark/tree/main/examples/mdx): `cargo run --example mdx` prints the compiled module (`--components` and `--provider` for the other modes), and a Vite + React app renders the same `Guide.mdx` through `ironmark/vite`.
+- The [playground](https://ph1p.js.org/ironmark/playground/) has an MDX option with a multi-file workspace (`.mdx`, `.jsx`, `.js`), a live React preview and a JSX output tab.

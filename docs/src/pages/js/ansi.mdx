@@ -1,0 +1,40 @@
+# Terminal (ANSI)
+
+`markdownToAnsi()` renders Markdown as coloured terminal output with ANSI 256-colour escape codes.
+
+````ts
+import { markdownToAnsi } from "ironmark";
+
+// Defaults: width 80, color enabled
+process.stdout.write(markdownToAnsi("# Hello\n\n**bold** and `code`"));
+
+// Terminal options sit next to the parse options in one object
+const ansi = markdownToAnsi("# Hello\n\n```rust\nfn main() {}\n```", {
+  width: 120,
+  lineNumbers: true,
+  enableTables: false,
+});
+process.stdout.write(ansi);
+
+// Plain text, no ANSI codes (useful for piping to files)
+const plain = markdownToAnsi("# Hello", { color: false });
+````
+
+On a [document](/js/documents), pass the terminal options to `ansi()`: `doc.ansi({ width: 100 })`. Each distinct set is cached separately.
+
+## Options
+
+`AnsiOptions` extends `ParseOptions` with:
+
+| Option        | Type      | Default | Description                                                                                   |
+| ------------- | --------- | ------- | --------------------------------------------------------------------------------------------- |
+| `width`       | `number`  | `80`    | Column width for word-wrap, heading underlines and rule length. `0` uses the default.         |
+| `color`       | `boolean` | `true`  | Emit ANSI colour codes. `false` gives plain text output.                                      |
+| `lineNumbers` | `boolean` | `false` | Show line numbers in fenced code blocks.                                                      |
+| `padding`     | `number`  | `0`     | Horizontal padding added to both sides of each line, plus ⌈padding/2⌉ blank lines at the top. |
+
+:::note
+`markdownToAnsi()` is only in the main `ironmark` entry, not in the subpath builds.
+:::
+
+For a ready-made command line tool, see the [CLI](/cli).

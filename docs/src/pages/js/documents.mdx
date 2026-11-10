@@ -1,0 +1,102 @@
+# Documents
+
+`ironmark.parse(input, options?)` wraps the input in a document. Nothing renders until you ask for an output. Each output is its own WASM call, made once and cached, so calling `doc.html()` twice costs one render.
+
+```ts
+import ironmark from "ironmark";
+
+const doc = ironmark.parse("# Hello\n\nSome **bold** text.");
+
+doc.html(); // rendered once
+doc.html(); // served from the cache
+doc.text(); // "Hello\n\nSome bold text."
+```
+
+## Methods
+
+| Method                      | Returns                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| `doc.html()`                | HTML string                                                                                |
+| `doc.text()`                | Plain text for search indexes, excerpts or embeddings                                      |
+| `doc.headings()`            | `[{ level, text, id }]`; `id` matches `enableHeadingIds`                                   |
+| `doc.toc()`                 | Headings nested by level: `[{ level, text, id, children }]`                                |
+| `doc.ast()`                 | The AST (deeply frozen; `structuredClone(doc.ast())` to edit)                              |
+| `doc.markdown()`            | Normalized Markdown                                                                        |
+| `doc.links()`               | `[{ url, title, text }]` for every link, in document order (dangerous URLs come back `""`) |
+| `doc.images()`              | `[{ url, title, alt }]` for every image                                                    |
+| `doc.frontmatter()`         | The raw front matter string, or `null` (needs `enableFrontmatter`)                         |
+| `doc.stats()`               | `{ words, characters, readingTime }`; `readingTime` is minutes at 200 words per minute     |
+| `doc.summary()`             | `{ blockCount, nodeCounts }`                                                               |
+| `doc.ansi(render?)`         | Terminal output; `render` = `{ width, color, lineNumbers, padding }`                       |
+| `doc.jsx(render?)`          | MDX compiled to `{ esm, jsx, module }`; `render` = `{ components, providerImportSource }`  |
+| `doc.with(options)`         | A new document over the same source with `options` layered on top                          |
+| `doc.source`, `doc.options` | The original input and the resolved, frozen options                                        |
+
+Parse options (`preset`, `safe`, `enableTables`, …) are set only through `parse()` and `with()`, so every output of one document agrees on them. `ansi()` and `jsx()` take render options only; each distinct set is cached separately.
+
+## Which entry has which method
+
+`text()`, `headings()`, `toc()`, `links()`, `images()`, `frontmatter()` and `stats()` exist in every entry.
+
+| Method                             | Needs                            |
+| ---------------------------------- | -------------------------------- |
+| `ast()`, `summary()`, `markdown()` | `ironmark/ast` or the main entry |
+| `jsx()`                            | `ironmark/mdx` or the main entry |
+| `ansi()`, `ironmark.fromHtml()`    | the main entry                   |
+
+Methods a binary cannot run are absent from its documents, and the types say so. See [Subpath imports](/js/subpaths).
+
+## Layering options with `with()`
+
+`with()` works on documents and on the `ironmark` instance itself:
+
+- A layer that sets `preset` starts again from that preset; earlier options are dropped.
+- Otherwise the layer's keys override the base and the rest is kept.
+- `safe: false` turns `disableRawHtml` and `tagFilter` off; `deterministic: false` turns `collapseWhitespace` off.
+
+```ts
+import ironmark from "ironmark";
+
+// Configure once, reuse everywhere.
+const md = ironmark.with({ preset: "safe", enableHeadingIds: true });
+
+const post = md.parse(userInput);
+const article = `<article>${post.html()}</article>`;
+const sidebar = post.toc(); // nested headings, ids match the rendered ones
+const excerpt = post.text().slice(0, 160);
+
+process.stdout.write(post.ansi({ width: 100 }));
+post.with({ enableTables: false }).html(); // same source, other options
+
+// HTML in, clean Markdown out.
+ironmark.fromHtml("<h1>Hi</h1><p><b>bold</b></p>").markdown(); // "# Hi\n\n**bold**\n"
+```
+
+## Instance shortcuts
+
+For a single output, skip the document. Every document method is also a shortcut on the instance, taking the input first:
+
+```ts
+ironmark.html(md); // same as ironmark.parse(md).html()
+
+const safe = ironmark.with({ preset: "safe" });
+safe.text(input); // uses the instance's options
+```
+
+An entry has the shortcuts its documents have.
+
+## Front matter
+
+Front matter is off by default. With `enableFrontmatter: true`, a leading `---` YAML block (closed by `---` or `...`) or a `+++` TOML block is removed before parsing. `doc.frontmatter()` returns its raw text for your own YAML or TOML parser:
+
+```ts
+import ironmark from "ironmark";
+import yaml from "yaml";
+
+const post = ironmark.parse(file, { enableFrontmatter: true });
+const meta = yaml.parse(post.frontmatter() ?? "");
+```
+
+## In the browser
+
+`await ironmark.ready` (or `await ironmark.init()`) once before the first call. Both return the same cached promise. `init()` returns a promise in every entry; under Node it resolves immediately.

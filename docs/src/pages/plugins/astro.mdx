@@ -1,0 +1,32 @@
+# Astro
+
+`ironmark/astro` is an Astro integration. It needs `@astrojs/react` or `@astrojs/preact`.
+
+```js
+// astro.config.mjs
+import react from "@astrojs/react";
+import ironmark from "ironmark/astro";
+
+export default {
+  integrations: [react(), ironmark()],
+};
+```
+
+`.mdx` files become React (or Preact) components that `.astro` pages render like any other framework component:
+
+```astro
+---
+import Guide from "../content/guide.mdx";
+import Note from "../components/Note.jsx";
+---
+
+<Guide components={{ Note }} />
+```
+
+The integration picks `jsxImportSource` from `@astrojs/react` or `@astrojs/preact`. Pass `jsxImportSource` yourself to override it.
+
+:::warning
+Use it **instead of** `@astrojs/mdx`, not next to it. It compiles to framework components, so `.mdx` pages and MDX content collections are not supported. The integration warns when both are installed.
+:::
+
+See [options](/plugins#options) for everything the integration accepts.

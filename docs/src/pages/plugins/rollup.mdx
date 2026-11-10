@@ -1,0 +1,20 @@
+# Rollup and Rolldown
+
+`ironmark/rollup` works in Rollup 4.24+ and Rolldown.
+
+```js
+// rollup.config.js / rolldown.config.js
+import ironmarkMdx from "ironmark/rollup";
+
+export default {
+  input: "src/main.jsx",
+  plugins: [ironmarkMdx()],
+};
+```
+
+- **Rolldown** compiles the JSX itself; the plugin marks the module as JSX.
+- **Rollup** has no JSX transform enabled by default. The plugin turns on Rollup's built-in transform (`jsx: { mode: "automatic" }`, with your `jsxImportSource`) unless your config already sets `jsx`.
+
+If you set `jsx` yourself, use the automatic runtime, or add a JSX plugin such as `@rollup/plugin-babel` after `ironmarkMdx()`.
+
+See [options](/plugins#options) for everything the plugin accepts.

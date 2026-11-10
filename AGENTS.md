@@ -109,6 +109,14 @@ Two-phase pipeline: **block parsing → inline parsing → HTML rendering**.
 ### Playground (`playground/`)
 
 - Vite + TypeScript web app for interactive testing
+- Deployed to `https://ph1p.js.org/ironmark/playground/` (built with `BASE_URL=/ironmark/playground/`)
+
+### Docs site (`docs/`)
+
+- Vocs site (own `pnpm-lock.yaml`): `pnpm docs:dev`, `pnpm docs:build`; pages in `docs/src/pages/*.mdx`, nav in `docs/vocs.config.ts`
+- `.github/workflows/pages.yml` builds docs + playground into one GitHub Pages deploy (docs at `/ironmark/`, playground copied into `/ironmark/playground/`)
+- MDX pages: a bare `{` or `<` in prose breaks the build; `editLink.link` is serialized, so it cannot reference module constants
+- Keep the docs in sync with README when changing public API
 
 ## Key conventions
 

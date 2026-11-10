@@ -1,0 +1,50 @@
+# HTML to Markdown
+
+Needs the `html-parser` feature (on by default).
+
+```rust
+use ironmark::{html_to_markdown, HtmlParseOptions};
+
+fn main() {
+    let md = html_to_markdown(
+        "<h1>Hello</h1><p><strong>Bold</strong> text</p>",
+        &HtmlParseOptions::default(),
+    );
+    // "# Hello\n\n**Bold** text\n"
+}
+```
+
+## AST
+
+For AST access, use `parse_html_to_ast()`:
+
+```rust
+use ironmark::{parse_html_to_ast, HtmlParseOptions, UnknownInlineHandling};
+
+fn main() {
+    // Default: strip unknown tags, keep text content
+    let ast = parse_html_to_ast("<p>H<sub>2</sub>O</p>", &HtmlParseOptions::default());
+
+    // Preserve unknown tags as raw HTML
+    let ast = parse_html_to_ast(
+        "<p>H<sub>2</sub>O</p>",
+        &HtmlParseOptions {
+            unknown_inline_handling: UnknownInlineHandling::PreserveAsHtml,
+            ..Default::default()
+        },
+    );
+}
+```
+
+## `HtmlParseOptions`
+
+| Field                     | Type                    | Default     | Description                           |
+| ------------------------- | ----------------------- | ----------- | ------------------------------------- |
+| `max_nesting_depth`       | `usize`                 | `128`       | Limit nesting depth (DoS prevention)  |
+| `unknown_inline_handling` | `UnknownInlineHandling` | `StripTags` | How to handle unknown HTML tags       |
+| `max_input_size`          | `usize`                 | `0`         | Truncate input beyond this byte count |
+
+`UnknownInlineHandling` variants:
+
+- `StripTags`: remove unknown tags, keep their text (default).
+- `PreserveAsHtml`: keep unknown tags as raw HTML in the output.

@@ -1,0 +1,27 @@
+# Benchmarks
+
+ironmark is compared against:
+
+- **Native Rust:** pulldown-cmark, comrak, markdown-it, markdown-rs and md4c.
+- **JavaScript and WASM:** markdown-wasm, md4w, marked and Bun's built-in parser.
+
+All parsers are configured for the same feature set: CommonMark plus GFM tables, strikethrough, task lists and autolink literals.
+
+:::tip
+The latest results, with history, are in the [playground's benchmark page](https://ph1p.js.org/ironmark/playground/#benchmark).
+:::
+
+## Run them yourself
+
+```bash
+pnpm bench:rust                     # native Rust (criterion)
+pnpm bench:js                       # WASM under Node
+pnpm bench:bun                      # WASM under Bun, incl. Bun.markdown.html
+pnpm bench:js --file my-doc.md      # benchmark your own Markdown
+pnpm bench:js --check               # verify the parsers produce the same output first
+pnpm bench                          # everything, saved as a benchmark/history snapshot
+```
+
+`pnpm bench` needs md4c (`brew install md4c`) and Bun 1.4 or newer. For a fast development loop, `pnpm bench:quick` runs only ironmark in about 10 seconds; never commit those numbers.
+
+See [`benchmark/README.md`](https://github.com/ph1p/ironmark/blob/main/benchmark/README.md) for every option, how to read the output and how to get stable numbers.

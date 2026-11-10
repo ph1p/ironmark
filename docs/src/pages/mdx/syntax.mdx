@@ -1,0 +1,42 @@
+# Syntax
+
+| Write                                        | Meaning                                                                |
+| -------------------------------------------- | ---------------------------------------------------------------------- |
+| `import X from './x'` / `export const a = 1` | ESM. Only at the top level, unindented; the block ends at a blank line |
+| `<Note kind="tip" />` on its own line        | Block-level JSX element                                                |
+| `Text <Badge>new</Badge> text`               | Inline JSX inside a paragraph                                          |
+| `{year}`, `{props.items.map(…)}`             | Expression, inline or as its own block                                 |
+| `<A x={1} {...rest} b={<C />} />`            | Expression, spread and element attribute values                        |
+| `<a.b>`, `<svg:rect>`, `<>…</>`              | Member names, namespaces, fragments                                    |
+
+Markdown works inside components when it is separated from the tags by blank lines:
+
+```mdx
+<Note kind="tip">
+
+Some **markdown** here.
+
+</Note>
+```
+
+## Differences from Markdown
+
+MDX changes a few Markdown rules, as in `@mdx-js/mdx`:
+
+- **HTML is JSX.** Write `className` and `style={{ color: "red" }}`, not `class` and `style="…"`. Tags must be closed (`<br />`).
+- **No HTML comments.** `<!-- … -->` stays literal text. Use `{/* … */}`.
+- **No indented code blocks.** Indentation is ignored; use fenced code.
+- **`<https://…>` autolinks still work.** A `<` that does not start a valid JSX tag falls back to a CommonMark autolink (`@mdx-js/mdx` rejects these).
+- **Literal braces and `<`** need escaping: `\{`, `\}`. A `<` followed by a space or digit (`a < b`, `1<2`) stays text.
+
+## Errors
+
+Mismatched or unclosed tags are errors: `MdxError` in Rust, a thrown `Error` in JavaScript. For example:
+
+- ``unexpected closing tag `</B>`, expected `</A>` ``
+- ``expected a closing tag for `<Note>` before the end of the document``
+
+## Known limits
+
+- Expressions are matched by brace depth. Strings, template literals, comments and nested JSX are understood, but a regular-expression literal containing an unbalanced brace is not.
+- Nesting deeper than 64 elements or expressions is rejected.

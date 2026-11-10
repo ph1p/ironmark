@@ -1,0 +1,56 @@
+# Security
+
+:::tip
+Use `safe: true` (or `preset: "safe"`) for **any untrusted input**.
+:::
+
+```ts
+import { markdownToHtml } from "ironmark";
+
+markdownToHtml(userInput, { safe: true });
+```
+
+## Options
+
+| Option           | JS (`camelCase`) | Rust (`snake_case`) | Default        | Description                                                        |
+| ---------------- | ---------------- | ------------------- | -------------- | ------------------------------------------------------------------ |
+| Safe mode        | `safe`           | —                   | `false`        | Shorthand: sets `disableRawHtml: true` and `tagFilter: true`       |
+| Disable raw HTML | `disableRawHtml` | `disable_raw_html`  | `false`        | Escape **all** HTML blocks and inline HTML                         |
+| No HTML blocks   | `noHtmlBlocks`   | `no_html_blocks`    | `false`        | Escape block-level HTML only (more granular than `disableRawHtml`) |
+| No HTML spans    | `noHtmlSpans`    | `no_html_spans`     | `false`        | Escape inline HTML only                                            |
+| Tag filter       | `tagFilter`      | `tag_filter`        | `false`        | GFM tag filter: escape `<script>`, `<iframe>`, …                   |
+| Max nesting      | —                | `max_nesting_depth` | `128`          | Limit blockquote and list nesting depth (DoS prevention)           |
+| Max input size   | —                | `max_input_size`    | `0` (no limit) | Truncate input beyond this byte count                              |
+
+:::note
+In the WASM build, `max_nesting_depth` is fixed at `128` and `max_input_size` at 10 MB.
+:::
+
+## Always on
+
+Dangerous URI schemes are **always** stripped from link and image destinations, regardless of options:
+
+- `javascript:`
+- `vbscript:`
+- `data:`, except `data:image/…`
+
+`doc.links()` returns these links with `url: ""`.
+
+## Rust
+
+```rust
+use ironmark::{render_html, ParseOptions};
+
+let html = render_html("<script>alert(1)</script>", &ParseOptions {
+    disable_raw_html: true,
+    tag_filter: true,
+    max_input_size: 1_000_000, // 1 MB
+    ..Default::default()
+});
+```
+
+## MDX is code
+
+:::danger
+Compiled MDX runs with the page's privileges: expressions and components are JavaScript. `disableRawHtml` does not make compiled MDX safe. Only compile MDX from trusted authors.
+:::

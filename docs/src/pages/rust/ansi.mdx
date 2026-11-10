@@ -1,0 +1,47 @@
+# Terminal (ANSI)
+
+`render_ansi_terminal()` renders Markdown as ANSI-coloured terminal output. Pass `Some(&AnsiOptions { .. })` to control width, colour and line numbers, or `None` for the defaults.
+
+````rust
+use ironmark::{AnsiOptions, ParseOptions, render_ansi_terminal};
+
+fn main() {
+    // Defaults: width 80, colour enabled
+    let out = render_ansi_terminal("# Hello\n\n**bold** and `code`", &ParseOptions::default(), None);
+    print!("{out}");
+
+    // 120 columns, line numbers in code blocks
+    let out = render_ansi_terminal(
+        "# Hello\n\n```rust\nfn main() {}\n```",
+        &ParseOptions::default(),
+        Some(&AnsiOptions { width: 120, line_numbers: true, ..AnsiOptions::default() }),
+    );
+    print!("{out}");
+
+    // Padding: horizontal spacing on both sides
+    let out = render_ansi_terminal(
+        "# Hello\n\n> A quote",
+        &ParseOptions::default(),
+        Some(&AnsiOptions { padding: 2, ..AnsiOptions::default() }),
+    );
+    print!("{out}");
+
+    // Plain text, no ANSI codes (e.g. for writing to a file)
+    let plain = render_ansi_terminal(
+        "# Hello",
+        &ParseOptions::default(),
+        Some(&AnsiOptions { color: false, ..AnsiOptions::default() }),
+    );
+}
+````
+
+## `AnsiOptions`
+
+| Field          | Type    | Default | Description                                                                                   |
+| -------------- | ------- | ------- | --------------------------------------------------------------------------------------------- |
+| `width`        | `usize` | `80`    | Column width for word-wrap, heading underlines and rule length. `0` disables wrapping.        |
+| `color`        | `bool`  | `true`  | Emit ANSI 256-colour escape codes.                                                            |
+| `line_numbers` | `bool`  | `false` | Show line numbers in fenced code blocks.                                                      |
+| `padding`      | `usize` | `0`     | Horizontal padding added to both sides of each line, plus ⌈padding/2⌉ blank lines at the top. |
+
+Needs the `ansi` feature (on by default).

@@ -1,0 +1,46 @@
+# HTML to Markdown
+
+`htmlToMarkdown()` converts HTML back to Markdown syntax.
+
+```ts
+import { htmlToMarkdown } from "ironmark";
+
+htmlToMarkdown("<h1>Hello</h1><p><strong>Bold</strong> text</p>");
+// "# Hello\n\n**Bold** text\n"
+```
+
+## Unknown tags
+
+By default, tags without a Markdown equivalent are dropped and their text is kept. Pass `preserveUnknownAsHtml: true` to keep them as raw HTML:
+
+```ts
+htmlToMarkdown("<p>H<sub>2</sub>O</p>", { preserveUnknownAsHtml: true });
+// "H<sub>2</sub>O"
+```
+
+## AST
+
+`htmlToAst()` returns the same AST as [`markdownToAst()`](/js/ast), so you can inspect or edit it before writing Markdown:
+
+```ts
+import { htmlToAst, astToMarkdown } from "ironmark";
+
+const ast = htmlToAst("<h1>Hello</h1><p>World</p>");
+const md = astToMarkdown(ast);
+```
+
+## As a document
+
+`ironmark.fromHtml(html)` returns a [document](/js/documents), so every output works on HTML input too:
+
+```ts
+import ironmark from "ironmark";
+
+const doc = ironmark.fromHtml("<h1>Hi</h1><p><b>bold</b></p>");
+doc.markdown(); // "# Hi\n\n**bold**\n"
+doc.text(); // "Hi\n\nbold"
+```
+
+:::note
+The HTML parser is only in the main `ironmark` entry.
+:::

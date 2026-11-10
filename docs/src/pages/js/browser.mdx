@@ -1,0 +1,50 @@
+# Browser and bundlers
+
+## Node
+
+Node loads the packaged `wasm/pkg/ironmark_bg.wasm` synchronously, relative to the module, so no `init()` is needed:
+
+```ts
+import { markdownToHtml, markdownToAst } from "ironmark";
+
+const html = markdownToHtml("# Hello\n\nThis is **fast**.");
+const ast = markdownToAst("# Hello");
+```
+
+:::warning
+The package is not a self-contained single-file bundle. Keep the WASM asset and its glue next to the Node entry when you copy or bundle the package. Node bundlers may need asset-copy configuration to keep this layout.
+:::
+
+## Browser
+
+In the browser, call `init()` once before using any function. It is idempotent and optionally takes a custom `.wasm` URL.
+
+```ts
+import { init, markdownToHtml, markdownToAst } from "ironmark";
+
+await init();
+
+const html = markdownToHtml("# Hello\n\nThis is **fast**.");
+const ast = markdownToAst("# Hello");
+```
+
+With the default export, `await ironmark.ready` does the same. `ready` and `init()` return the same cached promise.
+
+## Vite
+
+Import the binary as a URL so Vite fingerprints and serves it:
+
+```ts
+import { init, markdownToHtml } from "ironmark";
+import wasmUrl from "ironmark/ironmark.wasm?url";
+
+await init(wasmUrl);
+
+const html = markdownToHtml("# Hello\n\nThis is **fast**.");
+```
+
+## Smaller downloads
+
+WASM cannot be tree-shaken, so the main entry always downloads the full binary. If you only need HTML, MDX or the AST, a [subpath import](/js/subpaths) ships a smaller binary.
+
+Want to import `.mdx` files as components? Use a [build tool plugin](/plugins) instead.

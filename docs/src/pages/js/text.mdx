@@ -1,0 +1,34 @@
+# Plain text
+
+`markdownToText` runs the real inline parser, so emphasis, links, code spans, entities and escapes come out as a reader of the rendered HTML sees them.
+
+```ts
+import { markdownToText } from "ironmark";
+
+markdownToText("# Hi *there*\n\na &lt; b &copy;"); // "Hi there\n\na < b ©"
+```
+
+- Blocks are separated by a blank line.
+- Tight list items are separated by a newline.
+- Table cells are separated by tabs.
+- Raw HTML blocks, MDX blocks and thematic breaks are dropped.
+
+Use it for search indexes, excerpts, embeddings or anything else that wants the words without the markup.
+
+## Headings, links and stats
+
+A [document](/js/documents) extracts more from the same parse:
+
+```ts
+import ironmark from "ironmark";
+
+const doc = ironmark.parse(source);
+
+doc.headings(); // [{ level, text, id }]
+doc.toc(); // headings nested by level: [{ level, text, id, children }]
+doc.links(); // [{ url, title, text }], dangerous URLs come back ""
+doc.images(); // [{ url, title, alt }]
+doc.stats(); // { words, characters, readingTime }
+```
+
+`readingTime` is minutes at 200 words per minute. All of these exist in every entry, including the small `ironmark/html`.

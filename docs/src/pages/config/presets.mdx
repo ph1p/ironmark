@@ -1,0 +1,42 @@
+# Presets
+
+Named presets set several options at once. Explicit options always override the preset.
+
+| Preset      | Description                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `"default"` | All extensions enabled. The default behaviour.                                                               |
+| `"safe"`    | Disables raw HTML and enables the GFM tag filter. Use it for untrusted input.                                |
+| `"strict"`  | CommonMark only: disables extensions and permissive behaviour.                                               |
+| `"llm"`     | Deterministic, stable output for [AI pipelines](/js/ai). Disables ambiguous extensions, enables heading ids. |
+
+```ts
+import { markdownToHtml } from "ironmark";
+
+// Use a preset
+const html = markdownToHtml(content, { preset: "safe" });
+
+// Presets compose with explicit options (explicit wins)
+const html2 = markdownToHtml(content, { preset: "llm", enableTables: false });
+```
+
+`PRESETS` lists the exact options each preset applies:
+
+```ts
+import { PRESETS } from "ironmark";
+
+PRESETS.llm; // { enableAutolink: false, enableHeadingIds: true, … }
+```
+
+## Presets and `with()`
+
+On [documents](/js/documents) and instances, a `with()` layer that sets `preset` starts again from that preset and drops earlier options. A layer without `preset` overrides only its own keys.
+
+```ts
+import ironmark from "ironmark";
+
+const md = ironmark.with({ preset: "safe", enableHeadingIds: true });
+md.with({ enableTables: false }); // still safe, still heading ids
+md.with({ preset: "strict" }); // strict only: earlier options are dropped
+```
+
+Presets are JavaScript only. In Rust, build a `ParseOptions` with the fields you need. On the [CLI](/cli), use `--preset <name>` or `--safe`.

@@ -116,6 +116,8 @@
     "check": "cargo fmt --check && oxlint && oxfmt --check .",
     "clean": "rm -rf wasm/pkg .wasm-tools",
     "fmt": "cargo fmt && oxfmt --write .",
+    "docs:build": "pnpm --dir docs build",
+    "docs:dev": "pnpm --dir docs dev",
     "lint": "oxlint",
     "release": "semantic-release",
     "release:dry": "semantic-release --dry-run",

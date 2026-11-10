@@ -1,0 +1,86 @@
+# CLI
+
+Render Markdown as HTML, ANSI terminal output or an AST from the shell. The default format is `html`.
+
+:::code-group
+
+```bash [npx]
+npx ironmark README.md
+```
+
+```bash [npm (global)]
+npm install -g ironmark
+ironmark README.md
+```
+
+```bash [cargo]
+cargo install ironmark --features cli
+ironmark README.md
+```
+
+:::
+
+The Rust binary starts faster and detects the terminal width from `$COLUMNS` or `tput cols`.
+
+## Options
+
+Both CLIs support the same flags:
+
+```text
+OPTIONS (all formats):
+    --format <html|ansi|ast>    Output format; ast also accepts 'json' (default: html)
+    --preset <name>             Apply a named option preset: default, safe, strict, llm
+    --safe                      Alias for --preset safe
+    --no-hard-breaks            Don't turn soft newlines into hard line breaks
+    --no-tables                 Disable pipe table syntax
+    --no-highlight              Disable ==highlight== syntax
+    --no-strikethrough          Disable ~~strikethrough~~ syntax
+    --no-underline              Disable ++underline++ syntax
+    --no-autolink               Disable bare URL auto-linking
+    --no-task-lists             Disable - [x] task list syntax
+    --math                      Enable $inline$ and $$display$$ math
+    --wiki-links                Enable [[wiki link]] syntax
+    --frontmatter               Skip a leading ---/+++ front matter block
+    --capabilities              Print machine-readable capabilities JSON and exit
+    --default-options           Print resolved default options JSON and exit
+    --list-presets              Print all presets and exit
+    --max-size N                Truncate input to N bytes (Rust only)
+    -h, --help                  Print this help and exit
+    -V, --version               Print version and exit
+
+OPTIONS (ansi format only):
+    --width N            Terminal column width (default: auto-detect, fallback 80)
+    --padding N          Horizontal padding added to both sides of each line (default: 0)
+    --no-color           Disable ANSI escape codes (plain text)
+    -n, --line-numbers   Show line numbers in fenced code blocks
+```
+
+## Examples
+
+```bash
+# Render as HTML (default)
+echo '# Hello' | npx ironmark
+npx ironmark README.md
+
+# Safe mode for untrusted content
+npx ironmark --safe README.md
+npx ironmark --preset safe README.md
+
+# LLM-optimized output
+npx ironmark --preset llm README.md
+
+# Render as ANSI terminal output
+npx ironmark --format ansi README.md
+npx ironmark --format ansi --width 120 README.md
+npx ironmark --format ansi --no-color README.md | less
+
+# Render as AST (JSON)
+npx ironmark --format ast README.md
+
+# Inspect capabilities
+npx ironmark --capabilities
+npx ironmark --list-presets
+
+# Rust binary
+cat doc.md | ironmark --format ansi --math --wiki-links
+```

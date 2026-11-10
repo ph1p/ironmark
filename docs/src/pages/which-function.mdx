@@ -1,0 +1,21 @@
+# Which function should I use?
+
+| Goal                            | Function                                                           |
+| ------------------------------- | ------------------------------------------------------------------ |
+| Several outputs from one input  | `ironmark.parse(input)`: see [Documents](/js/documents)            |
+| Render Markdown to HTML         | `markdownToHtml(input, options?)`: see [HTML](/js/html)            |
+| Plain text (search, excerpts)   | `markdownToText(input, options?)`: see [Plain text](/js/text)      |
+| Parse Markdown to an AST object | `markdownToAst(input, options?)`: see [AST](/js/ast)               |
+| Normalize or round-trip         | `markdownToAst()` + `astToMarkdown()`                              |
+| Terminal or CLI output          | `markdownToAnsi(input, options?)`: see [Terminal](/js/ansi)        |
+| Convert HTML back to Markdown   | `htmlToMarkdown(html, options?)` / `htmlToAst(html, options?)`     |
+| Compile MDX to JSX              | `mdxToJsx(input, options?)`: see [MDX](/mdx)                       |
+| Import `.mdx` files in an app   | `ironmark/vite`, `/esbuild`, …: see [Build tool plugins](/plugins) |
+| Render from the shell           | `npx ironmark README.md`: see [CLI](/cli)                          |
+| Use it from Rust                | `render_html(input, &options)`: see [Rust](/rust)                  |
+
+## Documents or functions?
+
+Use a document when you need more than one output from the same input, such as HTML plus a table of contents plus an excerpt. The document keeps the source and options together, so every output agrees on them.
+
+Use a function when you need one output. `ironmark.html(md)` is the same as `ironmark.parse(md).html()`, and `markdownToHtml(md)` is the same again as a named export.

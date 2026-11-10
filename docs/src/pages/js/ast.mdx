@@ -1,0 +1,64 @@
+# AST
+
+`markdownToAst()` returns a parsed JavaScript object, so no `JSON.parse()` is needed.
+
+- Each node is an object with one key naming its type.
+- `ThematicBreak` is the bare string `"ThematicBreak"`.
+- Leaf text (`raw`, table cells) is unparsed inline Markdown.
+
+```ts
+import { markdownToAst } from "ironmark";
+
+const ast = markdownToAst("# Hello\n\n- [x] done");
+// {
+//   Document: {
+//     children: [
+//       { Heading: { level: 1, raw: "Hello" } },
+//       { List: { kind: { Bullet: 45 }, start: 0, tight: true, children: [
+//         { ListItem: { checked: true, children: [{ Paragraph: { raw: "done" } }] } },
+//       ] } },
+//     ],
+//   },
+// }
+
+for (const node of ast.Document.children) {
+  if (typeof node !== "string" && "Heading" in node) console.log(node.Heading.raw);
+}
+```
+
+The TypeScript types describe the full tagged union as `AstNode`. `AST_SCHEMA_VERSION` bumps on any breaking change to the shape; see [Constants and utilities](/js/constants).
+
+:::note
+`doc.ast()` on a [document](/js/documents) returns a deeply frozen AST. Use `structuredClone(doc.ast())` to get a copy you can edit.
+:::
+
+## Round-trip to Markdown
+
+`astToMarkdown()` turns an AST back into normalized Markdown:
+
+```ts
+import { markdownToAst, astToMarkdown } from "ironmark";
+
+const ast = markdownToAst("**Hello**");
+const md = astToMarkdown(ast);
+// "**Hello**"
+```
+
+Use it to normalize Markdown, or to edit a document as data and write it back out. `doc.markdown()` does both steps in one call.
+
+## Headings and node counts
+
+```ts
+import { markdownToAst, extractHeadings, summarizeAst } from "ironmark";
+
+const ast = markdownToAst("# Hello\n\n## World\n\nA paragraph.");
+
+extractHeadings(ast);
+// [
+//   { level: 1, text: "Hello", id: "hello" },
+//   { level: 2, text: "World", id: "world" },
+// ]
+
+summarizeAst(ast);
+// { blockCount: 3, nodeCounts: { Heading: 2, Paragraph: 1 } }
+```

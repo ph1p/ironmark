@@ -17,3 +17,5 @@
 .DS_Store
 /playground/public/benchmark-data.json
 /vendor
+/docs/node_modules
+/docs/dist

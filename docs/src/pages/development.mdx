@@ -1,0 +1,49 @@
+# Development
+
+This project uses [pnpm](https://pnpm.io/) for package management.
+
+## Build from source
+
+```bash
+pnpm setup:wasm   # install the wasm32 target and wasm-bindgen-cli
+pnpm build        # release WASM build
+```
+
+| Command           | Description            |
+| ----------------- | ---------------------- |
+| `pnpm setup:wasm` | Install prerequisites  |
+| `pnpm build`      | Release WASM build     |
+| `pnpm build:dev`  | Debug WASM build       |
+| `pnpm test`       | Run Rust tests         |
+| `pnpm check`      | Format and lint check  |
+| `pnpm fmt`        | Format Rust and JS     |
+| `pnpm clean`      | Remove build artifacts |
+| `pnpm docs:dev`   | Run this site locally  |
+| `pnpm docs:build` | Build this site        |
+
+## Tests
+
+```bash
+cargo test --offline                 # spec + integration + doctests
+cargo test --offline -- commonmark   # only the 652 CommonMark spec examples
+cargo test --offline -- <name>       # one test by name
+```
+
+## Architecture
+
+Parsing runs in two phases: block parsing, then inline parsing, then rendering.
+
+| Path          | Contents                                                        |
+| ------------- | --------------------------------------------------------------- |
+| `src/block/`  | Line-by-line block parser, containers, leaf blocks, HTML blocks |
+| `src/inline/` | Delimiter runs, links, autolinks, entities                      |
+| `src/render/` | HTML renderer and heading slugs                                 |
+| `src/ansi/`   | Terminal renderer                                               |
+| `src/mdx/`    | MDX to JSX                                                      |
+| `wasm/`       | wasm-bindgen bindings, JS entries, types and build tool plugins |
+| `playground/` | The web playground                                              |
+| `docs/`       | This site (Vocs)                                                |
+
+## Troubleshooting
+
+**`wasm32-unknown-unknown target not found`** or **`wasm-bindgen not found`**: run `pnpm setup:wasm` to install all prerequisites.

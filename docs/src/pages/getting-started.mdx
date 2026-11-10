@@ -1,0 +1,76 @@
+# Getting started
+
+ironmark is a Markdown parser written in Rust. It passes all 652 [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) spec tests, adds the common extensions (tables, task lists, strikethrough, autolinks and more), and has no third-party parsing dependencies.
+
+It renders one parse to several outputs: HTML, plain text, an AST, ANSI terminal output, normalized Markdown, or MDX compiled to JSX. It also converts HTML back to Markdown.
+
+## Install
+
+:::code-group
+
+```bash [npm]
+npm install ironmark
+```
+
+```bash [pnpm]
+pnpm add ironmark
+```
+
+```bash [bun]
+bun add ironmark
+```
+
+```bash [cargo]
+cargo add ironmark
+```
+
+:::
+
+The npm package runs the Rust parser as WebAssembly in Node, Bun and the browser. For the crate, see [Rust](/rust).
+
+## Quick start
+
+```ts
+import ironmark from "ironmark";
+
+const doc = ironmark.parse("# Hello\n\n**World**");
+
+doc.html(); // "<h1>Hello</h1>\n<p><strong>World</strong></p>\n"
+doc.ast(); // { Document: { children: [...] } }
+doc.headings(); // [{ level: 1, text: "Hello", id: "hello" }]
+```
+
+`ironmark.parse()` returns a [document](/js/documents). Nothing renders until you ask for an output, and each output is computed once.
+
+Prefer plain functions? Every output also has a named export:
+
+```ts
+import { markdownToHtml, markdownToAst } from "ironmark";
+
+const html = markdownToHtml("# Hello\n\n**World**");
+const ast = markdownToAst("# Hello\n\n**World**");
+```
+
+## Node, Bun and the browser
+
+Under Node and Bun the WASM binary loads synchronously, so you can call any function right away.
+
+In the browser, wait for the binary once before the first call:
+
+```ts
+import ironmark from "ironmark";
+
+await ironmark.ready; // or: await ironmark.init()
+
+ironmark.html("# Hello");
+```
+
+`ready` and `init()` return the same cached promise. `init()` returns a promise in every entry and resolves immediately under Node. See [Browser and bundlers](/js/browser) for custom `.wasm` URLs.
+
+## Next steps
+
+- [Which function should I use?](/which-function) maps common goals to functions.
+- [Options](/config/options) lists every extension and how to turn it off.
+- [Safe HTML](/config/security) covers untrusted input.
+- [MDX](/mdx) and the [build tool plugins](/plugins) import `.mdx` files as components.
+- The [playground](https://ph1p.js.org/ironmark/playground/) renders every output live in the browser.

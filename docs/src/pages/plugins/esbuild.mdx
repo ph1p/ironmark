@@ -1,0 +1,50 @@
+# esbuild and Bun
+
+`ironmark/esbuild` works in esbuild, tsup and Bun.
+
+```js
+import * as esbuild from "esbuild";
+import ironmarkMdx from "ironmark/esbuild";
+
+await esbuild.build({
+  entryPoints: ["src/main.jsx"],
+  bundle: true,
+  jsx: "automatic",
+  plugins: [ironmarkMdx()],
+});
+```
+
+The plugin returns the compiled module with the `jsx` loader, so esbuild finishes the JSX itself. Imports inside the `.mdx` file resolve relative to it. Compile errors are reported with the file location.
+
+## Bun
+
+The same plugin works in `Bun.build()`:
+
+```js
+import ironmarkMdx from "ironmark/esbuild";
+
+await Bun.build({ entrypoints: ["src/main.jsx"], plugins: [ironmarkMdx()] });
+```
+
+To import `.mdx` at runtime, register it with `Bun.plugin()` in a preload script:
+
+```js
+// preload.js
+import ironmarkMdx from "ironmark/esbuild";
+
+Bun.plugin(ironmarkMdx());
+```
+
+## tsup
+
+```js
+// tsup.config.js
+import ironmarkMdx from "ironmark/esbuild";
+
+export default {
+  entry: ["src/index.tsx"],
+  esbuildPlugins: [ironmarkMdx()],
+};
+```
+
+See [options](/plugins#options) for everything the plugin accepts.

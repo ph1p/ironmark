@@ -1,0 +1,41 @@
+# Subpath imports
+
+WASM cannot be tree-shaken, so `import { markdownToHtml } from "ironmark"` still downloads the whole binary, with AST serialization, ANSI, MDX and the HTML parser included. Each subpath ships its own binary, compiled with only the code its functions need:
+
+| Import          | Exports                                                                                                                       | WASM (brotli) |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `ironmark`      | everything                                                                                                                    | ~155 KB       |
+| `ironmark/ast`  | `markdownToAst`, `astToMarkdown`, `markdownToHtml`, `markdownToText`, `extractHeadings`, `summarizeAst`, `AST_SCHEMA_VERSION` | ~123 KB       |
+| `ironmark/mdx`  | `mdxToJsx`, `markdownToHtml`, `markdownToText`                                                                                | ~97 KB        |
+| `ironmark/html` | `markdownToHtml`, `markdownToText`                                                                                            | ~89 KB        |
+
+```ts
+import { init, mdxToJsx } from "ironmark/mdx";
+
+await init(); // browser only; resolves immediately under Node, where the subpaths load synchronously
+
+const { module } = mdxToJsx("# Hello {props.name}");
+```
+
+## Default export
+
+Every subpath has the same default export, with only the [document](/js/documents) methods its binary supports:
+
+- `ironmark/html` documents have `html()`.
+- `ironmark/mdx` adds `jsx()`.
+- `ironmark/ast` adds the AST methods: `ast()`, `markdown()`, `text()`, `headings()`, `toc()`, `summary()`.
+- `fromHtml()` and `ansi()` need the full entry.
+
+```ts
+import ironmark from "ironmark/html";
+
+ironmark.parse("# Hello").html();
+```
+
+Every subpath also exports `DEFAULT_OPTIONS`, `PRESETS` and `CAPABILITIES`. Its `CAPABILITIES.formats` lists only what that binary can do (`["html", "text"]` for `ironmark/html`). Options and output are identical to the main entry; only the set of functions differs. Types come from the same declarations, so `ParseOptions`, `JsxOutput` and friends are shared.
+
+## Pick one entry
+
+:::warning
+Use **one** entry per app. Each subpath has its own WASM instance, so importing `ironmark/mdx` and `ironmark/ast` together loads the shared parser core twice. That is larger than `ironmark` alone. If you need functions from two subpaths, use `ironmark`.
+:::

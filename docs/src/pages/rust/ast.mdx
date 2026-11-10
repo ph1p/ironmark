@@ -1,0 +1,43 @@
+# AST
+
+`parse_markdown()` returns the typed Rust AST (`Block`) directly:
+
+```rust
+use ironmark::{Block, ParseOptions, parse_markdown};
+
+fn main() {
+    let ast = parse_markdown("# Hello", &ParseOptions::default());
+
+    match ast {
+        Block::Document { children } => {
+            println!("top-level blocks: {}", children.len());
+        }
+        _ => unreachable!("root nodes always Document"),
+    }
+}
+```
+
+Exported AST types:
+
+- `Block`
+- `ListKind`
+- `TableData`
+- `TableAlignment`
+
+With the `serde` feature, all of them implement `Serialize` and `Deserialize`. The JSON shape is the one the [JavaScript AST](/js/ast) uses.
+
+## AST to Markdown
+
+Render an AST back to Markdown syntax:
+
+```rust
+use ironmark::{parse_markdown, render_markdown, ParseOptions};
+
+fn main() {
+    let ast = parse_markdown("# Hello\n\n**World**", &ParseOptions::default());
+    let md = render_markdown(&ast);
+    // "# Hello\n\n**World**\n"
+}
+```
+
+Both functions work without any Cargo feature.

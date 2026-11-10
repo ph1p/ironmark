@@ -1,0 +1,46 @@
+# Text, headings and links
+
+| Function              | Returns                                                      |
+| --------------------- | ------------------------------------------------------------ |
+| `render_text()`       | The document as plain text                                   |
+| `extract_headings()`  | Every heading, with the `id` the HTML renderer would give it |
+| `extract_links()`     | Every link and image, with its resolved URL                  |
+| `split_frontmatter()` | A leading front matter block and the body                    |
+| `analyze()`           | Text, headings, links and front matter from one parse        |
+
+`render_text()`, `extract_headings()` and `extract_links()` need the `html` feature. With `enable_frontmatter: true`, every renderer skips the front matter block.
+
+```rust
+use ironmark::{ParseOptions, ParsedDocument, analyze, extract_headings, extract_links, render_text, split_frontmatter};
+
+fn main() {
+    let opts = ParseOptions::default();
+    assert_eq!(render_text("# Hi *there*", &opts), "Hi there");
+
+    let headings = extract_headings("# Hello *world*\n\n## Next", &opts);
+    assert_eq!(headings[0].id, "hello-world");
+    assert_eq!(headings[1].level, 2);
+
+    let links = extract_links("[docs](/docs) ![logo](l.png)", &opts);
+    assert_eq!((links[0].url.as_str(), links[1].image), ("/docs", true));
+
+    let (matter, body) = split_frontmatter("---\ntitle: x\n---\n# Hi").unwrap();
+    assert_eq!((matter, body), ("title: x\n", "# Hi"));
+
+    let doc = analyze("# Hi\n\n[docs](/docs)", &opts);
+    assert_eq!((doc.text.as_str(), doc.headings.len(), doc.links.len()), ("Hi\n\ndocs", 1, 1));
+
+    let parsed = ParsedDocument::parse("# Hi *there*", &opts);
+    assert_eq!(parsed.markdown(), "# Hi *there*\n");
+    assert_eq!(parsed.analyze().text, "Hi there");
+}
+```
+
+## One parse, many outputs
+
+To render several outputs from the same parse, call `ParsedDocument::parse()` once, then:
+
+- `.analyze()` for text, headings, links and front matter
+- `.markdown()` for normalized Markdown
+- `.ansi()` for terminal output (with the `ansi` feature)
+- `.block()` for the AST

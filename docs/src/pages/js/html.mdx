@@ -1,0 +1,44 @@
+# HTML
+
+```ts
+import { markdownToHtml } from "ironmark";
+
+const html = markdownToHtml("# Hello\n\nThis is **fast**.");
+// "<h1>Hello</h1>\n<p>This is <strong>fast</strong>.</p>\n"
+```
+
+The same output is available as `ironmark.html(input)` or `ironmark.parse(input).html()`. Every extension is on by default; see [Options](/config/options) to turn them off.
+
+## Untrusted input
+
+Use `safe: true` for **any untrusted input**. It disables raw HTML passthrough and enables the GFM tag filter.
+
+```ts
+import { markdownToHtml } from "ironmark";
+
+// Simple safe flag
+const html = markdownToHtml(userInput, { safe: true });
+
+// Or use the built-in preset
+const html2 = markdownToHtml(userInput, { preset: "safe" });
+```
+
+What `safe: true` does:
+
+- Sets `disableRawHtml: true`: all inline and block HTML is escaped.
+- Sets `tagFilter: true`: dangerous tags (`<script>`, `<iframe>`, …) are escaped.
+
+:::info
+Dangerous URI schemes (`javascript:`, `vbscript:`, `data:` except `data:image/…`) are **always** stripped from link destinations, regardless of options.
+:::
+
+See [Security](/config/security) for the limits on nesting depth and input size.
+
+## Heading ids
+
+`enableHeadingIds: true` adds an `id` to every heading. The ids are the same ones `doc.headings()`, `doc.toc()` and `extractHeadings()` return, so a table of contents built from them links to the rendered headings.
+
+```ts
+markdownToHtml("# Hello World", { enableHeadingIds: true });
+// '<h1 id="hello-world">Hello World</h1>\n'
+```

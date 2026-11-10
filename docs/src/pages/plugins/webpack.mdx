@@ -1,0 +1,50 @@
+# webpack and Rspack
+
+`ironmark/webpack` is a loader. It outputs JSX, so chain a JSX loader after it. Loaders run right to left, so the JSX loader comes first in the list:
+
+```js
+// webpack.config.js
+export default {
+  module: {
+    rules: [
+      {
+        test: /\.mdx$/,
+        use: [
+          { loader: "babel-loader", options: { presets: ["@babel/preset-react"] } },
+          { loader: "ironmark/webpack", options: { providerImportSource: "@mdx-js/react" } },
+        ],
+      },
+    ],
+  },
+};
+```
+
+The loader's `options` are the [plugin options](/plugins#options). One compiler is created per rule and reused across files.
+
+## Rspack
+
+In Rspack, use `builtin:swc-loader` instead of `babel-loader`:
+
+```js
+// rspack.config.js
+export default {
+  module: {
+    rules: [
+      {
+        test: /\.mdx$/,
+        use: [
+          {
+            loader: "builtin:swc-loader",
+            options: { jsc: { parser: { syntax: "ecmascript", jsx: true } } },
+          },
+          { loader: "ironmark/webpack" },
+        ],
+      },
+    ],
+  },
+};
+```
+
+:::tip
+The output starts with `@jsxRuntime automatic` and `@jsxImportSource` pragmas, so the JSX loader needs no runtime settings for `.mdx` files.
+:::
