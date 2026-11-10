@@ -1,4 +1,6 @@
-name: Deploy Playground
+name: Deploy Pages
+
+# One GitHub Pages site: the Vocs docs at /ironmark/ and the playground at /ironmark/playground/.
 
 on:
   push:
@@ -33,18 +35,29 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: playground/pnpm-lock.yaml
+          cache-dependency-path: |
+            playground/pnpm-lock.yaml
+            docs/pnpm-lock.yaml
 
       # prebuild runs the root `pnpm build` (WASM + Node.js entry)
       - name: Install & build playground
         run: |
           cd playground
           pnpm install --frozen-lockfile
-          BASE_URL=/ironmark/ pnpm build
+          BASE_URL=/ironmark/playground/ pnpm build
+
+      - name: Install & build docs
+        run: |
+          cd docs
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Merge playground into the docs site
+        run: cp -r playground/dist docs/dist/public/playground
 
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: playground/dist
+          path: docs/dist/public
 
   deploy:
     needs: build
