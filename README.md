@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ph1p/ironmark/actions/workflows/ci.yml/badge.svg)](https://github.com/ph1p/ironmark/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/ironmark)](https://www.npmjs.com/package/ironmark) [![crates.io](https://img.shields.io/crates/v/ironmark)](https://crates.io/crates/ironmark)
 
-Fast Markdown parser written in Rust with **zero third-party** parsing dependencies. Outputs HTML, AST, ANSI terminal, or Markdown. Fully compliant with [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) (652/652 spec tests pass). Available as a Rust crate and as an npm package via WebAssembly.
+Fast Markdown parser written in Rust with **zero third-party** parsing dependencies. Outputs HTML, plain text, AST, ANSI terminal, Markdown, or MDX compiled to JSX, with plugins for Vite, esbuild, Rollup, webpack and Astro. Fully compliant with [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) (652/652 spec tests pass). Available as a Rust crate and as an npm package via WebAssembly.
 
 ## Table of Contents
 
@@ -12,6 +12,7 @@ Fast Markdown parser written in Rust with **zero third-party** parsing dependenc
 - [JavaScript / TypeScript](#javascript--typescript)
   - [Node.js](#nodejs)
   - [Markdown → HTML](#markdown--html)
+  - [Markdown → plain text](#markdown--plain-text)
   - [Markdown → AST](#markdown--ast)
   - [Markdown → AST → Markdown](#markdown--ast--markdown)
   - [Safe HTML rendering](#safe-html-rendering)
@@ -25,13 +26,17 @@ Fast Markdown parser written in Rust with **zero third-party** parsing dependenc
   - [Utility functions](#utility-functions)
   - [Migrating from 2.x](#migrating-from-2x)
 - [Configuration](#configuration)
-  - [Extensions](#extensions)
+  - [Extensions](#extensions-default-true)
+  - [MDX](#mdx-opt-in)
   - [Security](#security)
   - [Other Options](#other-options)
 - [MDX](#mdx)
+  - [Build tool plugins](#build-tool-plugins)
+  - [Syntax](#syntax)
+  - [Components](#components)
 - [CLI](#cli)
 - [Rust](#rust)
-- [C / C++](#c--c++)
+- [C / C++](#c--c)
 - [Benchmarks](#benchmarks)
 - [Development](#development)
 
@@ -135,6 +140,7 @@ In the browser, `await ironmark.ready` (or `await ironmark.init()`) once first; 
 | Terminal / CLI output           | `markdownToAnsi(input, options?)`                                                |
 | Convert HTML back to Markdown   | `htmlToMarkdown(html, options?)` / `htmlToAst(html, options?)`                   |
 | Compile MDX to JSX              | `mdxToJsx(input, options?)` — see [MDX](#mdx)                                    |
+| Import `.mdx` files in an app   | `ironmark/vite`, `/esbuild`, … — see [Build tool plugins](#build-tool-plugins)   |
 
 ## JavaScript / TypeScript
 
@@ -527,7 +533,7 @@ Dangerous URI schemes (`javascript:`, `vbscript:`, `data:` except `data:image/�
 
 ## MDX
 
-ironmark compiles [MDX](https://mdxjs.com/) — Markdown with JSX tags, `{expressions}` and `import`/`export` — to JSX. It is off by default (`enable_mdx` / `enableMdx`) and needs no extra dependencies. The output is a JavaScript module that still contains JSX, so run it through your bundler's JSX transform (esbuild, Babel, SWC, Oxc, TypeScript).
+ironmark compiles [MDX](https://mdxjs.com/) — Markdown with JSX tags, `{expressions}` and `import`/`export` — to JSX. It is off by default (`enable_mdx` / `enableMdx`) and needs no extra dependencies. To import `.mdx` files in an app, add one of the [build tool plugins](#build-tool-plugins). `mdxToJsx` itself returns a JavaScript module that still contains JSX, for your own JSX transform (esbuild, Babel, SWC, Oxc, TypeScript).
 
 > **MDX is code.** Expressions and components run with the page's privileges. Only compile MDX from trusted authors: `disable_raw_html` does not make compiled MDX safe.
 
@@ -554,6 +560,126 @@ let module = out.to_module(); // ESM + `export default function MDXContent(props
 ```
 
 `render_jsx` / `mdxToJsx` turn on `enable_mdx` themselves. Every other option (tables, task lists, highlight, …) applies as usual.
+
+### Build tool plugins
+
+The npm package ships plugins that turn `.mdx` imports into components. They compile with `mdxToJsx` and then let the build tool's own JSX transform finish the module, so no Babel or `@mdx-js/mdx` is needed.
+
+| Import             | Use it in                                               |
+| ------------------ | ------------------------------------------------------- |
+| `ironmark/vite`    | Vite 5+ and tools built on it (SvelteKit, Nuxt, Vitest) |
+| `ironmark/esbuild` | esbuild, `Bun.build()` / `Bun.plugin()`, tsup           |
+| `ironmark/rollup`  | Rollup 4.24+ and Rolldown                               |
+| `ironmark/webpack` | webpack 5 and Rspack (a loader)                         |
+| `ironmark/astro`   | Astro, with `@astrojs/react` or `@astrojs/preact`       |
+
+```ts
+import Guide, { frontmatter } from "./guide.mdx";
+
+<Guide components={{ Note }} />;
+```
+
+**Vite**
+
+```js
+// vite.config.js
+import react from "@vitejs/plugin-react";
+import ironmarkMdx from "ironmark/vite";
+
+export default {
+  plugins: [ironmarkMdx(), react()],
+};
+```
+
+**esbuild and Bun**
+
+```js
+import * as esbuild from "esbuild";
+import ironmarkMdx from "ironmark/esbuild";
+
+await esbuild.build({
+  entryPoints: ["src/main.jsx"],
+  bundle: true,
+  jsx: "automatic",
+  plugins: [ironmarkMdx()],
+});
+
+// The same plugin works in Bun.
+await Bun.build({ entrypoints: ["src/main.jsx"], plugins: [ironmarkMdx()] });
+```
+
+**Rollup and Rolldown**
+
+```js
+// rollup.config.js / rolldown.config.js
+import ironmarkMdx from "ironmark/rollup";
+
+export default {
+  input: "src/main.jsx",
+  plugins: [ironmarkMdx()],
+};
+```
+
+Rolldown compiles the JSX itself. Under Rollup the plugin turns on Rollup's built-in JSX transform (`jsx: { mode: "automatic" }`) unless your config already sets `jsx`.
+
+**webpack and Rspack**
+
+The loader outputs JSX, so chain a JSX loader after it. Loaders run right to left:
+
+```js
+// webpack.config.js
+export default {
+  module: {
+    rules: [
+      {
+        test: /\.mdx$/,
+        use: [
+          { loader: "babel-loader", options: { presets: ["@babel/preset-react"] } },
+          { loader: "ironmark/webpack", options: { providerImportSource: "@mdx-js/react" } },
+        ],
+      },
+    ],
+  },
+};
+```
+
+In Rspack use `builtin:swc-loader` with `jsc: { parser: { syntax: "ecmascript", jsx: true } }` instead of `babel-loader`. The output starts with `@jsxRuntime automatic` and `@jsxImportSource` pragmas, so the JSX loader needs no runtime settings for `.mdx` files.
+
+**Astro**
+
+```js
+// astro.config.mjs
+import react from "@astrojs/react";
+import ironmark from "ironmark/astro";
+
+export default {
+  integrations: [react(), ironmark()],
+};
+```
+
+`.mdx` files become React (or Preact) components that `.astro` pages render like any other framework component: `<Guide components={{ Note }} />`. The integration picks `jsxImportSource` from `@astrojs/react` or `@astrojs/preact`. Use it instead of `@astrojs/mdx`, not next to it: it compiles to framework components, so `.mdx` pages and MDX content collections are not supported.
+
+#### Plugin options
+
+Every plugin takes the same options, plus any parse option (`enableTables`, `enableHeadingIds`, …):
+
+| Option                 | Default    | Description                                                                                      |
+| ---------------------- | ---------- | ------------------------------------------------------------------------------------------------ |
+| `include`              | `/\.mdx$/` | Files to compile                                                                                 |
+| `jsxImportSource`      | `"react"`  | Package that provides `jsx-runtime`: `"preact"`, `"vue"`, `"hono/jsx"`, …                        |
+| `components`           | `true`     | Route tags and undeclared components through `props.components` (see [Components](#components))  |
+| `providerImportSource` | —          | Also read components from an `MDXProvider`, e.g. `"@mdx-js/react"`                               |
+| `frontmatter`          | —          | `(raw, file) => value`: parse the front matter and export it as `frontmatter` (`{}` when absent) |
+
+Front matter is always stripped from the content. To read it, pass your YAML or TOML parser:
+
+```js
+import { parse } from "yaml";
+
+ironmarkMdx({ frontmatter: (raw) => parse(raw) });
+```
+
+The value is serialized with `JSON.stringify`, so dates become strings. Compile errors name the file and the problem, for example ``guide.mdx: expected a closing tag for `<Note>` before the end of the document``.
 
 ### Output
 
@@ -653,46 +779,6 @@ import Guide from "./Guide.mdx";
 <Guide components={{ Note, h1: (p) => <h1 className="title" {...p} />, wrapper: Layout }} />;
 ```
 
-### Bundlers
-
-**Vite** — a ready-made plugin is in [`examples/mdx/vite-plugin-ironmark-mdx.mjs`](examples/mdx/vite-plugin-ironmark-mdx.mjs). Its core:
-
-```js
-import { mdxToJsx } from "ironmark";
-import { transformWithOxc } from "vite";
-
-export default function ironmarkMdx(options = { components: true }) {
-  return {
-    name: "ironmark-mdx",
-    enforce: "pre",
-    transform(code, id) {
-      if (!id.split("?")[0].endsWith(".mdx")) return null;
-      const { module } = mdxToJsx(code, options);
-      return transformWithOxc(module, `${id}.jsx`, { lang: "jsx", jsx: { runtime: "automatic" } });
-    },
-  };
-}
-```
-
-**esbuild** — load `.mdx` files as JSX:
-
-```js
-import { readFile } from "node:fs/promises";
-import { mdxToJsx } from "ironmark";
-
-const ironmarkMdx = {
-  name: "ironmark-mdx",
-  setup(build) {
-    build.onLoad({ filter: /\.mdx$/ }, async ({ path }) => ({
-      contents: mdxToJsx(await readFile(path, "utf8"), { components: true }).module,
-      loader: "jsx",
-    }));
-  },
-};
-```
-
-Set `jsx: "automatic"` in the esbuild options. Other bundlers follow the same pattern: compile with `mdxToJsx`, then hand the module to the JSX transform.
-
 ### Other renderers
 
 With `enable_mdx` set, the other entry points parse MDX too, but only `render_jsx` compiles it:
@@ -706,7 +792,7 @@ With `enable_mdx` set, the other entry points parse MDX too, but only `render_js
 
 ### Examples
 
-- [`examples/mdx`](examples/mdx): `cargo run --example mdx` prints the compiled module (`--components`, `--provider` for the other modes), and a Vite + React app renders the same `Guide.mdx`.
+- [`examples/mdx`](examples/mdx): `cargo run --example mdx` prints the compiled module (`--components`, `--provider` for the other modes), and a Vite + React app renders the same `Guide.mdx` through `ironmark/vite`.
 - The [playground](playground) has an MDX option with a multi-file workspace (`.mdx`, `.jsx`, `.js`), a live React preview and a JSX output tab.
 
 ## CLI
