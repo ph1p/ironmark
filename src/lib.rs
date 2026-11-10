@@ -121,7 +121,9 @@ pub use mdx::convert::{JsxOptions, MdxError, MdxOutput, render_jsx, render_jsx_w
 #[doc(hidden)]
 pub use render::benchmark_heading_slug as __benchmark_heading_slug;
 #[cfg(feature = "html")]
-pub use renderers::text::{HeadingInfo, LinkInfo, extract_headings, extract_links, render_text};
+pub use renderers::text::{
+    Analysis, HeadingInfo, LinkInfo, analyze, extract_headings, extract_links, render_text,
+};
 
 #[inline(always)]
 pub(crate) fn is_ascii_punctuation(b: u8) -> bool {

@@ -80,14 +80,9 @@ pub fn extract_headings(markdown: &str, options: &ParseOptions) -> Vec<HeadingIn
         for_each_block(doc, &mut |block| {
             if let Block::Heading { level, raw } = block {
                 let mut text = String::new();
-                r.inline(raw, &mut text);
-                let mut id = String::new();
-                heading_slug_into(&mut id, raw);
-                headings.push(HeadingInfo {
-                    level: *level,
-                    text,
-                    id,
-                });
+                r.render_inline(raw);
+                html_to_text(&r.html, &mut text);
+                headings.push(heading_info(*level, raw, text));
             }
         });
         headings
@@ -115,16 +110,68 @@ pub fn extract_links(markdown: &str, options: &ParseOptions) -> Vec<LinkInfo> {
         let mut links = Vec::new();
         for_each_block(doc, &mut |block| match block {
             Block::Paragraph { raw } | Block::Heading { raw, .. } => {
-                r.inline_links(raw, &mut links)
+                r.render_inline(raw);
+                scan_links(&r.html, &mut links);
             }
             Block::Table(table) => {
                 for cell in table.header.iter().chain(&table.rows) {
-                    r.inline_links(cell, &mut links);
+                    r.render_inline(cell);
+                    scan_links(&r.html, &mut links);
                 }
             }
             _ => {}
         });
         links
+    })
+}
+
+/// Plain text, headings, links and front matter of one document, as returned
+/// by [`analyze`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Analysis {
+    /// Same as [`render_text`].
+    pub text: String,
+    /// Same as [`extract_headings`].
+    pub headings: Vec<HeadingInfo>,
+    /// Same as [`extract_links`].
+    pub links: Vec<LinkInfo>,
+    /// The raw front matter (see [`split_frontmatter`](crate::split_frontmatter)),
+    /// only when [`enable_frontmatter`](ParseOptions::enable_frontmatter) is set.
+    pub frontmatter: Option<String>,
+}
+
+/// [`render_text`], [`extract_headings`] and [`extract_links`] in one pass:
+/// the document is parsed once and each block's inline content is rendered
+/// once, instead of once per call.
+///
+/// # Examples
+///
+/// ```
+/// use ironmark::{analyze, ParseOptions};
+///
+/// let doc = analyze("# Hi\n\nSee [docs](/d).", &ParseOptions::default());
+/// assert_eq!(doc.text, "Hi\n\nSee docs.");
+/// assert_eq!(doc.headings[0].id, "hi");
+/// assert_eq!(doc.links[0].url, "/d");
+/// assert_eq!(doc.frontmatter, None);
+/// ```
+pub fn analyze(markdown: &str, options: &ParseOptions) -> Analysis {
+    let frontmatter = options
+        .enable_frontmatter
+        .then(|| crate::split_frontmatter(markdown))
+        .flatten()
+        .map(|(raw, _)| raw.to_owned());
+    with_renderer(markdown, options, |doc, r| {
+        r.headings = Some(Vec::new());
+        r.links = Some(Vec::new());
+        let mut text = String::with_capacity(markdown.len());
+        r.block(doc, &mut text);
+        Analysis {
+            text,
+            headings: r.headings.take().unwrap_or_default(),
+            links: r.links.take().unwrap_or_default(),
+            frontmatter,
+        }
     })
 }
 
@@ -154,11 +201,20 @@ fn for_each_block(block: &Block, f: &mut impl FnMut(&Block)) {
     }
 }
 
+fn heading_info(level: u8, raw: &str, text: String) -> HeadingInfo {
+    let mut id = String::new();
+    heading_slug_into(&mut id, raw);
+    HeadingInfo { level, text, id }
+}
+
 struct TextRenderer<'a> {
     refs: &'a LinkRefMap,
     opts: &'a ParseOptions,
     bufs: InlineBuffers,
     html: String,
+    /// Collected while rendering text when set (see [`analyze`]).
+    headings: Option<Vec<HeadingInfo>>,
+    links: Option<Vec<LinkInfo>>,
 }
 
 impl<'a> TextRenderer<'a> {
@@ -170,18 +226,24 @@ impl<'a> TextRenderer<'a> {
             opts,
             bufs,
             html: String::new(),
+            headings: None,
+            links: None,
         }
     }
 
     /// Render one block's inline content to HTML in the reused `html` buffer.
-    fn inline_html(&mut self, raw: &str) -> &str {
+    fn render_inline(&mut self, raw: &str) {
         self.html.clear();
         parse_inline_pass(&mut self.html, raw, self.refs, self.opts, &mut self.bufs);
-        &self.html
     }
 
+    /// Append the inline content as text, collecting its links if asked to.
     fn inline(&mut self, raw: &str, out: &mut String) {
-        html_to_text(self.inline_html(raw), out);
+        self.render_inline(raw);
+        if let Some(links) = &mut self.links {
+            scan_links(&self.html, links);
+        }
+        html_to_text(&self.html, out);
     }
 
     fn blocks(&mut self, blocks: &[Block], separator: &str, out: &mut String) {
@@ -203,7 +265,14 @@ impl<'a> TextRenderer<'a> {
 
     fn block(&mut self, block: &Block, out: &mut String) {
         match block {
-            Block::Paragraph { raw } | Block::Heading { raw, .. } => self.inline(raw, out),
+            Block::Paragraph { raw } => self.inline(raw, out),
+            Block::Heading { level, raw } => {
+                let start = out.len();
+                self.inline(raw, out);
+                if let Some(headings) = &mut self.headings {
+                    headings.push(heading_info(*level, raw, out[start..].to_owned()));
+                }
+            }
             Block::CodeBlock { literal, .. } => {
                 out.push_str(literal.strip_suffix('\n').unwrap_or(literal));
             }
@@ -234,41 +303,41 @@ impl<'a> TextRenderer<'a> {
             | Block::ThematicBreak => {}
         }
     }
+}
 
-    fn inline_links(&mut self, raw: &str, found: &mut Vec<LinkInfo>) {
-        let html = self.inline_html(raw);
-        let mut at = 0;
-        while let Some(open) = memchr::memchr(b'<', &html.as_bytes()[at..]) {
-            let start = at + open + 1;
-            let Some(len) = memchr::memchr(b'>', &html.as_bytes()[start..]) else {
-                break;
-            };
-            let tag = &html[start..start + len];
-            at = start + len + 1;
-            let decoded = |v: &str| decode_entities(v).into_owned();
-            let title = || attribute(tag, "title").map(decoded);
-            if tag.starts_with("a ")
-                && let Some(href) = attribute(tag, "href")
-            {
-                let end = html[at..].find("</a>").map_or(html.len(), |n| at + n);
-                let mut text = String::new();
-                html_to_text(&html[at..end], &mut text);
-                found.push(LinkInfo {
-                    image: false,
-                    url: decoded(href),
-                    title: title(),
-                    text,
-                });
-            } else if tag.starts_with("img ")
-                && let Some(src) = attribute(tag, "src")
-            {
-                found.push(LinkInfo {
-                    image: true,
-                    url: decoded(src),
-                    title: title(),
-                    text: attribute(tag, "alt").map(decoded).unwrap_or_default(),
-                });
-            }
+/// Collect the `<a href>` and `<img src>` tags of inline-renderer HTML.
+fn scan_links(html: &str, found: &mut Vec<LinkInfo>) {
+    let mut at = 0;
+    while let Some(open) = memchr::memchr(b'<', &html.as_bytes()[at..]) {
+        let start = at + open + 1;
+        let Some(len) = memchr::memchr(b'>', &html.as_bytes()[start..]) else {
+            break;
+        };
+        let tag = &html[start..start + len];
+        at = start + len + 1;
+        let decoded = |v: &str| decode_entities(v).into_owned();
+        let title = || attribute(tag, "title").map(decoded);
+        if tag.starts_with("a ")
+            && let Some(href) = attribute(tag, "href")
+        {
+            let end = html[at..].find("</a>").map_or(html.len(), |n| at + n);
+            let mut text = String::new();
+            html_to_text(&html[at..end], &mut text);
+            found.push(LinkInfo {
+                image: false,
+                url: decoded(href),
+                title: title(),
+                text,
+            });
+        } else if tag.starts_with("img ")
+            && let Some(src) = attribute(tag, "src")
+        {
+            found.push(LinkInfo {
+                image: true,
+                url: decoded(src),
+                title: title(),
+                text: attribute(tag, "alt").map(decoded).unwrap_or_default(),
+            });
         }
     }
 }
@@ -438,6 +507,25 @@ mod tests {
                 (false, s("/raw"), None, s("r")),
             ]
         );
+    }
+
+    #[test]
+    fn analyze_matches_the_single_extractors() {
+        let md = "+++\na = 1\n+++\n# [*Hi*](/h)\n\n> ## Q ![i](i.png)\n\n- [x](/x)\n\n| [c](/c) |\n|---|\n\n<div>[no](/no)</div>\n\n---\n\n# Hi";
+        for enable_frontmatter in [false, true] {
+            let opts = ParseOptions {
+                enable_frontmatter,
+                ..ParseOptions::default()
+            };
+            let all = analyze(md, &opts);
+            assert_eq!(all.text, render_text(md, &opts));
+            assert_eq!(all.headings, extract_headings(md, &opts));
+            assert_eq!(all.links, extract_links(md, &opts));
+            assert_eq!(
+                all.frontmatter.as_deref(),
+                enable_frontmatter.then_some("a = 1\n")
+            );
+        }
     }
 
     #[test]

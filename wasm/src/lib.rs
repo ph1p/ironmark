@@ -76,43 +76,32 @@ pub fn render_text(markdown: &[u8], flags: u32) -> String {
     ironmark::render_text(&utf8(markdown), &options)
 }
 
-/// Every heading as a flat `[level, id, text, level, id, text, …]` list, which
-/// crosses the boundary without a JSON dependency (see `ironmark::extract_headings`).
-#[wasm_bindgen(js_name = "extractHeadings")]
-pub fn extract_headings(markdown: &[u8], flags: u32) -> Vec<String> {
-    let options = build_options(flags);
-    ironmark::extract_headings(&utf8(markdown), &options)
-        .into_iter()
-        .flat_map(|h| [h.level.to_string(), h.id, h.text])
-        .collect()
-}
-
-/// Every link and image as a flat `[image, url, title | null, text, …]` list
-/// (see `ironmark::extract_links`).
-#[wasm_bindgen(js_name = "extractLinks")]
-pub fn extract_links(markdown: &[u8], flags: u32) -> Vec<JsValue> {
-    let options = build_options(flags);
-    ironmark::extract_links(&utf8(markdown), &options)
-        .into_iter()
-        .flat_map(|link| {
-            [
-                JsValue::from_bool(link.image),
-                JsValue::from(link.url),
-                link.title.map_or(JsValue::NULL, JsValue::from),
-                JsValue::from(link.text),
-            ]
-        })
-        .collect()
-}
-
-/// The raw front matter block (without its fences), when `enableFrontmatter`
-/// is on and the input starts with one.
-#[wasm_bindgen(js_name = "frontmatter")]
-pub fn frontmatter(markdown: &[u8], flags: u32) -> Option<String> {
-    if !build_options(flags).enable_frontmatter {
-        return None;
+/// Text, headings, links and front matter from one parse (see `ironmark::analyze`),
+/// as one flat list that crosses the boundary without a JSON dependency:
+/// `[text, frontmatter | null, headingCount, (level, id, text)…, (image, url, title | null, text)…]`.
+#[wasm_bindgen(js_name = "analyze")]
+pub fn analyze(markdown: &[u8], flags: u32) -> Vec<JsValue> {
+    let doc = ironmark::analyze(&utf8(markdown), &build_options(flags));
+    let mut out = Vec::with_capacity(3 + doc.headings.len() * 3 + doc.links.len() * 4);
+    out.push(JsValue::from(doc.text));
+    out.push(doc.frontmatter.map_or(JsValue::NULL, JsValue::from));
+    out.push(JsValue::from(doc.headings.len() as u32));
+    for h in doc.headings {
+        out.extend([
+            JsValue::from(h.level),
+            JsValue::from(h.id),
+            JsValue::from(h.text),
+        ]);
     }
-    ironmark::split_frontmatter(&utf8(markdown)).map(|(raw, _)| raw.to_string())
+    for link in doc.links {
+        out.extend([
+            JsValue::from_bool(link.image),
+            JsValue::from(link.url),
+            link.title.map_or(JsValue::NULL, JsValue::from),
+            JsValue::from(link.text),
+        ]);
+    }
+    out
 }
 
 /// Parse Markdown and render it back as normalized Markdown, without the

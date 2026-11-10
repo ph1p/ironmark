@@ -26,9 +26,7 @@ import {
   createMarkdownToHtml,
   createAstToMarkdown,
   createMarkdownToText,
-  createMarkdownHeadings,
-  createMarkdownLinks,
-  createMarkdownFrontmatter,
+  createMarkdownAnalysis,
   createNormalizeMarkdown,
   createMarkdownToAnsi,
   createMdxToJsx,
@@ -60,10 +58,8 @@ export const mdxToJsx = /* @__PURE__ */ createMdxToJsx(wasmGlue.renderJsx);
 export const htmlToAst = /* @__PURE__ */ createHtmlToAst(wasmGlue.parseHtmlToAst);
 export const htmlToMarkdown = /* @__PURE__ */ createHtmlToMarkdown(wasmGlue.htmlToMarkdown);
 export const markdownToText = /* @__PURE__ */ createMarkdownToText(wasmGlue.renderText);
-const markdownHeadings = /* @__PURE__ */ createMarkdownHeadings(wasmGlue.extractHeadings);
+const markdownAnalysis = /* @__PURE__ */ createMarkdownAnalysis(wasmGlue.analyze);
 const normalizeMarkdown = /* @__PURE__ */ createNormalizeMarkdown(wasmGlue.normalizeMarkdown);
-const markdownLinks = /* @__PURE__ */ createMarkdownLinks(wasmGlue.extractLinks);
-const markdownFrontmatter = /* @__PURE__ */ createMarkdownFrontmatter(wasmGlue.frontmatter);
 
 export const CAPABILITIES = /* @__PURE__ */ createCapabilities(ALL_FORMATS);
 export { AST_SCHEMA_VERSION, DEFAULT_OPTIONS, PRESETS };
@@ -73,9 +69,7 @@ export default /* @__PURE__ */ createIronmark({
   init,
   markdownToHtml,
   markdownToText,
-  markdownHeadings,
-  markdownLinks,
-  markdownFrontmatter,
+  markdownAnalysis,
   normalizeMarkdown,
   markdownToAst,
   astToMarkdown,

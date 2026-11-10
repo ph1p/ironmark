@@ -12,9 +12,7 @@ import { fileURLToPath } from "node:url";
 const FACTORIES = {
   markdownToHtml: ["createMarkdownToHtml", "parse", "parseDefault"],
   markdownToText: ["createMarkdownToText", "renderText"],
-  markdownHeadings: ["createMarkdownHeadings", "extractHeadings"],
-  markdownLinks: ["createMarkdownLinks", "extractLinks"],
-  markdownFrontmatter: ["createMarkdownFrontmatter", "frontmatter"],
+  markdownAnalysis: ["createMarkdownAnalysis", "analyze"],
   normalizeMarkdown: ["createNormalizeMarkdown", "normalizeMarkdown"],
   mdxToJsx: ["createMdxToJsx", "renderJsx"],
   markdownToAst: ["createMarkdownToAst", "parseToAst"],
@@ -26,7 +24,7 @@ const COMMON_HELPERS = ["DEFAULT_OPTIONS", "PRESETS"];
 
 /** Functions every entry exports, and ones only its default export (`Document`) uses. */
 const COMMON_EXPORTS = ["markdownToHtml", "markdownToText"];
-const COMMON_INTERNAL = ["markdownHeadings", "markdownLinks", "markdownFrontmatter"];
+const COMMON_INTERNAL = ["markdownAnalysis"];
 
 const ENTRIES = [
   { name: "html", features: "html-only", exports: [], formats: ["html", "text"] },

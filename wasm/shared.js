@@ -135,42 +135,29 @@ export function createMarkdownToText(wasmRenderText) {
   };
 }
 
-/** Rust heading extraction; the binding returns a flat `[level, id, text, …]` list. */
-export function createMarkdownHeadings(wasmExtractHeadings) {
-  return function markdownHeadings(input, options) {
-    const flat = wasmExtractHeadings(...optionArgs(input, options));
-    const headings = [];
-    for (let i = 0; i < flat.length; i += 3) {
-      headings.push({ level: Number(flat[i]), text: flat[i + 2], id: flat[i + 1] });
-    }
-    return headings;
-  };
-}
-
 /**
- * Rust link extraction, split into `{ links, images }` in one pass; the binding
- * returns a flat `[image, url, title | null, text, …]` list.
+ * Text, headings, links, images and front matter from one Rust parse. The binding
+ * returns `[text, frontmatter | null, headingCount, (level, id, text)…,
+ * (image, url, title | null, text)…]`.
  */
-export function createMarkdownLinks(wasmExtractLinks) {
-  return function markdownLinks(input, options) {
-    const flat = wasmExtractLinks(...optionArgs(input, options));
+export function createMarkdownAnalysis(wasmAnalyze) {
+  return function markdownAnalysis(input, options) {
+    const flat = wasmAnalyze(...optionArgs(input, options));
+    const headings = [];
     const links = [];
     const images = [];
-    for (let i = 0; i < flat.length; i += 4) {
+    const linksAt = 3 + flat[2] * 3;
+    for (let i = 3; i < linksAt; i += 3) {
+      headings.push({ level: flat[i], text: flat[i + 2], id: flat[i + 1] });
+    }
+    for (let i = linksAt; i < flat.length; i += 4) {
       const url = flat[i + 1];
       const title = flat[i + 2];
       const text = flat[i + 3];
       if (flat[i]) images.push({ url, title, alt: text });
       else links.push({ url, title, text });
     }
-    return { links, images };
-  };
-}
-
-/** The raw front matter, or `null` (always `null` unless `enableFrontmatter` is on). */
-export function createMarkdownFrontmatter(wasmFrontmatter) {
-  return function markdownFrontmatter(input, options) {
-    return wasmFrontmatter(...optionArgs(input, options)) ?? null;
+    return { text: flat[0], frontmatter: flat[1] ?? null, headings, links, images };
   };
 }
 
@@ -481,10 +468,7 @@ function textStats(text) {
 
 /** Methods that need an entry function; dropped from `Document` when the entry lacks it. */
 const REQUIRES = {
-  markdownToText: ["text", "stats"],
-  markdownHeadings: ["headings", "toc"],
-  markdownLinks: ["links", "images"],
-  markdownFrontmatter: ["frontmatter"],
+  markdownAnalysis: ["text", "stats", "headings", "toc", "links", "images", "frontmatter"],
   markdownToAst: ["ast", "summary"],
   normalizeMarkdown: ["markdown"],
   markdownToAnsi: ["ansi"],
@@ -543,35 +527,35 @@ export function createIronmark(api) {
       return this.#output("html", () => api.markdownToHtml(this.#bytes, options));
     }
 
+    /** Text, headings, links and front matter come from one parse, cached together. */
+    #analysis() {
+      return this.#output("analysis", () =>
+        deepFreeze(api.markdownAnalysis(this.#bytes, this.#options)),
+      );
+    }
+
     text() {
-      return this.#output("text", () => api.markdownToText(this.#bytes, this.#options));
+      return this.#analysis().text;
     }
 
     headings() {
-      return this.#output("headings", () =>
-        deepFreeze(api.markdownHeadings(this.#bytes, this.#options)),
-      );
+      return this.#analysis().headings;
     }
 
     toc() {
       return this.#output("toc", () => deepFreeze(buildToc(this.headings())));
     }
 
-    /** Links and images come from one extraction, cached together. */
-    #links() {
-      return this.#output("links", () => deepFreeze(api.markdownLinks(this.#bytes, this.#options)));
-    }
-
     links() {
-      return this.#links().links;
+      return this.#analysis().links;
     }
 
     images() {
-      return this.#links().images;
+      return this.#analysis().images;
     }
 
     frontmatter() {
-      return this.#output("frontmatter", () => api.markdownFrontmatter(this.#bytes, this.#options));
+      return this.#analysis().frontmatter;
     }
 
     stats() {
