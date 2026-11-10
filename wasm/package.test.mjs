@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const TARGET = join(ROOT, "target");
 const NODE = process.env.IRONMARK_TEST_NODE || process.execPath;
+const PLUGINS = ["vite", "esbuild", "rollup", "webpack", "astro"];
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -141,6 +142,9 @@ test("packed package resolves its file-backed assets independently of cwd", asyn
       `wasm/pkg-${name}/ironmark_${name}_bg.js`,
       `wasm/pkg-${name}/ironmark_${name}_bg.wasm`,
     ]),
+    ...PLUGINS.flatMap((name) => [`wasm/plugins/${name}.js`, `wasm/plugins/${name}.d.ts`]),
+    "wasm/plugins/core.js",
+    "wasm/plugins/index.d.ts",
   ]) {
     assert.ok(
       pack.files.some((file) => file.path === asset),
@@ -168,6 +172,12 @@ test("packed package resolves its file-backed assets independently of cwd", asyn
       node: { types: "./wasm/ast.d.ts", default: "./wasm/ast-node.js" },
       default: { types: "./wasm/ast.d.ts", default: "./wasm/ast-web.js" },
     },
+    ...Object.fromEntries(
+      PLUGINS.map((name) => [
+        `./${name}`,
+        { types: `./wasm/plugins/${name}.d.ts`, default: `./wasm/plugins/${name}.js` },
+      ]),
+    ),
     "./ironmark.wasm": "./wasm/pkg/ironmark_bg.wasm",
   });
   assert.equal(packageJson.module, "wasm/web.js");

@@ -156,3 +156,27 @@ htmlMark.ast("# x");
 astMark.jsx("# x");
 // @ts-expect-error Stats are read-only.
 doc.stats().words = 1;
+
+// Build-tool plugins share one option type. Plugins typed against their bundler
+// (vite, esbuild, astro) are left out: those packages are not installed here.
+import type { MdxPluginOptions } from "./plugins/index.js";
+import rollupMdx from "./plugins/rollup.js";
+import webpackMdx from "./plugins/webpack.js";
+
+const pluginOptions: MdxPluginOptions = {
+  include: /\.mdx?$/,
+  jsxImportSource: "preact",
+  providerImportSource: "@mdx-js/react",
+  frontmatter: (raw: string, file: string) => ({ raw, file }),
+  enableTables: false,
+};
+const rollupPlugin: { name: string } = rollupMdx(pluginOptions);
+void rollupPlugin;
+const loaded: string = webpackMdx.call(
+  { getOptions: () => pluginOptions, query: pluginOptions, resourcePath: "/a.mdx" },
+  "# Hi",
+);
+void loaded;
+// @ts-expect-error frontmatter receives the raw text, not a parsed object.
+const badOptions: MdxPluginOptions = { frontmatter: (raw: number) => raw };
+void badOptions;

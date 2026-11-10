@@ -21,10 +21,9 @@ pnpm install
 pnpm dev     # builds the ironmark WASM package first, then starts Vite
 ```
 
-[`vite-plugin-ironmark-mdx.mjs`](vite-plugin-ironmark-mdx.mjs) turns `.mdx` imports into
-modules. It compiles each file with `mdxToJsx(code, { components: true })` and then runs
-Vite's Oxc JSX transform. [`src/main.jsx`](src/main.jsx) renders the guide and passes
-`components`:
+[`vite.config.mjs`](vite.config.mjs) adds `ironmark/vite`, which compiles each `.mdx` import
+with `components: true` and then runs Vite's own JSX transform. [`src/main.jsx`](src/main.jsx)
+renders the guide and passes `components`:
 
 - `Note` fills in the component that the guide does not import.
 - `h1` and `a` override the markdown-generated tags.

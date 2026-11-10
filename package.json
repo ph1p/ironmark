@@ -31,6 +31,7 @@
     "wasm/shared.js",
     "wasm/web.js",
     "wasm/node.js",
+    "wasm/plugins",
     "wasm/cli.js",
     "README.md"
   ],
@@ -80,6 +81,26 @@
         "default": "./wasm/ast-web.js"
       }
     },
+    "./vite": {
+      "types": "./wasm/plugins/vite.d.ts",
+      "default": "./wasm/plugins/vite.js"
+    },
+    "./esbuild": {
+      "types": "./wasm/plugins/esbuild.d.ts",
+      "default": "./wasm/plugins/esbuild.js"
+    },
+    "./rollup": {
+      "types": "./wasm/plugins/rollup.d.ts",
+      "default": "./wasm/plugins/rollup.js"
+    },
+    "./webpack": {
+      "types": "./wasm/plugins/webpack.d.ts",
+      "default": "./wasm/plugins/webpack.js"
+    },
+    "./astro": {
+      "types": "./wasm/plugins/astro.d.ts",
+      "default": "./wasm/plugins/astro.js"
+    },
     "./ironmark.wasm": "./wasm/pkg/ironmark_bg.wasm"
   },
   "publishConfig": {
@@ -109,7 +130,7 @@
     "bench:api": "node benchmark/api.mjs",
     "test:benchmark": "node --test benchmark/measure.test.mjs benchmark/api.test.mjs",
     "test:types": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --lib ES2022,DOM wasm/types.test.ts",
-    "test:wasm": "node --test wasm/api.test.mjs wasm/package.test.mjs wasm/html.test.mjs wasm/entries.test.mjs wasm/document.test.mjs",
+    "test:wasm": "node --test wasm/api.test.mjs wasm/package.test.mjs wasm/html.test.mjs wasm/entries.test.mjs wasm/document.test.mjs wasm/plugins.test.mjs",
     "test": "cargo test --offline"
   },
   "devDependencies": {
