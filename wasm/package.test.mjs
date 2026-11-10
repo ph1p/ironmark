@@ -40,7 +40,7 @@ const api = await import(process.argv[2]);
 const entry = process.argv[3];
 assert.strictEqual(api, await import(entry));
 assert.deepEqual(Object.keys(api).sort(), [
-  "init", "parseMarkdown", "renderHtml", "renderMarkdown", "renderAnsiTerminal",
+  "init", "parseMarkdown", "renderHtml", "renderMarkdown", "renderAnsiTerminal", "renderJsx",
   "parseHtmlToAst", "htmlToMarkdown", "getCapabilities", "getAstSchemaVersion",
   "getDefaultOptions", "getPresets", "extractHeadings", "summarizeAst"
 ].sort());
@@ -65,7 +65,17 @@ assert.deepEqual(api.parseHtmlToAst("<h2>Hello</h2><p>Text</p>"), {Document:{chi
 assert.equal(api.htmlToMarkdown("<h2>Hello</h2><p>Text</p>"), "## Hello\\n\\nText\\n");
 assert.equal(api.getAstSchemaVersion(), "2");
 assert.equal(api.getCapabilities().astSchemaVersion, "2");
-assert.deepEqual(api.getCapabilities().formats, ["html","ast","markdown","ansi"]);
+assert.deepEqual(api.getCapabilities().formats, ["html","ast","markdown","ansi","jsx"]);
+const jsx = api.renderJsx("import X from './x'\\n\\n# Hi {props.name}\\n\\n<X />\\n");
+assert.equal(jsx.esm, "import X from './x'");
+assert.equal(jsx.jsx, "<>\\n<h1>Hi {props.name}</h1>\\n<X />\\n</>");
+assert.ok(jsx.module.includes("export default function MDXContent(props)"));
+assert.throws(() => api.renderJsx("<A>\\n\\n</B>\\n"), /unexpected closing tag/);
+const mapped = api.renderJsx("# Hi\\n\\n<Note />\\n", {providerImportSource:"@mdx-js/react"});
+assert.ok(mapped.jsx.includes("<_components.h1>Hi</_components.h1>"));
+assert.ok(mapped.module.startsWith('import { useMDXComponents as _provideComponents } from "@mdx-js/react";'));
+assert.ok(mapped.module.includes("const {Note} = _components;"));
+assert.equal(api.renderHtml("Hi {x} <Y />", {enableMdx:true}), "<p>Hi {x} <Y /></p>\\n");
 const defaults = api.getDefaultOptions();
 assert.equal(defaults.enableTables, true);
 defaults.hardBreaks = false;
@@ -149,7 +159,7 @@ test("packed package resolves its file-backed assets independently of cwd", asyn
 
   await t.test("direct file URL keeps all existing exports usable and synchronous", () => {
     const report = JSON.parse(successful(run(NODE, [probe, entry, entry], { cwd: elsewhere })));
-    assert.equal(report.exports, 13);
+    assert.equal(report.exports, 14);
     assert.equal(report.synchronous, true);
     t.diagnostic(`Packed consumer runtime: ${report.node}`);
   });
@@ -158,7 +168,7 @@ test("packed package resolves its file-backed assets independently of cwd", asyn
     const report = JSON.parse(
       successful(run(NODE, [probe, "ironmark", entry], { cwd: elsewhere })),
     );
-    assert.equal(report.exports, 13);
+    assert.equal(report.exports, 14);
     assert.equal(report.synchronous, true);
   });
 

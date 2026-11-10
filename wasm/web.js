@@ -4,6 +4,7 @@ import {
   createRenderHtml,
   createRenderMarkdown,
   createRenderAnsiTerminal,
+  createRenderJsx,
   createParseHtmlToAst,
   createHtmlToMarkdown,
   getCapabilities,
@@ -44,6 +45,7 @@ export const parseMarkdown = createParseMarkdown(wasmGlue.parseToAst);
 export const renderHtml = createRenderHtml(wasmGlue.parse, wasmGlue.parseDefault);
 export const renderMarkdown = createRenderMarkdown(wasmGlue.renderMarkdown);
 export const renderAnsiTerminal = createRenderAnsiTerminal(wasmGlue.renderAnsi);
+export const renderJsx = createRenderJsx(wasmGlue.renderJsx);
 export const parseHtmlToAst = createParseHtmlToAst(wasmGlue.parseHtmlToAst);
 export const htmlToMarkdown = createHtmlToMarkdown(wasmGlue.htmlToMarkdown);
 

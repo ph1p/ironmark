@@ -89,6 +89,7 @@ function optionArgs(markdown, options) {
     r.permissiveAtxHeaders,
     r.enableWikiLinks,
     r.enableLatexMath,
+    r.enableMdx,
   ];
 }
 
@@ -127,6 +128,21 @@ export function createRenderAnsiTerminal(wasmRenderAnsi) {
   };
 }
 
+export function createRenderJsx(wasmRenderJsx) {
+  return function renderJsx(input, options) {
+    const out = wasmRenderJsx(
+      ...optionArgs(input, options),
+      options?.components,
+      options?.providerImportSource,
+    );
+    try {
+      return { esm: out.esm, jsx: out.jsx, module: out.module };
+    } finally {
+      out.free();
+    }
+  };
+}
+
 export function createParseHtmlToAst(wasmParseHtmlToAst) {
   return function parseHtmlToAst(html, preserveUnknownAsHtml) {
     return JSON.parse(wasmParseHtmlToAst(html, preserveUnknownAsHtml));
@@ -146,7 +162,7 @@ export const AST_SCHEMA_VERSION = "2";
 export function getCapabilities() {
   return {
     astSchemaVersion: AST_SCHEMA_VERSION,
-    formats: ["html", "ast", "markdown", "ansi"],
+    formats: ["html", "ast", "markdown", "ansi", "jsx"],
     presets: Object.keys(PRESETS),
     extensions: [
       "hardBreaks",
@@ -161,6 +177,7 @@ export function getCapabilities() {
       "enableIndentedCodeBlocks",
       "enableWikiLinks",
       "enableLatexMath",
+      "enableMdx",
     ],
     security: ["disableRawHtml", "noHtmlBlocks", "noHtmlSpans", "tagFilter"],
   };
@@ -190,6 +207,7 @@ export function getDefaultOptions() {
     permissiveAtxHeaders: false,
     enableWikiLinks: false,
     enableLatexMath: false,
+    enableMdx: false,
   };
 }
 

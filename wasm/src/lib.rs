@@ -40,6 +40,7 @@ fn build_options(
     permissive_atx_headers: Option<bool>,
     enable_wiki_links: Option<bool>,
     enable_latex_math: Option<bool>,
+    enable_mdx: Option<bool>,
 ) -> ParseOptions {
     ParseOptions {
         hard_breaks: hard_breaks.unwrap_or(true),
@@ -62,6 +63,9 @@ fn build_options(
         permissive_atx_headers: permissive_atx_headers.unwrap_or(false),
         enable_wiki_links: enable_wiki_links.unwrap_or(false),
         enable_latex_math: enable_latex_math.unwrap_or(false),
+        // In HTML mode MDX tags and expressions pass through as raw output;
+        // `renderJsx` compiles the document to JSX instead.
+        enable_mdx: enable_mdx.unwrap_or(false),
     }
 }
 
@@ -86,6 +90,7 @@ pub fn parse(
     permissive_atx_headers: Option<bool>,
     enable_wiki_links: Option<bool>,
     enable_latex_math: Option<bool>,
+    enable_mdx: Option<bool>,
 ) -> String {
     render_html(
         &utf8(markdown),
@@ -108,6 +113,7 @@ pub fn parse(
             permissive_atx_headers,
             enable_wiki_links,
             enable_latex_math,
+            enable_mdx,
         ),
     )
 }
@@ -145,6 +151,7 @@ pub fn parse_to_ast(
     permissive_atx_headers: Option<bool>,
     enable_wiki_links: Option<bool>,
     enable_latex_math: Option<bool>,
+    enable_mdx: Option<bool>,
 ) -> Result<String, JsValue> {
     let ast = parse_markdown(
         &utf8(markdown),
@@ -167,6 +174,7 @@ pub fn parse_to_ast(
             permissive_atx_headers,
             enable_wiki_links,
             enable_latex_math,
+            enable_mdx,
         ),
     );
     serde_json::to_string(&ast)
@@ -206,6 +214,7 @@ pub fn render_ansi(
     permissive_atx_headers: Option<bool>,
     enable_wiki_links: Option<bool>,
     enable_latex_math: Option<bool>,
+    enable_mdx: Option<bool>,
     // Plain u32, not Option<u32>: Option<u32> generates i32.trunc_sat_f64_u
     // (nontrapping-fptoint) which wasm-opt rejects without --enable-nontrapping-fptoint.
     // 0 means "use default (80)".
@@ -233,6 +242,7 @@ pub fn render_ansi(
         permissive_atx_headers,
         enable_wiki_links,
         enable_latex_math,
+        enable_mdx,
     );
     let ansi_opts = AnsiOptions {
         width: if width == 0 { 80 } else { width as usize },
@@ -241,6 +251,96 @@ pub fn render_ansi(
         padding: padding as usize,
     };
     render_ansi_terminal(&utf8(markdown), &parse_opts, Some(&ansi_opts))
+}
+
+/// Result of `renderJsx`: the ESM import/export blocks and the JSX body.
+#[cfg(feature = "full")]
+#[wasm_bindgen]
+pub struct JsxOutput {
+    inner: ironmark::MdxOutput,
+}
+
+#[cfg(feature = "full")]
+#[wasm_bindgen]
+impl JsxOutput {
+    /// Top-level `import`/`export` blocks, in document order.
+    #[wasm_bindgen(getter)]
+    pub fn esm(&self) -> String {
+        self.inner.esm.clone()
+    }
+
+    /// The document as one JSX fragment expression (`<>…</>`).
+    #[wasm_bindgen(getter)]
+    pub fn jsx(&self) -> String {
+        self.inner.jsx.clone()
+    }
+
+    /// A complete ES module: ESM followed by `export default function MDXContent`.
+    #[wasm_bindgen(getter)]
+    pub fn module(&self) -> String {
+        self.inner.to_module()
+    }
+}
+
+/// Compile MDX to JSX. MDX parsing is always on here; `enable_mdx` is ignored.
+/// `components` / `provider_import_source` select `@mdx-js/mdx`-style
+/// component mapping (see `ironmark::JsxOptions`).
+///
+/// Throws an `Error` for unbalanced or unterminated JSX.
+#[cfg(feature = "full")]
+#[wasm_bindgen(js_name = "renderJsx")]
+pub fn render_jsx(
+    markdown: &[u8],
+    hard_breaks: Option<bool>,
+    enable_highlight: Option<bool>,
+    enable_strikethrough: Option<bool>,
+    enable_underline: Option<bool>,
+    enable_tables: Option<bool>,
+    enable_autolink: Option<bool>,
+    enable_task_lists: Option<bool>,
+    disable_raw_html: Option<bool>,
+    enable_heading_ids: Option<bool>,
+    enable_heading_anchors: Option<bool>,
+    enable_indented_code_blocks: Option<bool>,
+    no_html_blocks: Option<bool>,
+    no_html_spans: Option<bool>,
+    tag_filter: Option<bool>,
+    collapse_whitespace: Option<bool>,
+    permissive_atx_headers: Option<bool>,
+    enable_wiki_links: Option<bool>,
+    enable_latex_math: Option<bool>,
+    enable_mdx: Option<bool>,
+    components: Option<bool>,
+    provider_import_source: Option<String>,
+) -> Result<JsxOutput, JsError> {
+    let options = build_options(
+        hard_breaks,
+        enable_highlight,
+        enable_strikethrough,
+        enable_underline,
+        enable_tables,
+        enable_autolink,
+        enable_task_lists,
+        disable_raw_html,
+        enable_heading_ids,
+        enable_heading_anchors,
+        enable_indented_code_blocks,
+        no_html_blocks,
+        no_html_spans,
+        tag_filter,
+        collapse_whitespace,
+        permissive_atx_headers,
+        enable_wiki_links,
+        enable_latex_math,
+        enable_mdx,
+    );
+    let jsx = ironmark::JsxOptions {
+        components: components.unwrap_or(false),
+        provider_import_source,
+    };
+    ironmark::render_jsx_with(&utf8(markdown), &options, &jsx)
+        .map(|inner| JsxOutput { inner })
+        .map_err(|err| JsError::new(err.message()))
 }
 
 #[cfg(feature = "full")]

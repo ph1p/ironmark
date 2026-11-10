@@ -79,6 +79,14 @@ export interface ParseOptions {
   enableWikiLinks?: boolean;
   /** Enable `$...$` and `$$...$$` math syntax with HTML-escaped content. Default: false. */
   enableLatexMath?: boolean;
+  /**
+   * Parse MDX syntax: JSX tags (`<Card title="x">`), `{expressions}` and top-level
+   * `import`/`export` blocks. Also disables indented code and HTML blocks, like MDX.
+   * In `renderHtml()` the MDX pieces pass through verbatim; use `renderJsx()` to
+   * compile to JSX. Only enable for trusted input: expressions are executable code.
+   * Default: false.
+   */
+  enableMdx?: boolean;
 }
 
 // ─── Render-specific option aliases ──────────────────────────────────────────
@@ -109,6 +117,34 @@ export interface AnsiOptions {
    * Also adds `ceil(padding / 2)` blank lines at the top. Default: `0`.
    */
   padding?: number;
+}
+
+// ─── JSX output ───────────────────────────────────────────────────────────────
+
+/** Result of `renderJsx()`. */
+export interface JsxOutput {
+  /** Top-level `import`/`export` blocks, in document order. */
+  esm: string;
+  /** The document body as one JSX fragment expression (`<>…</>`). */
+  jsx: string;
+  /** A complete ES module: `esm` plus `export default function MDXContent(props)`. */
+  module: string;
+}
+
+/** Options for `renderJsx()` on top of the parse options. */
+export interface JsxOptions extends ParseOptions {
+  /**
+   * Route elements through a `_components` object, like `@mdx-js/mdx`: markdown tags
+   * become `<_components.h1>` (overridable via `props.components`), components the
+   * ESM does not declare are looked up there, and `components.wrapper` wraps the
+   * content. Default: false.
+   */
+  components?: boolean;
+  /**
+   * Module to import `useMDXComponents` from (e.g. `"@mdx-js/react"`) so an
+   * `MDXProvider` can supply components. Implies `components`. Default: none.
+   */
+  providerImportSource?: string;
 }
 
 // ─── HTML parse options ───────────────────────────────────────────────────────
@@ -264,6 +300,27 @@ export declare function renderAnsiTerminal(
   options?: ParseOptions,
   ansiOptions?: AnsiOptions,
 ): string;
+
+/**
+ * Compile MDX to JSX.
+ *
+ * MDX parsing is always on (`enableMdx` is ignored). The result still needs a
+ * JSX transform (esbuild, Babel, SWC, …) to run. Only use with trusted input:
+ * `{expressions}` and `import`/`export` blocks are executable code.
+ *
+ * @param input - MDX source.
+ * @param options - Optional parse options, plus `components` / `providerImportSource`.
+ * @returns ESM, JSX body, and a ready-to-bundle module.
+ * @throws Error when JSX tags are unbalanced or unterminated.
+ *
+ * @example
+ * ```ts
+ * import { renderJsx } from "ironmark";
+ *
+ * const { module } = renderJsx("import Card from './Card'\n\n# Hi\n\n<Card>{props.name}</Card>");
+ * ```
+ */
+export declare function renderJsx(input: MarkdownInput, options?: JsxOptions): JsxOutput;
 
 /**
  * Parse an HTML string and return the AST as a JavaScript object.
