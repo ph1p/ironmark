@@ -32,9 +32,9 @@ Two plus two is {2 + 2}. Features, rendered from an exported array:
 | `components`           | markdown tags go through `_components`  |
 | `providerImportSource` | components also come from `MDXProvider` |
 
-- [x] compile with `renderJsx`
+- [x] compile with `mdxToJsx`
 - [ ] ship it
 
 ```js
-const { module } = renderJsx(source, { components: true });
+const { module } = mdxToJsx(source, { components: true });
 ```

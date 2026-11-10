@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderHtml } from "./node.js";
+import { markdownToHtml } from "./node.js";
 
 const LIMIT = 10 * 1024 * 1024;
 const FENCE = "ordinary paragraph\n\n```\n";
@@ -22,10 +22,10 @@ function inputForms(bytes) {
 
 function assertVariants(input, expected, label, large = false) {
   for (const [optionsLabel, run] of [
-    ["omitted", () => renderHtml(input)],
-    ["empty", () => renderHtml(input, {})],
-    ["default preset", () => renderHtml(input, { preset: "default" })],
-    ["null", () => renderHtml(input, null)],
+    ["omitted", () => markdownToHtml(input)],
+    ["empty", () => markdownToHtml(input, {})],
+    ["default preset", () => markdownToHtml(input, { preset: "default" })],
+    ["null", () => markdownToHtml(input, null)],
   ]) {
     const actual = run();
     if (large) {

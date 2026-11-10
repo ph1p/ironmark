@@ -22,7 +22,7 @@ pnpm dev     # builds the ironmark WASM package first, then starts Vite
 ```
 
 [`vite-plugin-ironmark-mdx.mjs`](vite-plugin-ironmark-mdx.mjs) turns `.mdx` imports into
-modules. It compiles each file with `renderJsx(code, { components: true })` and then runs
+modules. It compiles each file with `mdxToJsx(code, { components: true })` and then runs
 Vite's Oxc JSX transform. [`src/main.jsx`](src/main.jsx) renders the guide and passes
 `components`:
 

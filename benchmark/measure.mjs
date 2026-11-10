@@ -119,8 +119,8 @@ const CHILD = `
 const started = performance.now();
 const api = await import(process.argv[1]);
 const imported = performance.now();
-if (typeof api.renderHtml !== "function") throw new Error("Entry must export renderHtml");
-const html = api.renderHtml("Hello, **world**.\\n");
+if (typeof api.markdownToHtml !== "function") throw new Error("Entry must export markdownToHtml");
+const html = api.markdownToHtml("Hello, **world**.\\n");
 const rendered = performance.now();
 if (typeof html !== "string" || html.length === 0) throw new Error("Empty/invalid render");
 console.log(JSON.stringify({import_ms: imported - started, first_render_ms: rendered - imported}));

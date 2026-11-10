@@ -40,54 +40,56 @@ const api = await import(process.argv[2]);
 const entry = process.argv[3];
 assert.strictEqual(api, await import(entry));
 assert.deepEqual(Object.keys(api).sort(), [
-  "init", "parseMarkdown", "renderHtml", "renderMarkdown", "renderAnsiTerminal", "renderJsx",
-  "parseHtmlToAst", "htmlToMarkdown", "getCapabilities", "getAstSchemaVersion",
-  "getDefaultOptions", "getPresets", "extractHeadings", "summarizeAst"
+  "init", "markdownToAst", "markdownToHtml", "astToMarkdown", "markdownToAnsi", "mdxToJsx",
+  "htmlToAst", "htmlToMarkdown", "CAPABILITIES", "AST_SCHEMA_VERSION",
+  "DEFAULT_OPTIONS", "PRESETS", "extractHeadings", "summarizeAst"
 ].sort());
 assert.equal(api.init(), undefined);
 assert.equal(api.init(), undefined);
-const html = api.renderHtml("Hello **world**.");
+const html = api.markdownToHtml("Hello **world**.");
 assert.equal(typeof html, "string"); // Not a Promise; no async initialization.
 assert.equal(html, "<p>Hello <strong>world</strong>.</p>\\n");
-assert.equal(api.renderHtml(new TextEncoder().encode("Hello"), {}), "<p>Hello</p>\\n");
-const ast = api.parseMarkdown("# Hello\\n\\nText");
+assert.equal(api.markdownToHtml(new TextEncoder().encode("Hello"), {}), "<p>Hello</p>\\n");
+const ast = api.markdownToAst("# Hello\\n\\nText");
 assert.deepEqual(ast, {Document:{children:[
   {Heading:{level:1,raw:"Hello"}},{Paragraph:{raw:"Text"}}
 ]}});
-assert.equal(api.renderMarkdown(ast), "# Hello\\n\\nText\\n");
-const ansi = api.renderAnsiTerminal("Hello **world**.", undefined, {color:false});
+assert.equal(api.astToMarkdown(ast), "# Hello\\n\\nText\\n");
+const ansi = api.markdownToAnsi("Hello **world**.", {color:false});
 assert.equal(typeof ansi, "string");
 assert.ok(ansi.includes("Hello world."));
 assert.ok(!ansi.includes("\\x1b"));
-assert.deepEqual(api.parseHtmlToAst("<h2>Hello</h2><p>Text</p>"), {Document:{children:[
+assert.deepEqual(api.htmlToAst("<h2>Hello</h2><p>Text</p>"), {Document:{children:[
   {Heading:{level:2,raw:"Hello"}},{Paragraph:{raw:"Text"}}
 ]}});
 assert.equal(api.htmlToMarkdown("<h2>Hello</h2><p>Text</p>"), "## Hello\\n\\nText\\n");
-assert.equal(api.getAstSchemaVersion(), "2");
-assert.equal(api.getCapabilities().astSchemaVersion, "2");
-assert.deepEqual(api.getCapabilities().formats, ["html","ast","markdown","ansi","jsx"]);
-const jsx = api.renderJsx("import X from './x'\\n\\n# Hi {props.name}\\n\\n<X />\\n");
+assert.equal(api.AST_SCHEMA_VERSION, "2");
+assert.equal(api.CAPABILITIES.astSchemaVersion, "2");
+assert.deepEqual(api.CAPABILITIES.formats, ["html","ast","markdown","ansi","jsx"]);
+const jsx = api.mdxToJsx("import X from './x'\\n\\n# Hi {props.name}\\n\\n<X />\\n");
 assert.equal(jsx.esm, "import X from './x'");
 assert.equal(jsx.jsx, "<>\\n<h1>Hi {props.name}</h1>\\n<X />\\n</>");
 assert.ok(jsx.module.includes("export default function MDXContent(props)"));
-assert.throws(() => api.renderJsx("<A>\\n\\n</B>\\n"), /unexpected closing tag/);
-const mapped = api.renderJsx("# Hi\\n\\n<Note />\\n", {providerImportSource:"@mdx-js/react"});
+assert.throws(() => api.mdxToJsx("<A>\\n\\n</B>\\n"), /unexpected closing tag/);
+const mapped = api.mdxToJsx("# Hi\\n\\n<Note />\\n", {providerImportSource:"@mdx-js/react"});
 assert.ok(mapped.jsx.includes("<_components.h1>Hi</_components.h1>"));
 assert.ok(mapped.module.startsWith('import { useMDXComponents as _provideComponents } from "@mdx-js/react";'));
 assert.ok(mapped.module.includes("const {Note} = _components;"));
-assert.equal(api.renderHtml("Hi {x} <Y />", {enableMdx:true}), "<p>Hi {x} <Y /></p>\\n");
-const defaults = api.getDefaultOptions();
-assert.equal(defaults.enableTables, true);
-defaults.hardBreaks = false;
-assert.equal(api.getDefaultOptions().hardBreaks, true);
-const presets = api.getPresets();
-assert.deepEqual(Object.keys(presets).sort(), ["default","safe","strict","llm"].sort());
-assert.equal(presets.safe.disableRawHtml, true);
-presets.safe.disableRawHtml = false;
-assert.equal(api.getPresets().safe.disableRawHtml, true);
-const headingNodes = [{type:"Heading",level:2,children:[{type:"Text",text:"Hello World"}]}];
-assert.deepEqual(api.extractHeadings(headingNodes), [{level:2,text:"Hello World",id:"hello-world"}]);
-assert.deepEqual(api.summarizeAst(headingNodes), {blockCount:1,nodeCounts:{Heading:1,Text:1}});
+assert.equal(api.markdownToHtml("Hi {x} <Y />", {enableMdx:true}), "<p>Hi {x} <Y /></p>\\n");
+assert.equal(api.DEFAULT_OPTIONS.enableTables, true);
+assert.ok(Object.isFrozen(api.DEFAULT_OPTIONS));
+assert.deepEqual(Object.keys(api.PRESETS).sort(), ["default","safe","strict","llm"].sort());
+assert.equal(api.PRESETS.safe.disableRawHtml, true);
+assert.ok(Object.isFrozen(api.PRESETS) && Object.isFrozen(api.PRESETS.safe));
+assert.ok(Object.isFrozen(api.CAPABILITIES) && Object.isFrozen(api.CAPABILITIES.formats));
+assert.equal(api.htmlToMarkdown("<p>H<sub>2</sub>O</p>", {preserveUnknownAsHtml:true}), "H<sub>2</sub>O\\n");
+const doc = api.markdownToAst("# Hello *World*\\n\\n> ## **Nested** code\\n\\n- item\\n");
+assert.deepEqual(api.extractHeadings(doc), [
+  {level:1,text:"Hello World",id:"hello-world"},{level:2,text:"Nested code",id:"nested-code"}
+]);
+assert.deepEqual(api.summarizeAst(doc), {blockCount:3,nodeCounts:{
+  Heading:2,BlockQuote:1,List:1,ListItem:1,Paragraph:1
+}});
 const require = createRequire(import.meta.url);
 assert.equal(require.resolve("ironmark"), fileURLToPath(entry));
 assert.deepEqual(
@@ -130,6 +132,13 @@ test("packed package resolves its file-backed assets independently of cwd", asyn
     "wasm/web.js",
     "wasm/shared.js",
     "wasm/index.d.ts",
+    ...["html", "mdx", "ast"].flatMap((name) => [
+      `wasm/${name}-node.js`,
+      `wasm/${name}-web.js`,
+      `wasm/${name}.d.ts`,
+      `wasm/pkg-${name}/ironmark_${name}_bg.js`,
+      `wasm/pkg-${name}/ironmark_${name}_bg.wasm`,
+    ]),
   ]) {
     assert.ok(
       pack.files.some((file) => file.path === asset),
@@ -144,6 +153,18 @@ test("packed package resolves its file-backed assets independently of cwd", asyn
     ".": {
       node: { types: "./wasm/index.d.ts", default: "./wasm/node.js" },
       default: { types: "./wasm/index.d.ts", default: "./wasm/web.js" },
+    },
+    "./html": {
+      node: { types: "./wasm/html.d.ts", default: "./wasm/html-node.js" },
+      default: { types: "./wasm/html.d.ts", default: "./wasm/html-web.js" },
+    },
+    "./mdx": {
+      node: { types: "./wasm/mdx.d.ts", default: "./wasm/mdx-node.js" },
+      default: { types: "./wasm/mdx.d.ts", default: "./wasm/mdx-web.js" },
+    },
+    "./ast": {
+      node: { types: "./wasm/ast.d.ts", default: "./wasm/ast-node.js" },
+      default: { types: "./wasm/ast.d.ts", default: "./wasm/ast-web.js" },
     },
     "./ironmark.wasm": "./wasm/pkg/ironmark_bg.wasm",
   });
@@ -170,6 +191,53 @@ test("packed package resolves its file-backed assets independently of cwd", asyn
     );
     assert.equal(report.exports, 14);
     assert.equal(report.synchronous, true);
+  });
+
+  await t.test("bare subpath imports load their own slim binaries", () => {
+    const script = `
+const [html, mdx, ast] = await Promise.all(["ironmark/html", "ironmark/mdx", "ironmark/ast"].map((s) => import(s)));
+const out = {
+  html: Object.keys(html).sort(),
+  mdx: Object.keys(mdx).sort(),
+  ast: Object.keys(ast).sort(),
+  rendered: html.markdownToHtml("**x**"),
+  jsx: typeof mdx.mdxToJsx("# Hi").module,
+  heading: ast.markdownToAst("# Hi").Document.children[0].Heading.raw,
+};
+console.log(JSON.stringify(out));`;
+    const probeSub = join(consumer, "probe-subpaths.mjs");
+    writeFileSync(probeSub, script);
+    const report = JSON.parse(successful(run(NODE, [probeSub], { cwd: elsewhere })));
+    assert.deepEqual(report.html, [
+      "CAPABILITIES",
+      "DEFAULT_OPTIONS",
+      "PRESETS",
+      "init",
+      "markdownToHtml",
+    ]);
+    assert.deepEqual(report.mdx, [
+      "CAPABILITIES",
+      "DEFAULT_OPTIONS",
+      "PRESETS",
+      "init",
+      "markdownToHtml",
+      "mdxToJsx",
+    ]);
+    assert.deepEqual(report.ast, [
+      "AST_SCHEMA_VERSION",
+      "CAPABILITIES",
+      "DEFAULT_OPTIONS",
+      "PRESETS",
+      "astToMarkdown",
+      "extractHeadings",
+      "init",
+      "markdownToAst",
+      "markdownToHtml",
+      "summarizeAst",
+    ]);
+    assert.equal(report.rendered, "<p><strong>x</strong></p>\n");
+    assert.equal(report.jsx, "string");
+    assert.equal(report.heading, "Hi");
   });
 
   await t.test("missing raw WASM fails in a fresh disposable package", () => {

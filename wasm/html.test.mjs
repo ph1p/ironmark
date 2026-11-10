@@ -18,23 +18,23 @@ for (const [index, [name, check]] of htmlChecks.entries()) {
   });
 }
 
-test("browser prototype initializes a compiled Module without sharing the full glue", () => {
+test("browser entry initializes a compiled Module without sharing the full glue", () => {
   const script = `
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 const [fullURL, htmlURL, assetURL] = process.argv.slice(1);
 const full = await import(fullURL);
 const html = await import(htmlURL);
-assert.deepEqual(Object.keys(html).sort(), ["init","renderHtml"]);
-const before = full.renderHtml("**full**");
+assert.deepEqual(Object.keys(html).sort(), ["CAPABILITIES","DEFAULT_OPTIONS","PRESETS","init","markdownToHtml"]);
+const before = full.markdownToHtml("**full**");
 const module = new WebAssembly.Module(readFileSync(new URL(assetURL)));
 const initialized = html.init(module);
 assert.ok(initialized instanceof Promise);
 await initialized;
 await html.init(module);
-assert.equal(html.renderHtml("**slim**"), "<p><strong>slim</strong></p>\\n");
-assert.equal(full.renderHtml("**full**"), before);
-assert.deepEqual(full.parseMarkdown("full"), {Document:{children:[{Paragraph:{raw:"full"}}]}});
+assert.equal(html.markdownToHtml("**slim**"), "<p><strong>slim</strong></p>\\n");
+assert.equal(full.markdownToHtml("**full**"), before);
+assert.deepEqual(full.markdownToAst("full"), {Document:{children:[{Paragraph:{raw:"full"}}]}});
 `;
   const result = spawnSync(
     process.execPath,

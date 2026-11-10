@@ -1,4 +1,4 @@
-import { init, renderHtml, renderJsx, parseMarkdown as ironmarkParseMarkdown } from "ironmark";
+import { init, markdownToHtml, mdxToJsx, markdownToAst as ironmarkParseMarkdown } from "ironmark";
 import wasmUrl from "ironmark/ironmark.wasm?url";
 import type { EditorView } from "@codemirror/view";
 import { cmThemeExtension, subscribeThemeChange } from "./editor/theme";
@@ -164,7 +164,7 @@ export async function initPlayground(args: InitPlaygroundArgs): Promise<Playgrou
     if (jsxState.dirty) {
       jsxState.dirty = false;
       try {
-        jsxState.last = renderJsx(source(), {
+        jsxState.last = mdxToJsx(source(), {
           ...toWasmOptions(currentOptions),
           components: currentOptions.enable_mdx,
         }).module;
@@ -245,7 +245,7 @@ export async function initPlayground(args: InitPlaygroundArgs): Promise<Playgrou
   function parseMarkdown(md: string) {
     const t0 = performance.now();
     const opts = toWasmOptions(currentOptions);
-    const html = renderHtml(md, opts);
+    const html = markdownToHtml(md, opts);
     args.onStatusChange(`${(performance.now() - t0).toFixed(2)}ms`);
 
     args.preview.innerHTML = html;

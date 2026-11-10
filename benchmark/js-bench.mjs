@@ -145,7 +145,7 @@ const PARSERS = {
         console.error("ironmark WASM build missing — run `pnpm build` first.");
         process.exit(1);
       }
-      const { renderHtml } = await import("../wasm/node.js");
+      const { markdownToHtml } = await import("../wasm/node.js");
       const gfm = profile === "gfm";
       const options = {
         hardBreaks: false,
@@ -156,7 +156,7 @@ const PARSERS = {
         enableTaskLists: gfm,
         enableAutolink: gfm,
       };
-      return (input) => renderHtml(input, options);
+      return (input) => markdownToHtml(input, options);
     },
   },
   "markdown-wasm": {

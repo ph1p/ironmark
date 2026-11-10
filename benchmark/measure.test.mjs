@@ -138,7 +138,7 @@ test("startup uses twenty genuinely independent processes and selected entry", (
   // Any reuse within a child would make its render fail; each import starts fresh.
   writeFileSync(
     entry,
-    "let calls = 0; export function renderHtml() { if (++calls !== 1) throw Error('reused'); return '<p>fixture</p>'; }\n",
+    "let calls = 0; export function markdownToHtml() { if (++calls !== 1) throw Error('reused'); return '<p>fixture</p>'; }\n",
   );
   const argsSeen = [];
   const result = startup(entry, 20, (cmd, args, opts) => {

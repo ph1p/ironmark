@@ -7,7 +7,7 @@ This is optional maintainer tooling, not package setup. The speed-first
 
 ```bash
 pnpm build
-node wasm/build-html.mjs
+node wasm/build-entries.mjs
 node wasm/build-size.mjs --check
 ```
 

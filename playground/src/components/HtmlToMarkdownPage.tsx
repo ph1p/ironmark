@@ -75,7 +75,9 @@ export function HtmlToMarkdownPage() {
     if (!ironmarkRef.current) return;
 
     try {
-      const md = ironmarkRef.current.htmlToMarkdown(htmlContent, preserveUnknownRef.current);
+      const md = ironmarkRef.current.htmlToMarkdown(htmlContent, {
+        preserveUnknownAsHtml: preserveUnknownRef.current,
+      });
       setOutput(md);
       setError(null);
     } catch (e) {

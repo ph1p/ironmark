@@ -65,7 +65,7 @@ export function AstToMarkdownPage() {
 
     try {
       JSON.parse(astJson);
-      const md = ironmarkRef.current.renderMarkdown(astJson);
+      const md = ironmarkRef.current.astToMarkdown(astJson);
       setOutput(md);
       setError(null);
     } catch (e) {

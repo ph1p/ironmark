@@ -53,11 +53,11 @@ export function apiCases() {
 export function measureApis(api, cases = apiCases(), sample = collectSamples) {
   const empty = {};
   const variants = [
-    ["html-default", "renderHtml", (input) => api.renderHtml(input), "omitted"],
-    ["html-empty-options", "renderHtml", (input) => api.renderHtml(input, empty), empty],
-    ["html-gfm", "renderHtml", (input) => api.renderHtml(input, GFM), GFM],
-    ["ast-default", "parseMarkdown", (input) => api.parseMarkdown(input), "omitted"],
-    ["ansi-default", "renderAnsiTerminal", (input) => api.renderAnsiTerminal(input), "omitted"],
+    ["html-default", "markdownToHtml", (input) => api.markdownToHtml(input), "omitted"],
+    ["html-empty-options", "markdownToHtml", (input) => api.markdownToHtml(input, empty), empty],
+    ["html-gfm", "markdownToHtml", (input) => api.markdownToHtml(input, GFM), GFM],
+    ["ast-default", "markdownToAst", (input) => api.markdownToAst(input), "omitted"],
+    ["ansi-default", "markdownToAnsi", (input) => api.markdownToAnsi(input), "omitted"],
   ];
   return variants.map(([name, exported, run, options]) => {
     if (typeof api[exported] !== "function") {
@@ -81,7 +81,7 @@ export async function measureApi(args = process.argv.slice(2)) {
   const options = parseArgs(args, ["--entry"]);
   const entry = entryUrl(options["--entry"] ?? join(ROOT, "wasm/node.js"));
   const api = await import(entry);
-  if (typeof api.renderHtml !== "function") throw new Error("Entry must export renderHtml");
+  if (typeof api.markdownToHtml !== "function") throw new Error("Entry must export markdownToHtml");
   return { schema: 1, env: captureEnv(), entry, mode: "warm-api", results: measureApis(api) };
 }
 

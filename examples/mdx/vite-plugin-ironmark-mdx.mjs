@@ -1,4 +1,4 @@
-import { renderJsx } from "ironmark";
+import { mdxToJsx } from "ironmark";
 import { transformWithOxc } from "vite";
 
 /**
@@ -18,7 +18,7 @@ export default function ironmarkMdx(options = { components: true }) {
       if (!path.endsWith(".mdx")) return null;
       let module;
       try {
-        ({ module } = renderJsx(code, options));
+        ({ module } = mdxToJsx(code, options));
       } catch (err) {
         this.error({ id: path, message: err.message });
       }

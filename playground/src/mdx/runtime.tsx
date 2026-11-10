@@ -2,7 +2,7 @@ import { Component, type ComponentType, type ReactNode } from "react";
 import * as React from "react";
 import * as jsxRuntime from "react/jsx-runtime";
 import { createRoot, type Root } from "react-dom/client";
-import { renderJsx } from "ironmark";
+import { mdxToJsx } from "ironmark";
 import { isMdx } from "./defaults";
 
 export type PlaygroundFile = { name: string; content: string };
@@ -140,7 +140,7 @@ export function createMdxPreview(container: HTMLElement): MdxPreview {
         let code: string;
         try {
           const source = isMdx(name)
-            ? renderJsx(content, { ...mdxOptions, components: true }).module
+            ? mdxToJsx(content, { ...mdxOptions, components: true }).module
             : content;
           code = transform(source, isMdx(name) ? `${name}.jsx` : name);
         } catch (err) {

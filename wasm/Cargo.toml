@@ -12,9 +12,14 @@ name = "ironmark"
 crate-type = ["cdylib"]
 
 [features]
+# One feature per npm subpath, so each entry can ship a WASM binary with only what it calls.
 default = ["full"]
-full = ["html-only", "ironmark/serde", "ironmark/ansi", "ironmark/html-parser", "dep:serde_json"]
+full = ["ast", "ansi", "mdx", "html-parser"]
 html-only = ["ironmark/html"]
+ast = ["html-only", "ironmark/serde", "dep:serde_json"]
+ansi = ["html-only", "ironmark/ansi"]
+mdx = ["html-only"]
+html-parser = ["ast", "ironmark/html-parser"]
 
 [dependencies]
 ironmark = { path = "..", default-features = false }

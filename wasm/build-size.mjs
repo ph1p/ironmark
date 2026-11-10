@@ -57,9 +57,12 @@ async function build(args) {
     try {
       templates[kind] = readFileSync(join(dir, file), "utf8");
     } catch (cause) {
-      throw new Error("Build speed references first: pnpm build && node wasm/build-html.mjs", {
-        cause,
-      });
+      throw new Error(
+        "Build speed references first: pnpm build (it also builds the subpath entries)",
+        {
+          cause,
+        },
+      );
     }
   }
   const target = resolve(root, process.env.CARGO_TARGET_DIR || "target");

@@ -32,11 +32,19 @@ jobs:
       - name: Build WASM
         run: pnpm build:wasm
 
+      - name: Build subpath entries (ironmark/html, /mdx, /ast)
+        run: pnpm build:entries
+
+      # Several paths upload relative to their common ancestor (wasm/), so download there too.
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v7
         with:
           name: wasm-pkg
-          path: wasm/pkg/
+          path: |
+            wasm/pkg/
+            wasm/pkg-*/
+            wasm/*-node.js
+            wasm/*-web.js
 
   release:
     name: Semantic Release
@@ -67,7 +75,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: wasm-pkg
-          path: wasm/pkg/
+          path: wasm/
 
       - name: Generate Node.js entry
         run: node wasm/build.mjs

@@ -17,14 +17,17 @@ Fast Markdown parser written in Rust with **zero third-party** parsing dependenc
   - [ANSI Terminal Output](#ansi-terminal-output)
   - [HTML to Markdown](#html-to-markdown)
   - [Browser / Bundler](#browser--bundler)
+  - [Smaller bundles: subpath imports](#smaller-bundles-subpath-imports)
   - [Using ironmark in AI pipelines](#using-ironmark-in-ai-pipelines)
   - [Presets](#presets)
-  - [Introspection helpers](#introspection-helpers)
+  - [Introspection constants](#introspection-constants)
   - [Utility functions](#utility-functions)
+  - [Migrating from 2.x](#migrating-from-2x)
 - [Configuration](#configuration)
   - [Extensions](#extensions)
   - [Security](#security)
   - [Other Options](#other-options)
+- [MDX](#mdx)
 - [CLI](#cli)
 - [Rust](#rust)
 - [C / C++](#c--c++)
@@ -40,24 +43,25 @@ pnpm add ironmark
 ```
 
 ```ts
-import { renderHtml, parseMarkdown } from "ironmark";
+import { markdownToHtml, markdownToAst } from "ironmark";
 
 // Markdown → HTML
-const html = renderHtml("# Hello\n\n**World**");
+const html = markdownToHtml("# Hello\n\n**World**");
 
 // Markdown → AST (parsed JavaScript object)
-const ast = parseMarkdown("# Hello\n\n**World**");
+const ast = markdownToAst("# Hello\n\n**World**");
 ```
 
 ## Which function should I use?
 
-| Goal                            | Function                                            |
-| ------------------------------- | --------------------------------------------------- |
-| Render Markdown to HTML         | `renderHtml(input, options?)`                       |
-| Parse Markdown to AST object    | `parseMarkdown(input, options?)`                    |
-| Normalize / round-trip Markdown | `parseMarkdown()` + `renderMarkdown()`              |
-| Terminal / CLI output           | `renderAnsiTerminal(input, options?, ansiOptions?)` |
-| Convert HTML back to Markdown   | `htmlToMarkdown(html)` / `parseHtmlToAst(html)`     |
+| Goal                            | Function                                                       |
+| ------------------------------- | -------------------------------------------------------------- |
+| Render Markdown to HTML         | `markdownToHtml(input, options?)`                              |
+| Parse Markdown to AST object    | `markdownToAst(input, options?)`                               |
+| Normalize / round-trip Markdown | `markdownToAst()` + `astToMarkdown()`                          |
+| Terminal / CLI output           | `markdownToAnsi(input, options?)`                              |
+| Convert HTML back to Markdown   | `htmlToMarkdown(html, options?)` / `htmlToAst(html, options?)` |
+| Compile MDX to JSX              | `mdxToJsx(input, options?)` — see [MDX](#mdx)                  |
 
 ## JavaScript / TypeScript
 
@@ -67,10 +71,10 @@ Node loads the packaged `wasm/pkg/ironmark_bg.wasm` synchronously relative to th
 module — no `init()` needed:
 
 ```ts
-import { renderHtml, parseMarkdown } from "ironmark";
+import { markdownToHtml, markdownToAst } from "ironmark";
 
-const html = renderHtml("# Hello\n\nThis is **fast**.");
-const ast = parseMarkdown("# Hello");
+const html = markdownToHtml("# Hello\n\nThis is **fast**.");
+const ast = markdownToAst("# Hello");
 ```
 
 Keep the WASM asset and glue alongside the Node entry when copying or bundling
@@ -81,30 +85,43 @@ The browser entry still uses asynchronous `init()`.
 ### Markdown → HTML
 
 ```ts
-import { renderHtml } from "ironmark";
+import { markdownToHtml } from "ironmark";
 
-const html = renderHtml("# Hello\n\nThis is **fast**.");
+const html = markdownToHtml("# Hello\n\nThis is **fast**.");
 ```
 
 ### Markdown → AST
 
-`parseMarkdown()` returns a parsed JavaScript array — no `JSON.parse()` needed.
+`markdownToAst()` returns a parsed JavaScript object — no `JSON.parse()` needed.
+Each node is an object with one key naming its type; `ThematicBreak` is the bare
+string `"ThematicBreak"`. Leaf text (`raw`, table cells) is unparsed inline Markdown.
 
 ```ts
-import { parseMarkdown } from "ironmark";
+import { markdownToAst } from "ironmark";
 
-const ast = parseMarkdown("# Hello\n\n- [x] done");
-// ast is a JavaScript array of block nodes
-console.log(ast[0]); // { t: "Heading", level: 1, ... }
+const ast = markdownToAst("# Hello\n\n- [x] done");
+// {
+//   Document: {
+//     children: [
+//       { Heading: { level: 1, raw: "Hello" } },
+//       { List: { kind: { Bullet: 45 }, start: 0, tight: true, children: [
+//         { ListItem: { checked: true, children: [{ Paragraph: { raw: "done" } }] } },
+//       ] } },
+//     ],
+//   },
+// }
+for (const node of ast.Document.children) {
+  if (typeof node !== "string" && "Heading" in node) console.log(node.Heading.raw);
+}
 ```
 
 ### Markdown → AST → Markdown
 
 ```ts
-import { parseMarkdown, renderMarkdown } from "ironmark";
+import { markdownToAst, astToMarkdown } from "ironmark";
 
-const ast = parseMarkdown("**Hello**");
-const md = renderMarkdown(ast);
+const ast = markdownToAst("**Hello**");
+const md = astToMarkdown(ast);
 // Returns: "**Hello**"
 ```
 
@@ -113,13 +130,13 @@ const md = renderMarkdown(ast);
 Use `safe: true` for **any untrusted input** — it disables raw HTML passthrough and enables the GFM tag filter.
 
 ```ts
-import { renderHtml } from "ironmark";
+import { markdownToHtml } from "ironmark";
 
 // Simple safe flag
-const html = renderHtml(userInput, { safe: true });
+const html = markdownToHtml(userInput, { safe: true });
 
 // Or use the built-in preset
-const html = renderHtml(userInput, { preset: "safe" });
+const html = markdownToHtml(userInput, { preset: "safe" });
 ```
 
 What `safe: true` does:
@@ -131,28 +148,30 @@ Dangerous URI schemes (`javascript:`, `vbscript:`, `data:` except `data:image/�
 
 ### ANSI Terminal Output
 
-Use `renderAnsiTerminal()` to render Markdown as coloured terminal output (ANSI 256-colour escape codes).
+Use `markdownToAnsi()` to render Markdown as coloured terminal output (ANSI 256-colour escape codes).
 
 ````ts
-import { renderAnsiTerminal } from "ironmark";
+import { markdownToAnsi } from "ironmark";
 
 // Defaults: width 80, color enabled
-const ansi = renderAnsiTerminal("# Hello\n\n**bold** and `code`");
+const ansi = markdownToAnsi("# Hello\n\n**bold** and `code`");
 process.stdout.write(ansi);
 
-// Custom options
-const ansi = renderAnsiTerminal(
-  "# Hello\n\n```rust\nfn main() {}\n```",
-  {},
-  { width: 120, lineNumbers: true },
-);
+// Terminal options sit next to the parse options in one object
+const ansi = markdownToAnsi("# Hello\n\n```rust\nfn main() {}\n```", {
+  width: 120,
+  lineNumbers: true,
+  enableTables: false,
+});
 process.stdout.write(ansi);
 
 // Plain text — no ANSI codes (useful for piping to files)
-const plain = renderAnsiTerminal("# Hello", {}, { color: false });
+const plain = markdownToAnsi("# Hello", { color: false });
 ````
 
 #### ANSI options
+
+`AnsiOptions` extends `ParseOptions` with:
 
 | Option        | Type      | Default | Description                                                                                   |
 | ------------- | --------- | ------- | --------------------------------------------------------------------------------------------- |
@@ -172,17 +191,17 @@ const md = htmlToMarkdown("<h1>Hello</h1><p><strong>Bold</strong> text</p>");
 // Returns: "# Hello\n\n**Bold** text"
 
 // Preserve unknown HTML tags (e.g. <sup>, <sub>) as raw HTML in output
-const md = htmlToMarkdown("<p>H<sub>2</sub>O</p>", true);
+const md = htmlToMarkdown("<p>H<sub>2</sub>O</p>", { preserveUnknownAsHtml: true });
 // Returns: "H<sub>2</sub>O"
 ```
 
-For AST access, use `parseHtmlToAst()`:
+For AST access, use `htmlToAst()`:
 
 ```ts
-import { parseHtmlToAst, renderMarkdown } from "ironmark";
+import { htmlToAst, astToMarkdown } from "ironmark";
 
-const ast = parseHtmlToAst("<h1>Hello</h1><p>World</p>");
-const md = renderMarkdown(ast);
+const ast = htmlToAst("<h1>Hello</h1><p>World</p>");
+const md = astToMarkdown(ast);
 ```
 
 ### Browser / Bundler
@@ -190,24 +209,47 @@ const md = renderMarkdown(ast);
 Call `init()` once before using any function. It's idempotent and optionally accepts a custom `.wasm` URL.
 
 ```ts
-import { init, renderHtml, parseMarkdown } from "ironmark";
+import { init, markdownToHtml, markdownToAst } from "ironmark";
 
 await init();
 
-const html = renderHtml("# Hello\n\nThis is **fast**.");
-const ast = parseMarkdown("# Hello");
+const html = markdownToHtml("# Hello\n\nThis is **fast**.");
+const ast = markdownToAst("# Hello");
 ```
 
 #### Vite
 
 ```ts
-import { init, renderHtml } from "ironmark";
+import { init, markdownToHtml } from "ironmark";
 import wasmUrl from "ironmark/ironmark.wasm?url";
 
 await init(wasmUrl);
 
-const html = renderHtml("# Hello\n\nThis is **fast**.");
+const html = markdownToHtml("# Hello\n\nThis is **fast**.");
 ```
+
+### Smaller bundles: subpath imports
+
+WASM can't be tree-shaken, so `import { markdownToHtml } from "ironmark"` still downloads the whole binary (AST serialization, ANSI, MDX and the HTML parser included). Each subpath ships its own binary, compiled with only the code its functions need:
+
+| Import          | Exports                                                                                                     | WASM (brotli) |
+| --------------- | ----------------------------------------------------------------------------------------------------------- | ------------- |
+| `ironmark`      | everything                                                                                                  | ~155 KB       |
+| `ironmark/ast`  | `markdownToAst`, `astToMarkdown`, `markdownToHtml`, `extractHeadings`, `summarizeAst`, `AST_SCHEMA_VERSION` | ~123 KB       |
+| `ironmark/mdx`  | `mdxToJsx`, `markdownToHtml`                                                                                | ~97 KB        |
+| `ironmark/html` | `markdownToHtml`                                                                                            | ~89 KB        |
+
+```ts
+import { init, mdxToJsx } from "ironmark/mdx";
+
+await init(); // browser only; a no-op under Node, where the subpaths load synchronously
+
+const { module } = mdxToJsx("# Hello {props.name}");
+```
+
+Every subpath also exports `DEFAULT_OPTIONS`, `PRESETS` and `CAPABILITIES`; its `CAPABILITIES.formats` lists only what that binary can do (`["html"]` for `ironmark/html`). Options and output are identical to the main entry; only the set of functions differs. Types come from the same declarations, so `ParseOptions`, `JsxOutput` and friends are shared.
+
+Pick **one** entry per app. Each subpath has its own WASM instance, so importing `ironmark/mdx` and `ironmark/ast` together loads the shared parser core twice. That is larger than `ironmark` alone. If you need functions from two subpaths, use `ironmark`.
 
 ### Using ironmark in AI pipelines
 
@@ -216,18 +258,17 @@ ironmark is designed to be a reliable, deterministic parsing layer for AI agents
 **Recommended pattern for agents:**
 
 ```ts
-import { parseMarkdown, renderHtml, renderMarkdown, getCapabilities } from "ironmark";
+import { markdownToAst, markdownToHtml, astToMarkdown, CAPABILITIES } from "ironmark";
 
 // 1. Inspect capabilities at startup
-const caps = getCapabilities();
-// { astSchemaVersion: "2", formats: [...], presets: [...] }
+CAPABILITIES.formats; // ["html", "ast", "markdown", "ansi", "jsx"]
 
 // 2. Parse with deterministic options
-const ast = parseMarkdown(content, { preset: "llm" });
+const ast = markdownToAst(content, { preset: "llm" });
 
 // 3. Render or transform
-const html = renderHtml(content, { preset: "llm" });
-const normalized = renderMarkdown(ast);
+const html = markdownToHtml(content, { preset: "llm" });
+const normalized = astToMarkdown(ast);
 ```
 
 **The `llm` preset** produces deterministic, structure-first output:
@@ -237,9 +278,9 @@ const normalized = renderMarkdown(ast);
 - Disables raw HTML passthrough (safe by default)
 
 ```ts
-import { parseMarkdown, extractHeadings, summarizeAst } from "ironmark";
+import { markdownToAst, extractHeadings, summarizeAst } from "ironmark";
 
-const ast = parseMarkdown(content, { preset: "llm" });
+const ast = markdownToAst(content, { preset: "llm" });
 
 // Extract document structure
 const headings = extractHeadings(ast);
@@ -262,51 +303,48 @@ Named presets configure multiple options at once. Explicit options always overri
 | `"llm"`     | Deterministic, stable output for AI pipelines. Disables ambiguous extensions, enables heading IDs. |
 
 ```ts
-import { renderHtml, parseMarkdown } from "ironmark";
+import { markdownToHtml, markdownToAst } from "ironmark";
 
 // Use a preset
-const html = renderHtml(content, { preset: "safe" });
+const html = markdownToHtml(content, { preset: "safe" });
 
 // Presets compose with explicit options (explicit wins)
-const html = renderHtml(content, { preset: "llm", enableTables: false });
+const html = markdownToHtml(content, { preset: "llm", enableTables: false });
 ```
 
-### Introspection helpers
+### Introspection constants
 
-These functions return stable machine-readable metadata. Useful for agents and tooling to discover available features at runtime.
+Stable, machine-readable metadata for agents and tooling. All four are frozen.
 
 ```ts
-import { getCapabilities, getAstSchemaVersion, getDefaultOptions, getPresets } from "ironmark";
+import { CAPABILITIES, AST_SCHEMA_VERSION, DEFAULT_OPTIONS, PRESETS } from "ironmark";
 
-// What does this build support?
-const caps = getCapabilities();
+CAPABILITIES;
 // {
 //   astSchemaVersion: "2",
-//   formats: ["html", "ast", "markdown", "ansi"],
+//   formats: ["html", "ast", "markdown", "ansi", "jsx"], // only what this entry supports
 //   presets: ["default", "safe", "strict", "llm"],
 //   extensions: [...],
 //   security: [...]
 // }
 
-// What is the current AST schema version?
-const version = getAstSchemaVersion(); // "2"
+AST_SCHEMA_VERSION; // "2" — bumps on any breaking change to the AST shape
+DEFAULT_OPTIONS.enableTables; // true — the effective value of every option
+PRESETS.llm; // the options the "llm" preset applies
 
-// What are the resolved defaults for every option?
-const defaults = getDefaultOptions();
-
-// What options does each preset set?
-const presets = getPresets();
-console.log(presets.llm);
+// Copy before changing: the constants are frozen
+const mine = { ...DEFAULT_OPTIONS, hardBreaks: false };
 ```
 
 ### Utility functions
 
 ```ts
-import { parseMarkdown, extractHeadings, summarizeAst } from "ironmark";
+import { markdownToAst, extractHeadings, summarizeAst } from "ironmark";
 
-const ast = parseMarkdown("# Hello\n\n## World\n\nA paragraph.");
+const ast = markdownToAst("# Hello\n\n## World\n\nA paragraph.");
 
-// Extract heading structure
+// Every heading, nested ones included. `text` has inline Markdown stripped;
+// `id` is exactly what `enableHeadingIds` renders.
 const headings = extractHeadings(ast);
 // [
 //   { level: 1, text: "Hello", id: "hello" },
@@ -317,6 +355,30 @@ const headings = extractHeadings(ast);
 const summary = summarizeAst(ast);
 // { blockCount: 3, nodeCounts: { Heading: 2, Paragraph: 1 } }
 ```
+
+### Migrating from 2.x
+
+The JavaScript API was renamed so every function reads `sourceToTarget`, and the
+getters became frozen constants. The Rust API is unchanged.
+
+| 2.x                                      | Now                                                     |
+| ---------------------------------------- | ------------------------------------------------------- |
+| `renderHtml(md, opts)`                   | `markdownToHtml(md, opts)`                              |
+| `parseMarkdown(md, opts)`                | `markdownToAst(md, opts)`                               |
+| `renderMarkdown(ast)`                    | `astToMarkdown(ast)`                                    |
+| `renderAnsiTerminal(md, opts, ansiOpts)` | `markdownToAnsi(md, { ...opts, ...ansiOpts })`          |
+| `renderJsx(md, opts)`                    | `mdxToJsx(md, opts)`                                    |
+| `parseHtmlToAst(html, true)`             | `htmlToAst(html, { preserveUnknownAsHtml: true })`      |
+| `htmlToMarkdown(html, true)`             | `htmlToMarkdown(html, { preserveUnknownAsHtml: true })` |
+| `getCapabilities()`                      | `CAPABILITIES`                                          |
+| `getAstSchemaVersion()`                  | `AST_SCHEMA_VERSION`                                    |
+| `getDefaultOptions()`                    | `DEFAULT_OPTIONS` (frozen; spread to copy)              |
+| `getPresets()`                           | `PRESETS` (frozen; spread to copy)                      |
+| type `RenderHtmlOptions`                 | `ParseOptions`                                          |
+| type `AstNode` (`{ t, c, text }`)        | `AstNode`: the real tagged union (`{ Heading: { … } }`) |
+
+`extractHeadings()` and `summarizeAst()` now read the real AST shape. Before, they
+expected the documented-but-wrong `{ t, c }` nodes and found nothing.
 
 ## Configuration
 
@@ -338,43 +400,11 @@ const summary = summarizeAst(ast);
 | Heading anchors     | `enableHeadingAnchors`     | `enable_heading_anchors`      | `<a class="anchor">` inside each heading (implies IDs) |
 | Permissive headings | `permissiveAtxHeaders`     | `permissive_atx_headers`      | Allow `#Heading` without space after `#`               |
 
+Bare-URL autolinks follow GFM trailing-punctuation rules, with one deliberate difference: a trailing `>` is not part of the link (`https://x.com>` links `https://x.com`), so URLs written inside `>`-terminated text do not swallow the bracket.
+
 ### MDX (opt-in)
 
-`enable_mdx` (default `false`) parses [MDX](https://mdxjs.com/): JSX tags, `{expressions}` and top-level `import`/`export`. `render_jsx` compiles a document to JSX:
-
-```rust
-use ironmark::{render_jsx, ParseOptions};
-
-let out = render_jsx("import X from './x'\n\n# Hi {props.name}\n\n<X />", &ParseOptions::default()).unwrap();
-// out.esm == "import X from './x'"
-// out.jsx == "<>\n<h1>Hi {props.name}</h1>\n<X />\n</>"
-let module = out.to_module(); // ESM + `export default function MDXContent(props) { … }`
-```
-
-It follows MDX's syntax rules. Indented code is off, and raw HTML is parsed as JSX. Markdown inside components works when separated by blank lines. Mismatched or unclosed tags return an `MdxError`. The output still needs a JSX transform (esbuild, Babel, SWC, Oxc). With `render_html`, MDX pieces pass through verbatim and ESM is dropped.
-
-By default, components must be imported by the document. `render_jsx_with` and `JsxOptions` give the `@mdx-js/mdx` component model instead. Markdown tags become `<_components.h1>` and can be overridden through `props.components`. Components the document does not import are looked up the same way, and `components.wrapper` wraps the content. `provider_import_source` (e.g. `"@mdx-js/react"`) also reads components from an `MDXProvider`, so the output drops into Storybook docs or any other `MDXProvider` setup:
-
-```rust
-use ironmark::{render_jsx_with, JsxOptions, ParseOptions};
-
-let jsx = JsxOptions { provider_import_source: Some("@mdx-js/react".into()), ..Default::default() };
-let out = render_jsx_with("# Hi\n\n<Note />", &ParseOptions::default(), &jsx).unwrap();
-// out.jsx contains "<_components.h1>Hi</_components.h1>"; `Note` comes from the provider or props
-```
-
-From JavaScript, `renderJsx` returns `{ esm, jsx, module }` and throws an `Error` for mismatched tags. It also takes `components` and `providerImportSource` options. `enableMdx: true` turns on MDX parsing in `renderHtml`, `parseMarkdown` and `renderAnsiTerminal`:
-
-```ts
-import { renderJsx } from "ironmark";
-
-const { module } = renderJsx("import X from './x'\n\n# Hi {props.name}\n\n<X />");
-const mapped = renderJsx(source, { providerImportSource: "@mdx-js/react" });
-```
-
-A runnable example, with a Rust CLI and a Vite + React app with a ready-made `.mdx` plugin, is in [`examples/mdx`](examples/mdx).
-
-> **MDX is code.** Expressions and components run with the page's privileges. `disable_raw_html` does not make compiled MDX safe for untrusted input.
+`enable_mdx` / `enableMdx` (default `false`) parses JSX tags, `{expressions}` and `import`/`export`. See [MDX](#mdx).
 
 ### Security
 
@@ -399,6 +429,190 @@ Dangerous URI schemes (`javascript:`, `vbscript:`, `data:` except `data:image/�
 | Collapse whitespace | `collapseWhitespace` | `collapse_whitespace` | `false` | Collapse runs of spaces/tabs in text to one space |
 | Preset              | `preset`             | —                     | —       | Apply a named option preset (JS only)             |
 | Deterministic       | `deterministic`      | —                     | `false` | Normalize whitespace for stable output (JS only)  |
+
+## MDX
+
+ironmark compiles [MDX](https://mdxjs.com/) — Markdown with JSX tags, `{expressions}` and `import`/`export` — to JSX. It is off by default (`enable_mdx` / `enableMdx`) and needs no extra dependencies. The output is a JavaScript module that still contains JSX, so run it through your bundler's JSX transform (esbuild, Babel, SWC, Oxc, TypeScript).
+
+> **MDX is code.** Expressions and components run with the page's privileges. Only compile MDX from trusted authors: `disable_raw_html` does not make compiled MDX safe.
+
+### Quick start
+
+```ts
+import { mdxToJsx } from "ironmark";
+
+const { esm, jsx, module } = mdxToJsx(`import { Chart } from './chart.js'
+export const year = 2026
+
+# Report {year}
+
+<Chart data={[1, 2]} />`);
+```
+
+```rust
+use ironmark::{render_jsx, ParseOptions};
+
+let out = render_jsx("import X from './x'\n\n# Hi {props.name}\n\n<X />", &ParseOptions::default()).unwrap();
+// out.esm == "import X from './x'"
+// out.jsx == "<>\n<h1>Hi {props.name}</h1>\n<X />\n</>"
+let module = out.to_module(); // ESM + `export default function MDXContent(props) { … }`
+```
+
+`render_jsx` / `mdxToJsx` turn on `enable_mdx` themselves. Every other option (tables, task lists, highlight, …) applies as usual.
+
+### Output
+
+| Field (JS) | Rust                     | Contents                                                                         |
+| ---------- | ------------------------ | -------------------------------------------------------------------------------- |
+| `esm`      | `esm`                    | Top-level `import`/`export` statements, in document order                        |
+| `jsx`      | `jsx`                    | The document body as one JSX fragment (`<>…</>`)                                 |
+| `module`   | `to_module()`            | `esm` plus `export default function MDXContent(props)` — import this             |
+| —          | `elements`, `references` | Markdown tags routed through `_components`, and components used but not declared |
+
+Markdown becomes plain JSX elements (`<h1>`, `<p>`, `<pre><code className="language-js">`). Code block content becomes a JS string, so braces and whitespace survive. Text braces are escaped to `&#123;` / `&#125;`.
+
+### Syntax
+
+| Write                                        | Meaning                                                                |
+| -------------------------------------------- | ---------------------------------------------------------------------- |
+| `import X from './x'` / `export const a = 1` | ESM. Only at the top level, unindented; the block ends at a blank line |
+| `<Note kind="tip" />` on its own line        | Block-level JSX element                                                |
+| `Text <Badge>new</Badge> text`               | Inline JSX inside a paragraph                                          |
+| `{year}`, `{props.items.map(…)}`             | Expression, inline or as its own block                                 |
+| `<A x={1} {...rest} b={<C />} />`            | Expression, spread and element attribute values                        |
+| `<a.b>`, `<svg:rect>`, `<>…</>`              | Member names, namespaces, fragments                                    |
+
+Markdown works inside components when it is separated from the tags by blank lines:
+
+```mdx
+<Note kind="tip">
+
+Some **markdown** here.
+
+</Note>
+```
+
+MDX changes a few Markdown rules, as in `@mdx-js/mdx`:
+
+- **HTML is JSX.** Write `className` and `style={{ color: "red" }}`, not `class` and `style="…"`. Tags must be closed (`<br />`).
+- **No HTML comments.** `<!-- … -->` stays literal text. Use `{/* … */}`.
+- **No indented code blocks.** Indentation is ignored; use fenced code.
+- **`<https://…>` autolinks still work.** A `<` that does not start a valid JSX tag falls back to a CommonMark autolink (`@mdx-js/mdx` rejects these).
+- **Literal braces and `<`** need escaping: `\{`, `\}`. A `<` followed by a space or digit (`a < b`, `1<2`) stays text.
+
+Mismatched or unclosed tags are errors: `MdxError` in Rust, a thrown `Error` in JS. For example: ``unexpected closing tag `</B>`, expected `</A>` `` or ``expected a closing tag for `<Note>` before the end of the document``.
+
+Known limits: expressions are matched by brace depth (strings, template literals, comments and nested JSX are understood, but a regular-expression literal containing an unbalanced brace is not), and nesting deeper than 64 elements/expressions is rejected.
+
+### Components
+
+By default the output is plain JSX: every component must be imported by the document, and `<h1>` stays `<h1>`. The `components` option (Rust: `JsxOptions`) switches to the `@mdx-js/mdx` component model:
+
+- Markdown tags become `<_components.h1>`, so `props.components` can replace them (`{ h1: MyHeading, a: Link }`).
+- Capitalised components the document does not import are read from `props.components`. A missing one throws ``Expected component `Note` to be defined``.
+- `components.wrapper` wraps the whole document (a layout).
+- `providerImportSource: "@mdx-js/react"` (implies `components`) also reads components from an `MDXProvider`, so the module works anywhere `@mdx-js/react` does, including Storybook docs.
+
+```ts
+mdxToJsx("# Hi\n\n<Note />", { components: true }).module;
+```
+
+```js
+function _createMdxContent(props) {
+  const _components = { h1: "h1", ...props.components };
+  const { Note } = _components;
+  if (!Note) _missingMdxReference("Note");
+  return (
+    <>
+      <_components.h1>Hi</_components.h1>
+      <Note />
+    </>
+  );
+}
+
+export default function MDXContent(props = {}) {
+  const { wrapper: MDXLayout } = { ...props.components };
+  return MDXLayout ? (
+    <MDXLayout {...props}>
+      <_createMdxContent {...props} />
+    </MDXLayout>
+  ) : (
+    _createMdxContent(props)
+  );
+}
+// … plus the _missingMdxReference helper
+```
+
+```rust
+use ironmark::{render_jsx_with, JsxOptions, ParseOptions};
+
+let jsx = JsxOptions { provider_import_source: Some("@mdx-js/react".into()), ..Default::default() };
+let out = render_jsx_with("# Hi\n\n<Note />", &ParseOptions::default(), &jsx).unwrap();
+```
+
+Using the compiled module with React:
+
+```jsx
+import Guide from "./Guide.mdx";
+
+<Guide components={{ Note, h1: (p) => <h1 className="title" {...p} />, wrapper: Layout }} />;
+```
+
+### Bundlers
+
+**Vite** — a ready-made plugin is in [`examples/mdx/vite-plugin-ironmark-mdx.mjs`](examples/mdx/vite-plugin-ironmark-mdx.mjs). Its core:
+
+```js
+import { mdxToJsx } from "ironmark";
+import { transformWithOxc } from "vite";
+
+export default function ironmarkMdx(options = { components: true }) {
+  return {
+    name: "ironmark-mdx",
+    enforce: "pre",
+    transform(code, id) {
+      if (!id.split("?")[0].endsWith(".mdx")) return null;
+      const { module } = mdxToJsx(code, options);
+      return transformWithOxc(module, `${id}.jsx`, { lang: "jsx", jsx: { runtime: "automatic" } });
+    },
+  };
+}
+```
+
+**esbuild** — load `.mdx` files as JSX:
+
+```js
+import { readFile } from "node:fs/promises";
+import { mdxToJsx } from "ironmark";
+
+const ironmarkMdx = {
+  name: "ironmark-mdx",
+  setup(build) {
+    build.onLoad({ filter: /\.mdx$/ }, async ({ path }) => ({
+      contents: mdxToJsx(await readFile(path, "utf8"), { components: true }).module,
+      loader: "jsx",
+    }));
+  },
+};
+```
+
+Set `jsx: "automatic"` in the esbuild options. Other bundlers follow the same pattern: compile with `mdxToJsx`, then hand the module to the JSX transform.
+
+### Other renderers
+
+With `enable_mdx` set, the other entry points parse MDX too, but only `render_jsx` compiles it:
+
+| Function                            | MDX handling                                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| `render_html` / `markdownToHtml`    | JSX and expressions pass through verbatim (escaped under `disable_raw_html`); ESM is dropped |
+| `parse_to_ast` / `markdownToAst`    | `Block::MdxFlow { literal }` and `Block::MdxEsm { literal }` nodes                           |
+| `render_markdown` / `astToMarkdown` | MDX blocks are written back verbatim                                                         |
+| `render_ansi` / `markdownToAnsi`    | MDX blocks are skipped                                                                       |
+
+### Examples
+
+- [`examples/mdx`](examples/mdx): `cargo run --example mdx` prints the compiled module (`--components`, `--provider` for the other modes), and a Vite + React app renders the same `Guide.mdx`.
+- The [playground](playground) has an MDX option with a multi-file workspace (`.mdx`, `.jsx`, `.js`), a live React preview and a JSX output tab.
 
 ## CLI
 

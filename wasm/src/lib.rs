@@ -1,8 +1,9 @@
-#[cfg(feature = "full")]
-use ironmark::{
-    AnsiOptions, Block, HtmlParseOptions, UnknownInlineHandling, parse_markdown,
-    render_ansi_terminal,
-};
+#[cfg(feature = "ansi")]
+use ironmark::{AnsiOptions, render_ansi_terminal};
+#[cfg(feature = "ast")]
+use ironmark::{Block, parse_markdown};
+#[cfg(feature = "html-parser")]
+use ironmark::{HtmlParseOptions, UnknownInlineHandling};
 use ironmark::{ParseOptions, render_html};
 use std::borrow::Cow;
 use wasm_bindgen::prelude::*;
@@ -129,7 +130,7 @@ pub fn parse_default(markdown: &[u8]) -> String {
     )
 }
 
-#[cfg(feature = "full")]
+#[cfg(feature = "ast")]
 #[wasm_bindgen(js_name = "parseToAst")]
 pub fn parse_to_ast(
     markdown: &[u8],
@@ -192,7 +193,7 @@ pub fn parse_to_ast(
 /// @param width - Terminal column width for word-wrap and underlines (default: 80, 0 = use default).
 /// @param color - Emit ANSI colour codes (default: true).
 /// @param lineNumbers - Show line numbers in fenced code blocks (default: false).
-#[cfg(feature = "full")]
+#[cfg(feature = "ansi")]
 #[wasm_bindgen(js_name = "renderAnsi")]
 pub fn render_ansi(
     markdown: &[u8],
@@ -254,13 +255,13 @@ pub fn render_ansi(
 }
 
 /// Result of `renderJsx`: the ESM import/export blocks and the JSX body.
-#[cfg(feature = "full")]
+#[cfg(feature = "mdx")]
 #[wasm_bindgen]
 pub struct JsxOutput {
     inner: ironmark::MdxOutput,
 }
 
-#[cfg(feature = "full")]
+#[cfg(feature = "mdx")]
 #[wasm_bindgen]
 impl JsxOutput {
     /// Top-level `import`/`export` blocks, in document order.
@@ -287,7 +288,7 @@ impl JsxOutput {
 /// component mapping (see `ironmark::JsxOptions`).
 ///
 /// Throws an `Error` for unbalanced or unterminated JSX.
-#[cfg(feature = "full")]
+#[cfg(feature = "mdx")]
 #[wasm_bindgen(js_name = "renderJsx")]
 pub fn render_jsx(
     markdown: &[u8],
@@ -343,7 +344,7 @@ pub fn render_jsx(
         .map_err(|err| JsError::new(err.message()))
 }
 
-#[cfg(feature = "full")]
+#[cfg(feature = "html-parser")]
 fn build_html_parse_options(preserve_unknown_as_html: Option<bool>) -> HtmlParseOptions {
     HtmlParseOptions {
         max_nesting_depth: 128,
@@ -365,7 +366,7 @@ fn build_html_parse_options(preserve_unknown_as_html: Option<bool>) -> HtmlParse
 /// @param preserveUnknownAsHtml - If true, unknown HTML tags are preserved as raw HTML.
 ///                                If false (default), unknown tags are stripped but text is kept.
 /// @returns JSON string representing the AST.
-#[cfg(feature = "full")]
+#[cfg(feature = "html-parser")]
 #[wasm_bindgen(js_name = "parseHtmlToAst")]
 pub fn parse_html_to_ast(
     html: &str,
@@ -385,7 +386,7 @@ pub fn parse_html_to_ast(
 /// @param preserveUnknownAsHtml - If true, unknown HTML tags are preserved as raw HTML in output.
 ///                                If false (default), unknown tags are stripped but text is kept.
 /// @returns Markdown string.
-#[cfg(feature = "full")]
+#[cfg(feature = "html-parser")]
 #[wasm_bindgen(js_name = "htmlToMarkdown")]
 pub fn html_to_markdown(html: &str, preserve_unknown_as_html: Option<bool>) -> String {
     ironmark::html_to_markdown(html, &build_html_parse_options(preserve_unknown_as_html))
@@ -397,7 +398,7 @@ pub fn html_to_markdown(html: &str, preserve_unknown_as_html: Option<bool>) -> S
 ///
 /// @param astJson - JSON string representing the AST (as returned by `parseToAst` or `parseHtmlToAst`).
 /// @returns Markdown string.
-#[cfg(feature = "full")]
+#[cfg(feature = "ast")]
 #[wasm_bindgen(js_name = "renderMarkdown")]
 pub fn render_markdown(ast_json: &str) -> Result<String, JsValue> {
     let ast: Block = serde_json::from_str(ast_json)

@@ -8,15 +8,15 @@ import { GFM, apiCases, measureApi, measureApis } from "./api.mjs";
 test("API variants distinguish omitted, empty, and explicit GFM options", () => {
   const calls = [];
   const api = {
-    renderHtml(...args) {
+    markdownToHtml(...args) {
       calls.push(["html", ...args]);
       return "<p>x</p>";
     },
-    parseMarkdown(...args) {
+    markdownToAst(...args) {
       calls.push(["ast", ...args]);
       return {};
     },
-    renderAnsiTerminal(...args) {
+    markdownToAnsi(...args) {
       calls.push(["ansi", ...args]);
       return "x";
     },
@@ -39,7 +39,7 @@ test("API variants distinguish omitted, empty, and explicit GFM options", () => 
 });
 
 test("missing AST/ANSI are unsupported with no fabricated timings", () => {
-  const result = measureApis({ renderHtml: () => "x" }, [["test", "", "synthetic"]], () => [1]);
+  const result = measureApis({ markdownToHtml: () => "x" }, [["test", "", "synthetic"]], () => [1]);
   for (const r of result.slice(3)) {
     assert.equal(r.status, "unsupported");
     assert.equal(r.cases, undefined);
@@ -49,7 +49,7 @@ test("missing AST/ANSI are unsupported with no fabricated timings", () => {
     () =>
       measureApis(
         {
-          renderHtml: () => {
+          markdownToHtml: () => {
             throw Error("render failed");
           },
         },
@@ -81,12 +81,12 @@ test("--entry selects an alternate module; missing entry/export fails", async (t
   const dir = mkdtempSync(join(ROOT, "target/api-test-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const entry = join(dir, "alternate.mjs");
-  writeFileSync(entry, "export function renderHtml() { return 'alternate'; }\n");
+  writeFileSync(entry, "export function markdownToHtml() { return 'alternate'; }\n");
   const report = await measureApi(["--entry", entry]);
   assert.ok(report.entry.endsWith("/alternate.mjs"));
   assert.equal(report.results[3].status, "unsupported");
   await assert.rejects(measureApi(["--entry", join(dir, "missing.mjs")]), /Missing entry/);
   const invalid = join(dir, "invalid.mjs");
   writeFileSync(invalid, "export const unrelated = 1;\n");
-  await assert.rejects(measureApi(["--entry", invalid]), /must export renderHtml/);
+  await assert.rejects(measureApi(["--entry", invalid]), /must export markdownToHtml/);
 });

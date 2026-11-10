@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import {
-  renderHtml,
-  parseMarkdown,
-  renderAnsiTerminal,
-  getCapabilities,
-  getDefaultOptions,
-  getPresets,
+  markdownToHtml,
+  markdownToAst,
+  markdownToAnsi,
+  CAPABILITIES,
+  DEFAULT_OPTIONS,
+  PRESETS,
 } from "./node.js";
 
 const VERSION = JSON.parse(
@@ -77,15 +77,15 @@ for (let i = 0; i < args.length; i++) {
       process.exit(0);
       break;
     case "--capabilities":
-      process.stdout.write(JSON.stringify(getCapabilities(), null, 2) + "\n");
+      process.stdout.write(JSON.stringify(CAPABILITIES, null, 2) + "\n");
       process.exit(0);
       break;
     case "--default-options":
-      process.stdout.write(JSON.stringify(getDefaultOptions(), null, 2) + "\n");
+      process.stdout.write(JSON.stringify(DEFAULT_OPTIONS, null, 2) + "\n");
       process.exit(0);
       break;
     case "--list-presets":
-      process.stdout.write(JSON.stringify(getPresets(), null, 2) + "\n");
+      process.stdout.write(JSON.stringify(PRESETS, null, 2) + "\n");
       process.exit(0);
       break;
     case "--format": {
@@ -227,9 +227,9 @@ if (files.length === 0) {
 }
 
 if (fmt === "html") {
-  process.stdout.write(renderHtml(input, parseOptions));
+  process.stdout.write(markdownToHtml(input, parseOptions));
 } else if (fmt === "ansi") {
-  process.stdout.write(renderAnsiTerminal(input, parseOptions, ansiOptions));
+  process.stdout.write(markdownToAnsi(input, { ...parseOptions, ...ansiOptions }));
 } else {
-  process.stdout.write(JSON.stringify(parseMarkdown(input, parseOptions), null, 2) + "\n");
+  process.stdout.write(JSON.stringify(markdownToAst(input, parseOptions), null, 2) + "\n");
 }

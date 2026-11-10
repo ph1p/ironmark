@@ -15,41 +15,37 @@ const BASELINE = {
 function assertSurface(full, html, { wasmModule, htmlOnly, fullApi = full }) {
   assert.deepEqual(
     Object.keys(html).sort(),
-    htmlOnly ? ["init", "renderHtml"] : Object.keys(full).sort(),
+    htmlOnly
+      ? ["CAPABILITIES", "DEFAULT_OPTIONS", "PRESETS", "init", "markdownToHtml"]
+      : Object.keys(full).sort(),
   );
   assert.equal(html.init(), undefined);
   const names = WebAssembly.Module.exports(wasmModule).map((entry) => entry.name);
   assert.ok(names.includes("parse"));
   assert.ok(names.includes("parseDefault"));
-  for (const name of [
-    "parseToAst",
-    "renderAnsi",
-    "parseHtmlToAst",
-    "htmlToMarkdown",
-    "renderMarkdown",
-  ]) {
+  for (const name of ["parseToAst", "renderAnsi", "htmlToAst", "htmlToMarkdown", "astToMarkdown"]) {
     assert.equal(names.includes(name), !htmlOnly, `compiled export ${name}`);
   }
   // Interleaving calls catches accidental sharing of mutable WASM glue.
   for (let i = 0; i < 3; i++) {
-    assert.equal(html.renderHtml("**slim**"), "<p><strong>slim</strong></p>\n");
-    assert.deepEqual(fullApi.parseMarkdown("full"), {
+    assert.equal(html.markdownToHtml("**slim**"), "<p><strong>slim</strong></p>\n");
+    assert.deepEqual(fullApi.markdownToAst("full"), {
       Document: { children: [{ Paragraph: { raw: "full" } }] },
     });
     assert.equal(fullApi.htmlToMarkdown("<p>full</p>"), "full\n");
-    assert.equal(html.renderHtml("plain"), "<p>plain</p>\n");
+    assert.equal(html.markdownToHtml("plain"), "<p>plain</p>\n");
   }
   if (!htmlOnly) {
     const ast = { Document: { children: [{ Paragraph: { raw: "full" } }] } };
-    assert.deepEqual(html.parseMarkdown("full"), ast);
-    assert.equal(html.renderMarkdown(ast), "full\n");
-    assert.ok(html.renderAnsiTerminal("full", undefined, { color: false }).includes("full"));
-    assert.deepEqual(html.parseHtmlToAst("<p>full</p>"), ast);
+    assert.deepEqual(html.markdownToAst("full"), ast);
+    assert.equal(html.astToMarkdown(ast), "full\n");
+    assert.ok(html.markdownToAnsi("full", { color: false }).includes("full"));
+    assert.deepEqual(html.htmlToAst("<p>full</p>"), ast);
     assert.equal(html.htmlToMarkdown("<p>full</p>"), "full\n");
-    assert.deepEqual(html.getCapabilities().formats, ["html", "ast", "markdown", "ansi"]);
-    assert.equal(html.getAstSchemaVersion(), full.getAstSchemaVersion());
-    assert.deepEqual(html.getDefaultOptions(), full.getDefaultOptions());
-    assert.deepEqual(html.getPresets(), full.getPresets());
+    assert.deepEqual(html.CAPABILITIES.formats, ["html", "ast", "markdown", "ansi"]);
+    assert.equal(html.AST_SCHEMA_VERSION, full.AST_SCHEMA_VERSION);
+    assert.deepEqual(html.DEFAULT_OPTIONS, full.DEFAULT_OPTIONS);
+    assert.deepEqual(html.PRESETS, full.PRESETS);
     const nodes = [
       { type: "Heading", level: 2, children: [{ type: "Text", text: "Hello World" }] },
     ];
@@ -65,12 +61,12 @@ function assertSpec(full, html) {
   assert.equal(examples.length, 652);
   for (const example of examples) {
     assert.equal(
-      full.renderHtml(example.markdown, BASELINE),
+      full.markdownToHtml(example.markdown, BASELINE),
       example.html,
       `reference example ${example.example}: ${example.section}`,
     );
     assert.equal(
-      html.renderHtml(example.markdown, BASELINE),
+      html.markdownToHtml(example.markdown, BASELINE),
       example.html,
       `candidate example ${example.example}: ${example.section}`,
     );
@@ -104,35 +100,47 @@ function assertOptions(full, html) {
   for (const [key, input, base = {}] of fixtures) {
     const enabled = { ...base, [key]: true };
     const disabled = { ...base, [key]: false };
-    const on = full.renderHtml(input, enabled);
-    const off = full.renderHtml(input, disabled);
+    const on = full.markdownToHtml(input, enabled);
+    const off = full.markdownToHtml(input, disabled);
     assert.notEqual(on, off, `${key} fixture must actually exercise its behavior`);
-    assert.equal(html.renderHtml(input, enabled), on, `${key}=true`);
-    assert.equal(html.renderHtml(input, disabled), off, `${key}=false`);
+    assert.equal(html.markdownToHtml(input, enabled), on, `${key}=true`);
+    assert.equal(html.markdownToHtml(input, disabled), off, `${key}=false`);
     exercised.add(key);
   }
   const presetInput =
     "# Heading\n\n**bold** ==mark== ~~gone~~ ++u++ https://example.com\n\n<b>raw</b>\n\nSome   text\n";
   for (const preset of ["default", "safe", "strict", "llm"]) {
-    const expected = full.renderHtml(presetInput, { preset });
-    assert.equal(html.renderHtml(presetInput, { preset }), expected, preset);
-    if (preset !== "default") assert.notEqual(expected, full.renderHtml(presetInput));
+    const expected = full.markdownToHtml(presetInput, { preset });
+    assert.equal(html.markdownToHtml(presetInput, { preset }), expected, preset);
+    if (preset !== "default") assert.notEqual(expected, full.markdownToHtml(presetInput));
   }
   assert.equal(
-    html.renderHtml("a   b", { preset: "llm", collapseWhitespace: false }),
-    full.renderHtml("a   b", { preset: "llm", collapseWhitespace: false }),
+    html.markdownToHtml("a   b", { preset: "llm", collapseWhitespace: false }),
+    full.markdownToHtml("a   b", { preset: "llm", collapseWhitespace: false }),
   );
   exercised.add("preset");
   // Reserved AST metadata flag intentionally has no HTML effect.
   assert.equal(
-    html.renderHtml("text", { stableAst: true }),
-    full.renderHtml("text", { stableAst: true }),
+    html.markdownToHtml("text", { stableAst: true }),
+    full.markdownToHtml("text", { stableAst: true }),
   );
   assert.equal(
-    html.renderHtml("text", { stableAst: false }),
-    full.renderHtml("text", { stableAst: false }),
+    html.markdownToHtml("text", { stableAst: false }),
+    full.markdownToHtml("text", { stableAst: false }),
   );
   exercised.add("stableAst");
+  const mdxInput = 'import X from "./x.js";\n\n# Hi {name}\n\n<X a="1">**b**</X>\n';
+  for (const enableMdx of [true, false]) {
+    assert.equal(
+      html.markdownToHtml(mdxInput, { enableMdx }),
+      full.markdownToHtml(mdxInput, { enableMdx }),
+    );
+  }
+  assert.notEqual(
+    full.markdownToHtml(mdxInput, { enableMdx: true }),
+    full.markdownToHtml(mdxInput),
+  );
+  exercised.add("enableMdx");
   const declarations = readFileSync(new URL("./index.d.ts", import.meta.url), "utf8");
   const options = declarations.match(/export interface ParseOptions \{([\s\S]*?)^\}/m)[1];
   const declared = [...options.matchAll(/^\s+(\w+)\?:/gm)].map((match) => match[1]);
@@ -151,8 +159,8 @@ function assertInputs(full, html) {
     [new Uint8Array([0xef, 0xbb, 0xbf, 0x61, 0x26, 0x62]), "<p>a&amp;b</p>\n"],
   ]) {
     for (const options of [undefined, {}, { preset: "default" }]) {
-      assert.equal(full.renderHtml(input, options), expected);
-      assert.equal(html.renderHtml(input, options), expected);
+      assert.equal(full.markdownToHtml(input, options), expected);
+      assert.equal(html.markdownToHtml(input, options), expected);
     }
   }
   const bytes = new TextEncoder().encode("!Unicode α & text!");
@@ -162,8 +170,8 @@ function assertInputs(full, html) {
     new DataView(bytes.buffer, 1, bytes.length - 2),
     bytes.slice(1, -1).buffer,
   ]) {
-    assert.equal(html.renderHtml(input), "<p>Unicode α &amp; text</p>\n");
-    assert.equal(html.renderHtml(input), full.renderHtml(input));
+    assert.equal(html.markdownToHtml(input), "<p>Unicode α &amp; text</p>\n");
+    assert.equal(html.markdownToHtml(input), full.markdownToHtml(input));
   }
 }
 
@@ -188,7 +196,7 @@ function assertLimits(full, html) {
           ["reference", full],
           ["candidate", html],
         ]) {
-          const actual = api.renderHtml(value, options);
+          const actual = api.markdownToHtml(value, options);
           assert.ok(
             actual === expected,
             `${name} input limit mismatch (${actual.length} vs ${expected.length})`,
@@ -207,7 +215,7 @@ function assertLimits(full, html) {
       ["reference", full],
       ["candidate", html],
     ]) {
-      const actual = api.renderHtml(malformed, options);
+      const actual = api.markdownToHtml(malformed, options);
       assert.ok(actual === expected, `${name} decoded input limit mismatch`);
     }
   }
