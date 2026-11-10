@@ -1,0 +1,40 @@
+import { Badge } from "./components.jsx";
+
+export const version = "2.1";
+
+export const features = ["Headings", "Tables", "Task lists", "Code blocks"];
+
+# Hello, {props.name}!
+
+This page is written in **MDX** and compiled by ironmark <Badge>v{version}</Badge>.
+Text, _emphasis_, `code` and [links](https://mdxjs.com/) are plain Markdown.
+
+<Note kind="tip">
+
+`Note` is not imported. It comes from `props.components`, so the host app decides how it looks.
+
+</Note>
+
+## Expressions
+
+Two plus two is {2 + 2}. Features, rendered from an exported array:
+
+<ul>
+  {features.map((f) => (
+    <li key={f}>{f}</li>
+  ))}
+</ul>
+
+## GFM
+
+| Option                 | Effect                                  |
+| ---------------------- | --------------------------------------- |
+| `components`           | markdown tags go through `_components`  |
+| `providerImportSource` | components also come from `MDXProvider` |
+
+- [x] compile with `renderJsx`
+- [ ] ship it
+
+```js
+const { module } = renderJsx(source, { components: true });
+```

@@ -21,12 +21,19 @@ exclude = [
   ".npmignore",
   ".github/*",
   "node_modules/*",
+  "examples/mdx/node_modules/*",
+  "examples/mdx/dist/*",
 ]
 
 [[bin]]
 name = "ironmark"
 path = "src/bin/ironmark.rs"
 required-features = ["cli"]
+
+[[example]]
+name = "mdx"
+path = "examples/mdx/main.rs"
+required-features = ["html"]
 
 [lib]
 crate-type = ["staticlib", "rlib"]

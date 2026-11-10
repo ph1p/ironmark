@@ -338,6 +338,44 @@ const summary = summarizeAst(ast);
 | Heading anchors     | `enableHeadingAnchors`     | `enable_heading_anchors`      | `<a class="anchor">` inside each heading (implies IDs) |
 | Permissive headings | `permissiveAtxHeaders`     | `permissive_atx_headers`      | Allow `#Heading` without space after `#`               |
 
+### MDX (opt-in)
+
+`enable_mdx` (default `false`) parses [MDX](https://mdxjs.com/): JSX tags, `{expressions}` and top-level `import`/`export`. `render_jsx` compiles a document to JSX:
+
+```rust
+use ironmark::{render_jsx, ParseOptions};
+
+let out = render_jsx("import X from './x'\n\n# Hi {props.name}\n\n<X />", &ParseOptions::default()).unwrap();
+// out.esm == "import X from './x'"
+// out.jsx == "<>\n<h1>Hi {props.name}</h1>\n<X />\n</>"
+let module = out.to_module(); // ESM + `export default function MDXContent(props) { … }`
+```
+
+It follows MDX's syntax rules. Indented code is off, and raw HTML is parsed as JSX. Markdown inside components works when separated by blank lines. Mismatched or unclosed tags return an `MdxError`. The output still needs a JSX transform (esbuild, Babel, SWC, Oxc). With `render_html`, MDX pieces pass through verbatim and ESM is dropped.
+
+By default, components must be imported by the document. `render_jsx_with` and `JsxOptions` give the `@mdx-js/mdx` component model instead. Markdown tags become `<_components.h1>` and can be overridden through `props.components`. Components the document does not import are looked up the same way, and `components.wrapper` wraps the content. `provider_import_source` (e.g. `"@mdx-js/react"`) also reads components from an `MDXProvider`, so the output drops into Storybook docs or any other `MDXProvider` setup:
+
+```rust
+use ironmark::{render_jsx_with, JsxOptions, ParseOptions};
+
+let jsx = JsxOptions { provider_import_source: Some("@mdx-js/react".into()), ..Default::default() };
+let out = render_jsx_with("# Hi\n\n<Note />", &ParseOptions::default(), &jsx).unwrap();
+// out.jsx contains "<_components.h1>Hi</_components.h1>"; `Note` comes from the provider or props
+```
+
+From JavaScript, `renderJsx` returns `{ esm, jsx, module }` and throws an `Error` for mismatched tags. It also takes `components` and `providerImportSource` options. `enableMdx: true` turns on MDX parsing in `renderHtml`, `parseMarkdown` and `renderAnsiTerminal`:
+
+```ts
+import { renderJsx } from "ironmark";
+
+const { module } = renderJsx("import X from './x'\n\n# Hi {props.name}\n\n<X />");
+const mapped = renderJsx(source, { providerImportSource: "@mdx-js/react" });
+```
+
+A runnable example, with a Rust CLI and a Vite + React app with a ready-made `.mdx` plugin, is in [`examples/mdx`](examples/mdx).
+
+> **MDX is code.** Expressions and components run with the page's privileges. `disable_raw_html` does not make compiled MDX safe for untrusted input.
+
 ### Security
 
 | Option           | JS (`camelCase`) | Rust (`snake_case`) | Default        | Description                                                        |
