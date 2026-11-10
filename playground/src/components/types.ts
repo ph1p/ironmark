@@ -1,4 +1,4 @@
-export type OutputTab = "preview" | "html" | "ast";
+export type OutputTab = "preview" | "html" | "ast" | "jsx";
 export type MobilePanel = "editor" | OutputTab;
 export type AppView = "playground" | "benchmarks" | "ast-to-md" | "html-to-md";
 
@@ -64,6 +64,7 @@ export type ParseOptions = {
   permissive_atx_headers: boolean;
   enable_wiki_links: boolean;
   enable_latex_math: boolean;
+  enable_mdx: boolean;
 };
 
 export const DEFAULT_PARSE_OPTIONS: ParseOptions = {
@@ -85,4 +86,5 @@ export const DEFAULT_PARSE_OPTIONS: ParseOptions = {
   permissive_atx_headers: false,
   enable_wiki_links: false,
   enable_latex_math: false,
+  enable_mdx: false,
 };

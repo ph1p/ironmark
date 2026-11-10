@@ -9,20 +9,41 @@ import { HtmlToMarkdownPage } from "./components/HtmlToMarkdownPage";
 import { DEFAULT_MARKDOWN, initPlayground, type PlaygroundController } from "./playground";
 import type { AppView, MobilePanel, OutputTab, ParseOptions } from "./components/types";
 import { DEFAULT_PARSE_OPTIONS } from "./components/types";
+import { isOutputTab } from "./components/tabs";
+import type { Workspace } from "./components/SplitPanels";
+import type { PlaygroundFile } from "./mdx/runtime";
+import { DEFAULT_FILES, isMdx } from "./mdx/defaults";
 
 const MARKDOWN_STORAGE_KEY = "playground:markdown";
 const OUTPUT_TAB_STORAGE_KEY = "playground:output-tab";
 const MOBILE_PANEL_STORAGE_KEY = "playground:mobile-panel";
 const OPTIONS_STORAGE_KEY = "playground:options";
+const FILES_STORAGE_KEY = "playground:mdx-files";
+
+function readFiles(): PlaygroundFile[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(FILES_STORAGE_KEY) ?? "null");
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every((f) => typeof f?.name === "string" && typeof f?.content === "string")
+    ) {
+      return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_FILES;
+}
 
 function readOutputTab(): OutputTab {
   const value = localStorage.getItem(OUTPUT_TAB_STORAGE_KEY);
-  return value === "html" || value === "ast" ? value : "preview";
+  return isOutputTab(value) ? value : "preview";
 }
 
 function readMobilePanel(): MobilePanel {
   const value = localStorage.getItem(MOBILE_PANEL_STORAGE_KEY);
-  return value === "preview" || value === "html" || value === "ast" ? value : "editor";
+  return isOutputTab(value) ? value : "editor";
 }
 
 function readOptions(): ParseOptions {
@@ -61,12 +82,18 @@ export function App() {
     () => localStorage.getItem(MARKDOWN_STORAGE_KEY) ?? DEFAULT_MARKDOWN,
   );
   const [options, setOptions] = useState<ParseOptions>(readOptions);
+  const [files, setFiles] = useState<PlaygroundFile[]>(readFiles);
+  const [activeFile, setActiveFile] = useState(() => files[0].name);
+  const filesRef = useRef(files);
+  filesRef.current = files;
   const outputTabRef = useRef(outputTab);
   const controllerRef = useRef<PlaygroundController | null>(null);
   const pendingEditorRef = useRef<EditorView | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const mdxPreviewRef = useRef<HTMLDivElement>(null);
   const htmlSourceContainerRef = useRef<HTMLDivElement>(null);
   const astSourceContainerRef = useRef<HTMLDivElement>(null);
+  const jsxSourceContainerRef = useRef<HTMLDivElement>(null);
 
   outputTabRef.current = outputTab;
 
@@ -76,16 +103,26 @@ export function App() {
     let cancelled = false;
 
     const preview = previewRef.current;
+    const mdxPreview = mdxPreviewRef.current;
     const htmlSourceContainer = htmlSourceContainerRef.current;
     const astSourceContainer = astSourceContainerRef.current;
-    if (!preview || !htmlSourceContainer || !astSourceContainer) {
+    const jsxSourceContainer = jsxSourceContainerRef.current;
+    if (
+      !preview ||
+      !mdxPreview ||
+      !htmlSourceContainer ||
+      !astSourceContainer ||
+      !jsxSourceContainer
+    ) {
       return;
     }
 
     void initPlayground({
       preview,
+      mdxPreview,
       htmlSourceContainer,
       astSourceContainer,
+      jsxSourceContainer,
       getOutputTab: () => outputTabRef.current,
       onStatusChange: setStatusText,
     })
@@ -96,8 +133,7 @@ export function App() {
         }
         controllerRef.current = controller;
         controller.setOutputTab(outputTabRef.current);
-        controller.updateOptions(options);
-        controller.updateMarkdown(markdown);
+        controller.load(markdown, filesRef.current, options);
         if (pendingEditorRef.current) {
           controller.attachEditorView(pendingEditorRef.current);
         }
@@ -123,6 +159,10 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(MARKDOWN_STORAGE_KEY, markdown);
   }, [markdown]);
+
+  useEffect(() => {
+    localStorage.setItem(FILES_STORAGE_KEY, JSON.stringify(files));
+  }, [files]);
 
   useEffect(() => {
     localStorage.setItem(OUTPUT_TAB_STORAGE_KEY, outputTab);
@@ -153,6 +193,37 @@ export function App() {
     controllerRef.current?.updateMarkdown(value);
   };
 
+  const changeFiles = (next: PlaygroundFile[]) => {
+    setFiles(next);
+    controllerRef.current?.updateFiles(next);
+  };
+
+  const workspace: Workspace | null = options.enable_mdx
+    ? {
+        files,
+        active: activeFile,
+        onSelect: setActiveFile,
+        onAdd: (name) => {
+          const content = isMdx(name)
+            ? `# ${name}\n`
+            : `export function Example() {\n  return <p>Hello from ${name}</p>;\n}\n`;
+          changeFiles([...files, { name, content }]);
+          setActiveFile(name);
+        },
+        onRemove: (name) => {
+          changeFiles(files.filter((f) => f.name !== name));
+          if (activeFile === name) setActiveFile(files[0].name);
+        },
+        // Keystrokes only update state; the debounced doc change recompiles.
+        // The editor remounts per file (`key`), so `activeFile` here is current.
+        onValueChange: (value) =>
+          setFiles((prev) =>
+            prev.map((f) => (f.name === activeFile ? { ...f, content: value } : f)),
+          ),
+        onDocChange: () => controllerRef.current?.updateFiles(filesRef.current),
+      }
+    : null;
+
   const renderContent = () => {
     switch (appView) {
       case "benchmarks":
@@ -176,10 +247,14 @@ export function App() {
               options={options}
               onOptionsChange={setOptions}
               previewRef={previewRef}
+              mdxPreviewRef={mdxPreviewRef}
+              workspace={workspace}
               htmlSourceContainerRef={htmlSourceContainerRef}
               astSourceContainerRef={astSourceContainerRef}
+              jsxSourceContainerRef={jsxSourceContainerRef}
               getHtml={() => controllerRef.current?.getHtml() ?? ""}
               getAst={() => controllerRef.current?.getAst() ?? ""}
+              getJsx={() => controllerRef.current?.getJsx() ?? ""}
             />
           </>
         );

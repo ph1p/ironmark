@@ -1,13 +1,14 @@
-import { init, renderHtml, parseMarkdown as ironmarkParseMarkdown } from "ironmark";
+import { init, renderHtml, renderJsx, parseMarkdown as ironmarkParseMarkdown } from "ironmark";
 import wasmUrl from "ironmark/ironmark.wasm?url";
 import type { EditorView } from "@codemirror/view";
 import { cmThemeExtension, subscribeThemeChange } from "./editor/theme";
 import { highlightCodeBlocks } from "./editor/highlight";
 import { formatHtml } from "./util/format-html";
-import { createHtmlView, htmlThemeCompartment } from "./editor/setup";
+import { createHtmlView, createJsxView, htmlThemeCompartment } from "./editor/setup";
 import { AstTreeView } from "./editor/ast-tree";
 import type { OutputTab, ParseOptions } from "./components/types";
 import { DEFAULT_PARSE_OPTIONS } from "./components/types";
+import type { MdxPreview, PlaygroundFile } from "./mdx/runtime";
 
 export const DEFAULT_MARKDOWN = `# Markdown Playground
 
@@ -101,6 +102,11 @@ Display math:
 
 $$\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}$$
 
+## MDX *(enable in Options)*
+
+Turning on MDX switches to a multi-file workspace: an \`index.mdx\` document that
+imports React components from \`components.jsx\`, rendered live in Preview.
+
 ## Hard breaks *(toggle in Options)*
 
 Line one
@@ -113,8 +119,10 @@ Line two (hard break when enabled)
 
 type InitPlaygroundArgs = {
   preview: HTMLDivElement;
+  mdxPreview: HTMLDivElement;
   htmlSourceContainer: HTMLDivElement;
   astSourceContainer: HTMLDivElement;
+  jsxSourceContainer: HTMLDivElement;
   getOutputTab: () => OutputTab;
   onStatusChange: (text: string) => void;
 };
@@ -122,10 +130,14 @@ type InitPlaygroundArgs = {
 export type PlaygroundController = {
   setOutputTab: (tab: OutputTab) => void;
   updateMarkdown: (markdown: string) => void;
+  /** MDX workspace files; the first one is the entry document. */
+  updateFiles: (files: PlaygroundFile[]) => void;
+  load: (markdown: string, files: PlaygroundFile[], options: ParseOptions) => void;
   updateOptions: (options: ParseOptions) => void;
   attachEditorView: (editorView: EditorView) => void;
   getHtml: () => string;
   getAst: () => string;
+  getJsx: () => string;
   dispose: () => void;
 };
 
@@ -135,14 +147,43 @@ export async function initPlayground(args: InitPlaygroundArgs): Promise<Playgrou
   let editorView: EditorView | null = null;
   let currentMarkdown = DEFAULT_MARKDOWN;
   let currentOptions: ParseOptions = { ...DEFAULT_PARSE_OPTIONS };
+  let currentFiles: PlaygroundFile[] = [];
+  let mdxPreview: MdxPreview | null = null;
+  let disposed = false;
   const htmlState = { dirty: false, lastHtml: "", astDirty: false, lastAst: "" };
+  // JSX is compiled lazily: only while its tab is visible, or on copy.
+  const jsxState = { dirty: true, last: "" };
   const htmlView = createHtmlView(args.htmlSourceContainer);
+  const jsxView = createJsxView(args.jsxSourceContainer);
   const astTree = new AstTreeView(args.astSourceContainer);
   let highlightRaf = 0;
   let htmlUpdateRaf = 0;
   let astUpdateRaf = 0;
 
+  function compileJsx(): string {
+    if (jsxState.dirty) {
+      jsxState.dirty = false;
+      try {
+        jsxState.last = renderJsx(source(), {
+          ...toWasmOptions(currentOptions),
+          components: currentOptions.enable_mdx,
+        }).module;
+      } catch (err) {
+        jsxState.last = `// ${err instanceof Error ? err.message : String(err)}\n`;
+      }
+    }
+    return jsxState.last;
+  }
+
+  function showJsx() {
+    const text = compileJsx();
+    if (jsxView.state.doc.toString() === text) return;
+    jsxView.dispatch({ changes: { from: 0, to: jsxView.state.doc.length, insert: text } });
+  }
+
   function flushOutputTab(tab: OutputTab) {
+    if (tab === "jsx") showJsx();
+
     if (tab === "html" && htmlState.dirty) {
       htmlState.dirty = false;
       htmlView.dispatch({
@@ -156,10 +197,29 @@ export async function initPlayground(args: InitPlaygroundArgs): Promise<Playgrou
     }
   }
 
-  function parseMarkdown(md: string) {
-    const o = currentOptions;
-    const t0 = performance.now();
-    const opts = {
+  /** The document every output tab shows: the workspace entry in MDX mode. */
+  function source(): string {
+    return currentOptions.enable_mdx ? (currentFiles[0]?.content ?? "") : currentMarkdown;
+  }
+
+  async function renderMdx() {
+    if (!currentOptions.enable_mdx) return;
+    if (!mdxPreview) {
+      const { createMdxPreview } = await import("./mdx/runtime");
+      if (disposed) return;
+      mdxPreview ??= createMdxPreview(args.mdxPreview);
+    }
+    // React owns this DOM, so the HTML preview's in-place code highlighting is skipped.
+    await mdxPreview.render(currentFiles, toWasmOptions(currentOptions));
+  }
+
+  function refresh() {
+    parseMarkdown(source());
+    void renderMdx().catch((err) => console.error("MDX preview failed:", err));
+  }
+
+  function toWasmOptions(o: ParseOptions) {
+    return {
       hardBreaks: o.hard_breaks,
       enableHighlight: o.enable_highlight,
       enableStrikethrough: o.enable_strikethrough,
@@ -178,7 +238,13 @@ export async function initPlayground(args: InitPlaygroundArgs): Promise<Playgrou
       permissiveAtxHeaders: o.permissive_atx_headers,
       enableWikiLinks: o.enable_wiki_links,
       enableLatexMath: o.enable_latex_math,
+      enableMdx: o.enable_mdx,
     };
+  }
+
+  function parseMarkdown(md: string) {
+    const t0 = performance.now();
+    const opts = toWasmOptions(currentOptions);
     const html = renderHtml(md, opts);
     args.onStatusChange(`${(performance.now() - t0).toFixed(2)}ms`);
 
@@ -211,27 +277,41 @@ export async function initPlayground(args: InitPlaygroundArgs): Promise<Playgrou
     } else {
       htmlState.astDirty = true;
     }
+
+    jsxState.dirty = true;
+    if (args.getOutputTab() === "jsx") showJsx();
   }
 
   const onThemeChange = () => {
     const ext = cmThemeExtension();
     htmlView.dispatch({ effects: htmlThemeCompartment.reconfigure(ext) });
-    parseMarkdown(currentMarkdown);
+    jsxView.dispatch({ effects: htmlThemeCompartment.reconfigure(ext) });
+    // Re-highlight the HTML preview only; the React MDX preview is theme-agnostic.
+    parseMarkdown(source());
   };
 
   const unsubscribeTheme = subscribeThemeChange(onThemeChange);
   args.onStatusChange("");
-  parseMarkdown(currentMarkdown);
 
   return {
     setOutputTab: flushOutputTab,
     updateMarkdown: (markdown) => {
       currentMarkdown = markdown;
-      parseMarkdown(markdown);
+      if (!currentOptions.enable_mdx) parseMarkdown(markdown);
+    },
+    updateFiles: (files) => {
+      currentFiles = files;
+      if (currentOptions.enable_mdx) refresh();
     },
     updateOptions: (options) => {
       currentOptions = options;
-      parseMarkdown(currentMarkdown);
+      refresh();
+    },
+    load: (markdown, files, options) => {
+      currentMarkdown = markdown;
+      currentFiles = files;
+      currentOptions = options;
+      refresh();
     },
     attachEditorView: (view) => {
       editorView = view;
@@ -239,12 +319,16 @@ export async function initPlayground(args: InitPlaygroundArgs): Promise<Playgrou
     },
     getHtml: () => formatHtml(htmlState.lastHtml),
     getAst: () => htmlState.lastAst,
+    getJsx: compileJsx,
     dispose: () => {
+      disposed = true;
       unsubscribeTheme();
+      mdxPreview?.dispose();
       cancelAnimationFrame(highlightRaf);
       cancelAnimationFrame(htmlUpdateRaf);
       cancelAnimationFrame(astUpdateRaf);
       htmlView.destroy();
+      jsxView.destroy();
       astTree.destroy();
     },
   };

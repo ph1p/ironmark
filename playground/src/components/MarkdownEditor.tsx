@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import type { EditorView } from "@codemirror/view";
 import { Compartment, type Extension } from "@codemirror/state";
-import { markdownEditorExtensions } from "../editor/setup";
+import { jsxEditorExtensions, markdownEditorExtensions } from "../editor/setup";
 import { cmThemeExtension, subscribeThemeChange } from "../editor/theme";
 
 type MarkdownEditorProps = {
@@ -10,6 +10,8 @@ type MarkdownEditorProps = {
   onValueChange: (value: string) => void;
   onDocChange: (value: string) => void;
   onEditorReady: (view: EditorView) => void;
+  /** Editor language; component files of the MDX workspace use `jsx`. */
+  language?: "markdown" | "jsx";
 };
 
 export function MarkdownEditor({
@@ -17,14 +19,18 @@ export function MarkdownEditor({
   onValueChange,
   onDocChange,
   onEditorReady,
+  language = "markdown",
 }: MarkdownEditorProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<EditorView | null>(null);
   const [uiwTheme, setUiwTheme] = useState<Extension>(cmThemeExtension());
   const themeCompartmentRef = useRef(new Compartment());
   const extensions = useMemo(
-    () => [...markdownEditorExtensions, themeCompartmentRef.current.of(cmThemeExtension())],
-    [],
+    () => [
+      ...(language === "jsx" ? jsxEditorExtensions : markdownEditorExtensions),
+      themeCompartmentRef.current.of(cmThemeExtension()),
+    ],
+    [language],
   );
 
   useEffect(() => {

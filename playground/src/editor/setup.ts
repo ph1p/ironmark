@@ -1,7 +1,8 @@
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { html as langHtml } from "@codemirror/lang-html";
+import { javascript } from "@codemirror/lang-javascript";
 import { indentWithTab } from "@codemirror/commands";
 import { cmThemeExtension } from "./theme";
 
@@ -33,12 +34,27 @@ export const markdownEditorExtensions = [
   keymap.of([indentWithTab]),
 ];
 
+export const jsxEditorExtensions = [
+  javascript({ jsx: true }),
+  baseTheme,
+  lineNumbers(),
+  keymap.of([indentWithTab]),
+];
+
 export function createHtmlView(parent: HTMLElement): EditorView {
+  return createReadonlyView(parent, langHtml());
+}
+
+export function createJsxView(parent: HTMLElement): EditorView {
+  return createReadonlyView(parent, javascript({ jsx: true }));
+}
+
+function createReadonlyView(parent: HTMLElement, language: Extension): EditorView {
   return new EditorView({
     state: EditorState.create({
       doc: "",
       extensions: [
-        langHtml(),
+        language,
         baseTheme,
         readonlyTheme,
         lineNumbers(),

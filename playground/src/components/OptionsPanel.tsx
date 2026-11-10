@@ -27,6 +27,11 @@ const OPTION_LABELS: OptionEntry[] = [
   { separator: "Extra extensions" },
   { key: "enable_wiki_links", label: "Wiki links", description: "[[link]] → <a href>" },
   { key: "enable_latex_math", label: "LaTeX math", description: "$inline$ and $$display$$ math" },
+  {
+    key: "enable_mdx",
+    label: "MDX",
+    description: "Multi-file workspace: JSX, {expressions}, imports, live React preview",
+  },
   { key: "enable_heading_ids", label: "Heading IDs", description: "Auto-generate id= on headings" },
   {
     key: "enable_heading_anchors",

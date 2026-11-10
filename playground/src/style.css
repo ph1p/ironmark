@@ -165,3 +165,20 @@
     min-width: 0;
   }
 }
+
+/* Sample components used by the MDX workspace defaults */
+.mdx-badge {
+  @apply inline-block align-middle rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300;
+}
+.mdx-note {
+  @apply my-4 rounded-md border-l-4 px-4 py-3 border-sky-400 bg-sky-50 dark:bg-sky-950/40;
+}
+.mdx-note-tip {
+  @apply border-emerald-400 bg-emerald-50 dark:bg-emerald-950/40;
+}
+.mdx-note > strong {
+  @apply block mb-1;
+}
+.mdx-button {
+  @apply rounded-md px-3 py-1.5 text-sm font-medium bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-90;
+}
