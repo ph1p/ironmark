@@ -431,8 +431,8 @@ mod ast_roundtrip {
 
         assert_eq!(reparsed_ast, ast);
         assert!(final_md.contains("# ironmark"));
-        assert!(final_md.contains("## Configuration"));
-        assert!(final_md.contains("### HTML to Markdown"));
+        assert!(final_md.contains("## Build tool plugins"));
+        assert!(final_md.contains("### JavaScript"));
     }
 }
 
