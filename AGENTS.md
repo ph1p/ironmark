@@ -109,7 +109,7 @@ Two-phase pipeline: **block parsing → inline parsing → HTML rendering**.
 ### Playground (`playground/`)
 
 - Vite + TypeScript web app for interactive testing
-- Deployed to `https://ph1p.js.org/ironmark/playground/` (built with `BASE_URL=/ironmark/playground/`)
+- Deployed to `https://ph1p.github.io/ironmark/playground/` (built with `BASE_URL=/ironmark/playground/`)
 
 ### Docs site (`docs/`)
 

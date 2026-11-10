@@ -1,8 +1,8 @@
 import { defineConfig } from "vocs/config";
 
-// Served from GitHub Pages at https://ph1p.js.org/ironmark/, with the playground
+// Served from GitHub Pages at https://ph1p.github.io/ironmark/, with the playground
 // built into /ironmark/playground/ by .github/workflows/pages.yml.
-const PLAYGROUND = "https://ph1p.js.org/ironmark/playground/";
+const PLAYGROUND = "https://ph1p.github.io/ironmark/playground/";
 const REPO = "https://github.com/ph1p/ironmark";
 
 export default defineConfig({
@@ -10,7 +10,7 @@ export default defineConfig({
   description:
     "Fast, CommonMark-compliant Markdown parser in Rust: HTML, text, AST, ANSI, Markdown and MDX, for Rust and JavaScript via WebAssembly.",
   basePath: "/ironmark",
-  baseUrl: "https://ph1p.js.org",
+  baseUrl: "https://ph1p.github.io",
   renderStrategy: "full-static",
   editLink: {
     // Vocs serializes this function for the client, so it cannot use module-level constants.

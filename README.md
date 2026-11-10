@@ -4,7 +4,7 @@
 
 Fast Markdown parser written in Rust with **zero third-party** parsing dependencies. Outputs HTML, plain text, AST, ANSI terminal, Markdown, or MDX compiled to JSX, with plugins for Vite, esbuild, Rollup, webpack and Astro. Fully compliant with [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) (652/652 spec tests pass). Available as a Rust crate and as an npm package via WebAssembly.
 
-**[Documentation](https://ph1p.js.org/ironmark/)** · **[Playground](https://ph1p.js.org/ironmark/playground/)**
+**[Documentation](https://ph1p.github.io/ironmark/)** · **[Playground](https://ph1p.github.io/ironmark/playground/)**
 
 ## Table of Contents
 
@@ -44,7 +44,7 @@ Fast Markdown parser written in Rust with **zero third-party** parsing dependenc
 
 ## Quick start
 
-Try it without installing in the [playground](https://ph1p.js.org/ironmark/playground/): it renders HTML, AST, ANSI, Markdown and MDX live as you type. The full guides live in the [documentation](https://ph1p.js.org/ironmark/).
+Try it without installing in the [playground](https://ph1p.github.io/ironmark/playground/): it renders HTML, AST, ANSI, Markdown and MDX live as you type. The full guides live in the [documentation](https://ph1p.github.io/ironmark/).
 
 ```bash
 npm install ironmark
@@ -797,7 +797,7 @@ With `enable_mdx` set, the other entry points parse MDX too, but only `render_js
 ### Examples
 
 - [`examples/mdx`](examples/mdx): `cargo run --example mdx` prints the compiled module (`--components`, `--provider` for the other modes), and a Vite + React app renders the same `Guide.mdx` through `ironmark/vite`.
-- The [playground](https://ph1p.js.org/ironmark/playground/) has an MDX option with a multi-file workspace (`.mdx`, `.jsx`, `.js`), a live React preview and a JSX output tab.
+- The [playground](https://ph1p.github.io/ironmark/playground/) has an MDX option with a multi-file workspace (`.mdx`, `.jsx`, `.js`), a live React preview and a JSX output tab.
 
 ## CLI
 
@@ -1146,7 +1146,7 @@ Parsing always uses the default `ParseOptions` (all extensions enabled, `disable
 
 ## Benchmarks
 
-Compares ironmark against pulldown-cmark, comrak, markdown-it, markdown-rs and md4c (native Rust), and against markdown-wasm, md4w, marked and Bun's built-in parser (JS/WASM). All parsers are configured for the same feature set (CommonMark + GFM tables, strikethrough, task lists, autolink literals). Results are available at [ph1p.js.org/ironmark/playground/#benchmark](https://ph1p.js.org/ironmark/playground/#benchmark).
+Compares ironmark against pulldown-cmark, comrak, markdown-it, markdown-rs and md4c (native Rust), and against markdown-wasm, md4w, marked and Bun's built-in parser (JS/WASM). All parsers are configured for the same feature set (CommonMark + GFM tables, strikethrough, task lists, autolink literals). Results are available at [ph1p.github.io/ironmark/playground/#benchmark](https://ph1p.github.io/ironmark/playground/#benchmark).
 
 ```bash
 pnpm bench:rust                     # native Rust (criterion)

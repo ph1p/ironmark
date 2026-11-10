@@ -8,7 +8,7 @@ ironmark is measured in three places, because "how fast is it" depends on where 
 | `js-bench.mjs` on Node | ironmark WASM vs markdown-wasm, md4w (WASM) and marked (pure JS)                | `pnpm bench:js`   |
 | `js-bench.mjs` on Bun  | same as Node, plus Bun's native `Bun.markdown.html`                             | `pnpm bench:bun`  |
 
-`pnpm bench` runs all three and records one snapshot in `history/`. The [playground Benchmarks page](https://ph1p.js.org/ironmark/playground/#benchmark) is built from those snapshots.
+`pnpm bench` runs all three and records one snapshot in `history/`. The [playground Benchmarks page](https://ph1p.github.io/ironmark/playground/#benchmark) is built from those snapshots.
 
 ## Quick start
 
