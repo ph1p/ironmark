@@ -44,6 +44,8 @@ Fast Markdown parser written in Rust with **zero third-party** parsing dependenc
 
 ## Quick start
 
+Try it without installing in the [playground](https://ph1p.js.org/ironmark/playground/): it renders HTML, AST, ANSI, Markdown and MDX live as you type. The full guides live in the [documentation](https://ph1p.js.org/ironmark/).
+
 ```bash
 npm install ironmark
 # or
@@ -795,7 +797,7 @@ With `enable_mdx` set, the other entry points parse MDX too, but only `render_js
 ### Examples
 
 - [`examples/mdx`](examples/mdx): `cargo run --example mdx` prints the compiled module (`--components`, `--provider` for the other modes), and a Vite + React app renders the same `Guide.mdx` through `ironmark/vite`.
-- The [playground](playground) has an MDX option with a multi-file workspace (`.mdx`, `.jsx`, `.js`), a live React preview and a JSX output tab.
+- The [playground](https://ph1p.js.org/ironmark/playground/) has an MDX option with a multi-file workspace (`.mdx`, `.jsx`, `.js`), a live React preview and a JSX output tab.
 
 ## CLI
 
