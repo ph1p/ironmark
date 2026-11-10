@@ -136,35 +136,39 @@ export function createMarkdownToText(wasmRenderText) {
 }
 
 /**
- * Text, headings, links, images and front matter from one Rust parse. The binding
- * returns `[text, frontmatter | null, headingCount, (level, id, text)…,
- * (image, url, title | null, text)…]`.
+ * Parse once into a Rust-side tree (a wasm-bindgen `Parsed` handle) that renders the
+ * analysis, AST, normalized Markdown and ANSI output without parsing again. The caller
+ * owns the handle and must `free()` it. `parseDocument.outputs` names the methods this
+ * entry's binary compiled into the handle (`ast` and `markdown` need `ast`, `ansi` needs `ansi`).
  */
-export function createMarkdownAnalysis(wasmAnalyze) {
-  return function markdownAnalysis(input, options) {
-    const flat = wasmAnalyze(...optionArgs(input, options));
-    const headings = [];
-    const links = [];
-    const images = [];
-    const linksAt = 3 + flat[2] * 3;
-    for (let i = 3; i < linksAt; i += 3) {
-      headings.push({ level: flat[i], text: flat[i + 2], id: flat[i + 1] });
-    }
-    for (let i = linksAt; i < flat.length; i += 4) {
-      const url = flat[i + 1];
-      const title = flat[i + 2];
-      const text = flat[i + 3];
-      if (flat[i]) images.push({ url, title, alt: text });
-      else links.push({ url, title, text });
-    }
-    return { text: flat[0], frontmatter: flat[1] ?? null, headings, links, images };
-  };
+export function createParseDocument(wasmParseDocument, Parsed) {
+  function parseDocument(input, options) {
+    return wasmParseDocument(...optionArgs(input, options));
+  }
+  parseDocument.outputs = new Set(Object.getOwnPropertyNames(Parsed.prototype));
+  return parseDocument;
 }
 
-export function createNormalizeMarkdown(wasmNormalizeMarkdown) {
-  return function normalizeMarkdown(input, options) {
-    return wasmNormalizeMarkdown(...optionArgs(input, options));
-  };
+/**
+ * Decode `Parsed.analyze()`: `[text, frontmatter | null, headingCount,
+ * (level, id, text)…, (image, url, title | null, text)…]`.
+ */
+function decodeAnalysis(flat) {
+  const headings = [];
+  const links = [];
+  const images = [];
+  const linksAt = 3 + flat[2] * 3;
+  for (let i = 3; i < linksAt; i += 3) {
+    headings.push({ level: flat[i], text: flat[i + 2], id: flat[i + 1] });
+  }
+  for (let i = linksAt; i < flat.length; i += 4) {
+    const url = flat[i + 1];
+    const title = flat[i + 2];
+    const text = flat[i + 3];
+    if (flat[i]) images.push({ url, title, alt: text });
+    else links.push({ url, title, text });
+  }
+  return { text: flat[0], frontmatter: flat[1] ?? null, headings, links, images };
 }
 
 export function createAstToMarkdown(wasmRenderMarkdown) {
@@ -175,15 +179,14 @@ export function createAstToMarkdown(wasmRenderMarkdown) {
   };
 }
 
+/** ANSI render options as the bindings take them (0 = default width / no padding). */
+function ansiArgs(options) {
+  return [options?.width ?? 0, options?.color, options?.lineNumbers, options?.padding ?? 0];
+}
+
 export function createMarkdownToAnsi(wasmRenderAnsi) {
   return function markdownToAnsi(input, options) {
-    return wasmRenderAnsi(
-      ...optionArgs(input, options),
-      options?.width ?? 0,
-      options?.color,
-      options?.lineNumbers,
-      options?.padding ?? 0,
-    );
+    return wasmRenderAnsi(...optionArgs(input, options), ...ansiArgs(options));
   };
 }
 
@@ -466,13 +469,16 @@ function textStats(text) {
   return { words, characters, readingTime: Math.ceil(words / 200) };
 }
 
-/** Methods that need an entry function; dropped from `Document` when the entry lacks it. */
+/**
+ * `Document` methods per output they render; dropped when the entry's `Parsed` handle
+ * lacks that output (`jsx`: when the entry has no `mdxToJsx`).
+ */
 const REQUIRES = {
-  markdownAnalysis: ["text", "stats", "headings", "toc", "links", "images", "frontmatter"],
-  markdownToAst: ["ast", "summary"],
-  normalizeMarkdown: ["markdown"],
-  markdownToAnsi: ["ansi"],
-  mdxToJsx: ["jsx"],
+  analyze: ["text", "stats", "headings", "toc", "links", "images", "frontmatter"],
+  ast: ["ast", "summary"],
+  markdown: ["markdown"],
+  ansi: ["ansi"],
+  jsx: ["jsx"],
 };
 
 /**
@@ -495,6 +501,20 @@ function ownedBytes(input) {
  * whose function is missing is left off the prototype, so `"ansi" in doc` tells the truth.
  */
 export function createIronmark(api) {
+  // The one live parse tree: WASM memory pressure never triggers a JS GC, so trees are
+  // freed eagerly instead of waiting for the FinalizationRegistry. The slot holds the
+  // tree of the document rendered last and is released once the current task's
+  // synchronous work is done, so a loop over many documents keeps at most one tree.
+  // Outputs of one document share a tree while they are rendered back to back;
+  // interleaving documents or awaiting in between parses again.
+  let live = null;
+  let releaseQueued = false;
+  const release = () => {
+    releaseQueued = false;
+    live?.tree.free();
+    live = null;
+  };
+
   class Document {
     #bytes;
     #options;
@@ -521,17 +541,28 @@ export function createIronmark(api) {
       return this.#cache.get(key);
     }
 
+    /** The shared parse tree for the outputs below; valid until the next microtask. */
+    #tree() {
+      if (live?.owner !== this) {
+        live?.tree.free();
+        live = { owner: this, tree: api.parseDocument(this.#bytes, this.#options) };
+        if (!releaseQueued) {
+          releaseQueued = true;
+          queueMicrotask(release);
+        }
+      }
+      return live.tree;
+    }
+
     html() {
       // No options at all keeps the `parseDefault` fast path.
       const options = Object.keys(this.#options).length ? this.#options : undefined;
       return this.#output("html", () => api.markdownToHtml(this.#bytes, options));
     }
 
-    /** Text, headings, links and front matter come from one parse, cached together. */
+    /** Text, headings, links and front matter come from one render, cached together. */
     #analysis() {
-      return this.#output("analysis", () =>
-        deepFreeze(api.markdownAnalysis(this.#bytes, this.#options)),
-      );
+      return this.#output("analysis", () => deepFreeze(decodeAnalysis(this.#tree().analyze())));
     }
 
     text() {
@@ -563,7 +594,7 @@ export function createIronmark(api) {
     }
 
     ast() {
-      return this.#output("ast", () => deepFreeze(api.markdownToAst(this.#bytes, this.#options)));
+      return this.#output("ast", () => deepFreeze(JSON.parse(this.#tree().ast())));
     }
 
     summary() {
@@ -571,13 +602,12 @@ export function createIronmark(api) {
     }
 
     markdown() {
-      return this.#output("markdown", () => api.normalizeMarkdown(this.#bytes, this.#options));
+      return this.#output("markdown", () => this.#tree().markdown());
     }
 
-    ansi({ width, color, lineNumbers, padding } = {}) {
-      return this.#output(`ansi:${width}:${color}:${lineNumbers}:${padding}`, () =>
-        api.markdownToAnsi(this.#bytes, { ...this.#options, width, color, lineNumbers, padding }),
-      );
+    ansi(options) {
+      const args = ansiArgs(options);
+      return this.#output(`ansi:${args}`, () => this.#tree().ansi(...args));
     }
 
     jsx({ components, providerImportSource } = {}) {
@@ -594,8 +624,10 @@ export function createIronmark(api) {
     }
   }
 
-  for (const [fn, methods] of Object.entries(REQUIRES)) {
-    if (!api[fn]) for (const method of methods) delete Document.prototype[method];
+  const outputs = new Set(api.parseDocument.outputs);
+  if (api.mdxToJsx) outputs.add("jsx");
+  for (const [output, methods] of Object.entries(REQUIRES)) {
+    if (!outputs.has(output)) for (const method of methods) delete Document.prototype[method];
   }
   const shortcuts = SHORTCUTS.filter((method) => method in Document.prototype);
 

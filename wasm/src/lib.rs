@@ -76,49 +76,101 @@ pub fn render_text(markdown: &[u8], flags: u32) -> String {
     ironmark::render_text(&utf8(markdown), &options)
 }
 
-/// Text, headings, links and front matter from one parse (see `ironmark::analyze`),
-/// as one flat list that crosses the boundary without a JSON dependency:
-/// `[text, frontmatter | null, headingCount, (level, id, text)…, (image, url, title | null, text)…]`.
-#[wasm_bindgen(js_name = "analyze")]
-pub fn analyze(markdown: &[u8], flags: u32) -> Vec<JsValue> {
-    let doc = ironmark::analyze(&utf8(markdown), &build_options(flags));
-    let mut out = Vec::with_capacity(3 + doc.headings.len() * 3 + doc.links.len() * 4);
-    out.push(JsValue::from(doc.text));
-    out.push(doc.frontmatter.map_or(JsValue::NULL, JsValue::from));
-    out.push(JsValue::from(doc.headings.len() as u32));
-    for h in doc.headings {
-        out.extend([
-            JsValue::from(h.level),
-            JsValue::from(h.id),
-            JsValue::from(h.text),
-        ]);
-    }
-    for link in doc.links {
-        out.extend([
-            JsValue::from_bool(link.image),
-            JsValue::from(link.url),
-            link.title.map_or(JsValue::NULL, JsValue::from),
-            JsValue::from(link.text),
-        ]);
-    }
-    out
+/// A document parsed once (see `ironmark::ParsedDocument`): the chainable JS
+/// `Document` keeps one of these while it renders several outputs, so text,
+/// AST, Markdown and ANSI share one parse instead of parsing again per output.
+#[wasm_bindgen]
+pub struct Parsed(ironmark::ParsedDocument);
+
+#[wasm_bindgen(js_name = "parseDocument")]
+pub fn parse_document(markdown: &[u8], flags: u32) -> Parsed {
+    Parsed(ironmark::ParsedDocument::parse(
+        &utf8(markdown),
+        &build_options(flags),
+    ))
 }
 
-/// Parse Markdown and render it back as normalized Markdown, without the
-/// AST JSON round trip `renderMarkdown(parseToAst(…))` would take.
+#[wasm_bindgen]
+impl Parsed {
+    /// Text, headings, links and front matter (see `ironmark::analyze`), as one
+    /// flat list that crosses the boundary without a JSON dependency:
+    /// `[text, frontmatter | null, headingCount, (level, id, text)…, (image, url, title | null, text)…]`.
+    pub fn analyze(&self) -> Vec<JsValue> {
+        let doc = self.0.analyze();
+        let mut out = Vec::with_capacity(3 + doc.headings.len() * 3 + doc.links.len() * 4);
+        out.push(JsValue::from(doc.text));
+        out.push(doc.frontmatter.map_or(JsValue::NULL, JsValue::from));
+        out.push(JsValue::from(doc.headings.len() as u32));
+        for h in doc.headings {
+            out.extend([
+                JsValue::from(h.level),
+                JsValue::from(h.id),
+                JsValue::from(h.text),
+            ]);
+        }
+        for link in doc.links {
+            out.extend([
+                JsValue::from_bool(link.image),
+                JsValue::from(link.url),
+                link.title.map_or(JsValue::NULL, JsValue::from),
+                JsValue::from(link.text),
+            ]);
+        }
+        out
+    }
+
+    /// The AST as JSON, like `parseToAst`.
+    #[cfg(feature = "ast")]
+    pub fn ast(&self) -> Result<String, JsValue> {
+        ast_json(self.0.block())
+    }
+
+    /// Normalized Markdown, without the AST JSON round trip
+    /// `renderMarkdown(parseToAst(…))` would take.
+    #[cfg(feature = "ast")]
+    pub fn markdown(&self) -> String {
+        self.0.markdown()
+    }
+
+    /// ANSI terminal output; the arguments are those of `renderAnsi`.
+    #[cfg(feature = "ansi")]
+    pub fn ansi(
+        &self,
+        width: u32,
+        color: Option<bool>,
+        line_numbers: Option<bool>,
+        padding: u32,
+    ) -> String {
+        self.0
+            .ansi(Some(&ansi_options(width, color, line_numbers, padding)))
+    }
+}
+
 #[cfg(feature = "ast")]
-#[wasm_bindgen(js_name = "normalizeMarkdown")]
-pub fn normalize_markdown(markdown: &[u8], flags: u32) -> String {
-    let options = build_options(flags);
-    ironmark::render_markdown(&parse_markdown(&utf8(markdown), &options))
+fn ast_json(block: &Block) -> Result<String, JsValue> {
+    serde_json::to_string(block)
+        .map_err(|err| JsValue::from_str(&format!("AST serialization failed: {err}")))
 }
 
 #[cfg(feature = "ast")]
 #[wasm_bindgen(js_name = "parseToAst")]
 pub fn parse_to_ast(markdown: &[u8], flags: u32) -> Result<String, JsValue> {
-    let ast = parse_markdown(&utf8(markdown), &build_options(flags));
-    serde_json::to_string(&ast)
-        .map_err(|err| JsValue::from_str(&format!("AST serialization failed: {err}")))
+    ast_json(&parse_markdown(&utf8(markdown), &build_options(flags)))
+}
+
+#[cfg(feature = "ansi")]
+fn ansi_options(
+    width: u32,
+    color: Option<bool>,
+    line_numbers: Option<bool>,
+    padding: u32,
+) -> AnsiOptions {
+    AnsiOptions {
+        width: if width == 0 { 80 } else { width as usize },
+        color: color.unwrap_or(true),
+        line_numbers: line_numbers.unwrap_or(false),
+        padding: padding as usize,
+    }
 }
 
 /// Render Markdown as ANSI-coloured terminal output.
@@ -145,14 +197,8 @@ pub fn render_ansi(
     line_numbers: Option<bool>,
     padding: u32,
 ) -> String {
-    let parse_opts = build_options(flags);
-    let ansi_opts = AnsiOptions {
-        width: if width == 0 { 80 } else { width as usize },
-        color: color.unwrap_or(true),
-        line_numbers: line_numbers.unwrap_or(false),
-        padding: padding as usize,
-    };
-    render_ansi_terminal(&utf8(markdown), &parse_opts, Some(&ansi_opts))
+    let ansi_opts = ansi_options(width, color, line_numbers, padding);
+    render_ansi_terminal(&utf8(markdown), &build_options(flags), Some(&ansi_opts))
 }
 
 /// Result of `renderJsx`: the ESM import/export blocks and the JSX body.

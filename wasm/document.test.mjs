@@ -223,3 +223,15 @@ test("ready resolves like init()", async () => {
     await entry.ready;
   }
 });
+
+test("documents share one parse tree slot and still render independently", async () => {
+  const a = ironmark.parse("# A\n");
+  const b = ironmark.parse("*b*\n");
+  assert.equal(a.markdown(), "# A\n");
+  assert.equal(b.markdown(), "*b*\n");
+  assert.equal(a.ansi({ color: false }), full.markdownToAnsi("# A\n", { color: false }));
+  assert.equal(b.text(), "b");
+  await Promise.resolve(); // the slot is released after the current task's synchronous work
+  assert.deepEqual(a.ast(), full.markdownToAst("# A\n"));
+  for (let i = 0; i < 1000; i++) assert.equal(ironmark.parse(`# ${i}`).headings()[0].text, `${i}`);
+});

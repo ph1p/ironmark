@@ -132,6 +132,11 @@ pub fn render_ansi_terminal(
     options: &ParseOptions,
     aopts: Option<&AnsiOptions>,
 ) -> String {
+    crate::ParsedDocument::parse(markdown, options).ansi(aopts)
+}
+
+/// Render an already parsed document (see [`crate::ParsedDocument::ansi`]).
+pub(crate) fn render_parsed(doc: &crate::ParsedDocument, aopts: Option<&AnsiOptions>) -> String {
     let default_aopts;
     let aopts = match aopts {
         Some(a) => a,
@@ -140,17 +145,12 @@ pub fn render_ansi_terminal(
             &default_aopts
         }
     };
-    let markdown = crate::block::prepare_input(markdown, options, usize::MAX);
-
-    let mut parser = crate::block::BlockParser::new(markdown, options);
-    let doc = parser.parse();
-    let refs = parser.ref_defs;
-    let mut out = String::with_capacity(markdown.len() * 2);
+    let mut out = String::with_capacity(doc.body_len * 2);
     let mut bufs = InlineBuffers::new();
 
     let mut renderer = AnsiRenderer {
-        refs: &refs,
-        opts: options,
+        refs: &doc.refs,
+        opts: &doc.options,
         aopts,
         bufs: &mut bufs,
         out: &mut out,
@@ -158,7 +158,7 @@ pub fn render_ansi_terminal(
         list_counters: Vec::new(),
         prev_was_heading: false,
     };
-    renderer.render_block(&doc);
+    renderer.render_block(&doc.block);
 
     if aopts.padding > 0 {
         pad_ansi_output(out, aopts.padding)

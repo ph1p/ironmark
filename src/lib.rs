@@ -69,6 +69,7 @@
 // Core modules (always compiled)
 pub mod ast;
 mod block;
+mod document;
 #[cfg_attr(not(feature = "html"), allow(dead_code))]
 mod entities;
 mod frontmatter;
@@ -94,6 +95,7 @@ pub mod ffi;
 // Core exports (always available)
 pub use ast::{Block, ListKind, TableAlignment, TableData};
 pub use block::parse_markdown;
+pub use document::ParsedDocument;
 pub use frontmatter::split_frontmatter;
 pub use renderers::markdown::render_markdown;
 

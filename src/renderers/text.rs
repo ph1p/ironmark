@@ -6,7 +6,6 @@
 
 use crate::ParseOptions;
 use crate::ast::Block;
-use crate::block::{BlockParser, prepare_input};
 use crate::entities::decode_entities;
 use crate::inline::{InlineBuffers, LinkRefMap, parse_inline_pass};
 use crate::render::heading_slug_into;
@@ -156,23 +155,25 @@ pub struct Analysis {
 /// assert_eq!(doc.frontmatter, None);
 /// ```
 pub fn analyze(markdown: &str, options: &ParseOptions) -> Analysis {
-    let frontmatter = options
-        .enable_frontmatter
-        .then(|| crate::split_frontmatter(markdown))
-        .flatten()
-        .map(|(raw, _)| raw.to_owned());
-    with_renderer(markdown, options, |doc, r| {
-        r.headings = Some(Vec::new());
-        r.links = Some(Vec::new());
-        let mut text = String::with_capacity(markdown.len());
-        r.block(doc, &mut text);
-        Analysis {
-            text,
-            headings: r.headings.take().unwrap_or_default(),
-            links: r.links.take().unwrap_or_default(),
-            frontmatter,
-        }
-    })
+    let mut doc = crate::ParsedDocument::parse(markdown, options);
+    let frontmatter = doc.frontmatter.take();
+    analyze_parsed(&doc, frontmatter)
+}
+
+/// [`analyze`] over an already parsed document; `frontmatter` is passed in so
+/// a temporary document can move its copy instead of cloning it.
+pub(crate) fn analyze_parsed(doc: &crate::ParsedDocument, frontmatter: Option<String>) -> Analysis {
+    let mut r = TextRenderer::new(&doc.refs, &doc.options);
+    r.headings = Some(Vec::new());
+    r.links = Some(Vec::new());
+    let mut text = String::with_capacity(doc.body_len);
+    r.block(&doc.block, &mut text);
+    Analysis {
+        text,
+        headings: r.headings.take().unwrap_or_default(),
+        links: r.links.take().unwrap_or_default(),
+        frontmatter,
+    }
 }
 
 /// Parse `markdown` and hand the document plus a renderer over its link
@@ -182,9 +183,8 @@ fn with_renderer<T>(
     options: &ParseOptions,
     f: impl FnOnce(&Block, &mut TextRenderer) -> T,
 ) -> T {
-    let mut parser = BlockParser::new(prepare_input(markdown, options, usize::MAX), options);
-    let doc = parser.parse();
-    f(&doc, &mut TextRenderer::new(&parser.ref_defs, options))
+    let doc = crate::ParsedDocument::parse(markdown, options);
+    f(&doc.block, &mut TextRenderer::new(&doc.refs, options))
 }
 
 /// Visit `block` and every block nested in it, in document order.

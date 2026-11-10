@@ -36,18 +36,28 @@ fn truncate_to_limit(s: &str, limit: usize) -> &str {
 /// The part of `markdown` every entry point parses: truncated to
 /// `max_input_size` (`cap` bounds it further), then front matter skipped when
 /// [`ParseOptions::enable_frontmatter`] is set.
+#[cfg(feature = "html")]
 pub(crate) fn prepare_input<'a>(markdown: &'a str, options: &ParseOptions, cap: usize) -> &'a str {
+    split_input(markdown, options, cap).1
+}
+
+/// [`prepare_input`] plus the raw front matter it skipped, from one split.
+pub(crate) fn split_input<'a>(
+    markdown: &'a str,
+    options: &ParseOptions,
+    cap: usize,
+) -> (Option<&'a str>, &'a str) {
     let limit = match options.max_input_size {
         0 => cap,
         n => n.min(cap),
     };
     let markdown = truncate_to_limit(markdown, limit);
     if options.enable_frontmatter
-        && let Some((_, body)) = crate::frontmatter::split_frontmatter(markdown)
+        && let Some((raw, body)) = crate::frontmatter::split_frontmatter(markdown)
     {
-        return body;
+        return (Some(raw), body);
     }
-    markdown
+    (None, markdown)
 }
 
 /// Parse a Markdown string and return the rendered HTML.
@@ -123,9 +133,7 @@ pub(crate) fn render_html_impl(
 /// }
 /// ```
 pub fn parse_markdown(markdown: &str, options: &ParseOptions) -> Block {
-    let markdown = prepare_input(markdown, options, usize::MAX);
-    let mut parser = BlockParser::new(markdown, options);
-    parser.parse()
+    crate::ParsedDocument::parse(markdown, options).into_block()
 }
 
 #[cfg(feature = "html")]

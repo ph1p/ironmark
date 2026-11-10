@@ -938,10 +938,10 @@ fn main() {
 
 ### Plain text, headings and links
 
-`render_text()` returns the document as plain text; `extract_headings()` returns every heading with the `id` the HTML renderer would give it; `extract_links()` returns every link and image with its resolved URL. All three need the `html` feature. `split_frontmatter()` splits a leading front matter block from the body; with `enable_frontmatter: true` every renderer skips that block. Need several of these? `analyze()` returns text, headings, links and front matter from one parse.
+`render_text()` returns the document as plain text; `extract_headings()` returns every heading with the `id` the HTML renderer would give it; `extract_links()` returns every link and image with its resolved URL. All three need the `html` feature. `split_frontmatter()` splits a leading front matter block from the body; with `enable_frontmatter: true` every renderer skips that block. Need several of these? `analyze()` returns text, headings, links and front matter from one parse. To render more outputs from that same parse, call `ParsedDocument::parse()` once and then `.analyze()`, `.markdown()`, `.ansi()` (with the `ansi` feature) or `.block()` for the AST.
 
 ```rust
-use ironmark::{ParseOptions, analyze, extract_headings, extract_links, render_text, split_frontmatter};
+use ironmark::{ParseOptions, ParsedDocument, analyze, extract_headings, extract_links, render_text, split_frontmatter};
 
 fn main() {
     let opts = ParseOptions::default();
@@ -959,6 +959,10 @@ fn main() {
 
     let doc = analyze("# Hi\n\n[docs](/docs)", &opts);
     assert_eq!((doc.text.as_str(), doc.headings.len(), doc.links.len()), ("Hi\n\ndocs", 1, 1));
+
+    let parsed = ParsedDocument::parse("# Hi *there*", &opts);
+    assert_eq!(parsed.markdown(), "# Hi *there*\n");
+    assert_eq!(parsed.analyze().text, "Hi there");
 }
 ```
 
