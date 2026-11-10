@@ -1,6 +1,8 @@
 # Build tool plugins
 
-The npm package ships plugins that turn `.mdx` imports into components. They compile with [`mdxToJsx`](/mdx) and then let the build tool's own JSX transform finish the module, so no Babel or `@mdx-js/mdx` is needed.
+The npm package ships plugins that turn `.md` and `.mdx` imports into components. They compile with [`mdxToJsx`](/mdx) and then let the build tool's own JSX transform finish the module, so no Babel or `@mdx-js/mdx` is needed.
+
+`.mdx` files compile as [MDX](/mdx/syntax). Every other matched file, `.md` by default, compiles as plain Markdown: braces and `import` lines stay text, and raw HTML becomes JSX.
 
 | Import             | Use it in                                               | Guide                       |
 | ------------------ | ------------------------------------------------------- | --------------------------- |
@@ -12,7 +14,7 @@ The npm package ships plugins that turn `.mdx` imports into components. They com
 
 ## Usage
 
-Every plugin gives the same module: a default-exported component, plus `frontmatter` when you pass a parser.
+Every plugin gives the same modules. An `.mdx` file exports a component, plus `frontmatter` when you pass a parser:
 
 ```tsx
 import Guide, { frontmatter } from "./guide.mdx";
@@ -20,17 +22,35 @@ import Guide, { frontmatter } from "./guide.mdx";
 <Guide components={{ Note }} />;
 ```
 
+A `.md` file exports the same kind of component, plus its HTML, its headings and its front matter:
+
+```tsx
+import Doc, { html, headings, frontmatter } from "./guide.md";
+
+<Doc components={{ h1: Title }} />;
+element.innerHTML = html;
+```
+
+| Export        | `.md`                                                               | `.mdx`               |
+| ------------- | ------------------------------------------------------------------- | -------------------- |
+| `default`     | Component                                                           | Component            |
+| `html`        | HTML string, rendered with the same options                         | —                    |
+| `headings`    | `{ level, text, id }[]`, as [`doc.headings()`](/js/text) returns    | —                    |
+| `frontmatter` | Parsed value with the `frontmatter` option, else raw text or `null` | Only with the option |
+
+To compile only MDX, set `include: /\.mdx$/`.
+
 ## Options
 
 Every plugin takes the same options, plus any [parse option](/config/options) (`enableTables`, `enableHeadingIds`, …):
 
-| Option                 | Default    | Description                                                                                         |
-| ---------------------- | ---------- | --------------------------------------------------------------------------------------------------- |
-| `include`              | `/\.mdx$/` | Files to compile                                                                                    |
-| `jsxImportSource`      | `"react"`  | Package that provides `jsx-runtime`: `"preact"`, `"vue"`, `"hono/jsx"`, …                           |
-| `components`           | `true`     | Route tags and undeclared components through `props.components` (see [Components](/mdx/components)) |
-| `providerImportSource` | —          | Also read components from an `MDXProvider`, for example `"@mdx-js/react"`                           |
-| `frontmatter`          | —          | `(raw, file) => value`: parse the front matter and export it as `frontmatter` (`{}` when absent)    |
+| Option                 | Default     | Description                                                                                         |
+| ---------------------- | ----------- | --------------------------------------------------------------------------------------------------- |
+| `include`              | `/\.mdx?$/` | Files to compile; `ironmark/astro` defaults to `/\.mdx$/`                                           |
+| `jsxImportSource`      | `"react"`   | Package that provides `jsx-runtime`: `"preact"`, `"vue"`, `"hono/jsx"`, …                           |
+| `components`           | `true`      | Route tags and undeclared components through `props.components` (see [Components](/mdx/components)) |
+| `providerImportSource` | —           | Also read components from an `MDXProvider`, for example `"@mdx-js/react"`                           |
+| `frontmatter`          | —           | `(raw, file) => value`: parse the front matter and export the result (`{}` when absent)             |
 
 ## Front matter
 
@@ -54,14 +74,23 @@ guide.mdx: expected a closing tag for `<Note>` before the end of the document
 
 ## TypeScript
 
-Declare the module shape once so `.mdx` imports type-check:
+Declare the module shapes once so `.md` and `.mdx` imports type-check:
 
 ```ts
-// mdx.d.ts
+// markdown.d.ts
 declare module "*.mdx" {
   import type { ComponentType } from "react";
   export const frontmatter: Record<string, unknown>;
   const MDXContent: ComponentType<{ components?: Record<string, ComponentType<any>> }>;
   export default MDXContent;
+}
+
+declare module "*.md" {
+  import type { ComponentType } from "react";
+  export const html: string;
+  export const headings: { level: number; text: string; id: string }[];
+  export const frontmatter: string | null; // or your parser's type
+  const Content: ComponentType<{ components?: Record<string, ComponentType<any>> }>;
+  export default Content;
 }
 ```

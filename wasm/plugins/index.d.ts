@@ -1,8 +1,12 @@
 // Options shared by the build-tool plugins (`ironmark/vite`, `/esbuild`, `/rollup`, `/webpack`, `/astro`).
 import type { JsxOptions } from "../index.js";
 
-export interface MdxPluginOptions extends JsxOptions {
-  /** Files to compile. Default: `/\.mdx$/`. esbuild reads only the pattern's source, not its flags. */
+export interface MdxPluginOptions extends Omit<JsxOptions, "markdown"> {
+  /**
+   * Files to compile. `.mdx` files compile as MDX, every other match as plain Markdown.
+   * Default: `/\.mdx?$/` (`/\.mdx$/` in `ironmark/astro`, which leaves `.md` to Astro).
+   * esbuild reads only the pattern's source, not its flags.
+   */
   include?: RegExp;
   /**
    * Package providing `jsx-runtime` for the compiled components (`"react"`, `"preact"`,
@@ -17,8 +21,9 @@ export interface MdxPluginOptions extends JsxOptions {
   components?: boolean;
   /**
    * Parse the raw front matter (YAML or TOML text, without its fences) and export the
-   * result as `frontmatter`. Files without front matter export `{}`. Front matter is
-   * stripped from the content either way.
+   * result as `frontmatter`. Files without front matter export `{}`. Without this option,
+   * `.md` modules export the raw text (or `null`) and `.mdx` modules export nothing.
+   * Front matter is stripped from the content either way.
    *
    * @example frontmatter: (raw) => yaml.parse(raw)
    */

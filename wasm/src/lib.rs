@@ -230,7 +230,8 @@ impl JsxOutput {
     }
 }
 
-/// Compile MDX to JSX. MDX parsing is always on here; `enable_mdx` is ignored.
+/// Compile MDX to JSX. `enable_mdx` is ignored: MDX parsing is on, or off when
+/// `markdown` is true (plain Markdown, see `ironmark::render_markdown_jsx`).
 /// `components` / `provider_import_source` select `@mdx-js/mdx`-style
 /// component mapping (see `ironmark::JsxOptions`).
 ///
@@ -242,13 +243,19 @@ pub fn render_jsx(
     flags: u32,
     components: Option<bool>,
     provider_import_source: Option<String>,
+    markdown_only: Option<bool>,
 ) -> Result<JsxOutput, JsError> {
     let options = build_options(flags);
     let jsx = ironmark::JsxOptions {
         components: components.unwrap_or(false),
         provider_import_source,
     };
-    ironmark::render_jsx_with(&utf8(markdown), &options, &jsx)
+    let compile = if markdown_only.unwrap_or(false) {
+        ironmark::render_markdown_jsx
+    } else {
+        ironmark::render_jsx_with
+    };
+    compile(&utf8(markdown), &options, &jsx)
         .map(|inner| JsxOutput { inner })
         .map_err(|err| JsError::new(err.message()))
 }

@@ -156,6 +156,12 @@ export interface JsxOptions extends ParseOptions {
    * `MDXProvider` can supply components. Implies `components`. Default: none.
    */
   providerImportSource?: string;
+  /**
+   * Compile as plain Markdown instead of MDX: braces stay literal, `import`/`export`
+   * lines are text, and raw HTML is rewritten as JSX (comments dropped). Use it to turn
+   * `.md` files into components. Default: false.
+   */
+  markdown?: boolean;
 }
 
 // ─── HTML parse options ───────────────────────────────────────────────────────
@@ -374,7 +380,7 @@ export declare function markdownToAnsi(input: MarkdownInput, options?: AnsiOptio
 /**
  * Compile MDX to JSX.
  *
- * MDX parsing is always on (`enableMdx` is ignored). The result still needs a
+ * MDX parsing is always on (`enableMdx` is ignored) unless `markdown` is set. The result still needs a
  * JSX transform (esbuild, Babel, SWC, …) to run. Only use with trusted input:
  * `{expressions}` and `import`/`export` blocks are executable code.
  *
@@ -513,7 +519,7 @@ export type ResolvedOptions = Readonly<
 export type AnsiRenderOptions = Pick<AnsiOptions, "width" | "color" | "lineNumbers" | "padding">;
 
 /** JSX output settings for `doc.jsx()`. Parse options go through `parse()` / `with()`. */
-export type JsxRenderOptions = Pick<JsxOptions, "components" | "providerImportSource">;
+export type JsxRenderOptions = Pick<JsxOptions, "components" | "providerImportSource" | "markdown">;
 
 /**
  * What every document has, in every entry. Each output renders on first call and is
@@ -563,7 +569,7 @@ export interface AstDocumentMethods {
 
 /** Document methods backed by the MDX compiler. */
 export interface JsxDocumentMethods {
-  /** Compile as MDX (`enableMdx` is implied). */
+  /** Compile as MDX (`enableMdx` is implied), or as plain Markdown with `markdown: true`. */
   jsx(this: JsxDocumentMethods, options?: JsxRenderOptions): Readonly<JsxOutput>;
 }
 

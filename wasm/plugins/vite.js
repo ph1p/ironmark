@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { createMdxCompiler } from "./core.js";
 
 /**
- * Vite plugin: import `.mdx` files as components. Also works in Astro, SvelteKit, Nuxt,
+ * Vite plugin: import `.md` and `.mdx` files as components. Also works in Astro, SvelteKit, Nuxt,
  * Storybook, Vitest and anything else built on Vite (5 or newer).
  *
  * @param {import("./index.js").MdxPluginOptions} [options]

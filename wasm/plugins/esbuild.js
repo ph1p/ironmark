@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { createMdxCompiler } from "./core.js";
 
 /**
- * esbuild plugin: import `.mdx` files as components. The same object works as a
+ * esbuild plugin: import `.md` and `.mdx` files as components. The same object works as a
  * `Bun.build()` / `Bun.plugin()` plugin, and in tools built on esbuild (tsup).
  *
  * @param {import("./index.js").MdxPluginOptions} [options]

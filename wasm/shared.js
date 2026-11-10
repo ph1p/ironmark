@@ -196,6 +196,7 @@ export function createMdxToJsx(wasmRenderJsx) {
       ...optionArgs(input, options),
       options?.components,
       options?.providerImportSource,
+      options?.markdown,
     );
     try {
       return { esm: out.esm, jsx: out.jsx, module: out.module };
@@ -610,10 +611,15 @@ export function createIronmark(api) {
       return this.#output(`ansi:${args}`, () => this.#tree().ansi(...args));
     }
 
-    jsx({ components, providerImportSource } = {}) {
-      return this.#output(`jsx:${components}:${providerImportSource}`, () =>
+    jsx({ components, providerImportSource, markdown } = {}) {
+      return this.#output(`jsx:${components}:${providerImportSource}:${markdown}`, () =>
         Object.freeze(
-          api.mdxToJsx(this.#bytes, { ...this.#options, components, providerImportSource }),
+          api.mdxToJsx(this.#bytes, {
+            ...this.#options,
+            components,
+            providerImportSource,
+            markdown,
+          }),
         ),
       );
     }

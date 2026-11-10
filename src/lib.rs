@@ -118,7 +118,9 @@ pub use html_parser::{
 #[doc(hidden)]
 pub use inline::benchmark_parse_inline as __benchmark_parse_inline;
 #[cfg(feature = "html")]
-pub use mdx::convert::{JsxOptions, MdxError, MdxOutput, render_jsx, render_jsx_with};
+pub use mdx::convert::{
+    JsxOptions, MdxError, MdxOutput, render_jsx, render_jsx_with, render_markdown_jsx,
+};
 #[cfg(feature = "html")]
 #[doc(hidden)]
 pub use render::benchmark_heading_slug as __benchmark_heading_slug;

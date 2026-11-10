@@ -14,7 +14,7 @@ await esbuild.build({
 });
 ```
 
-The plugin returns the compiled module with the `jsx` loader, so esbuild finishes the JSX itself. Imports inside the `.mdx` file resolve relative to it. Compile errors are reported with the file location.
+The plugin returns the compiled module with the `jsx` loader, so esbuild finishes the JSX itself. Imports inside an `.mdx` file resolve relative to it. Compile errors are reported with the file location.
 
 ## Bun
 
@@ -26,7 +26,7 @@ import ironmarkMdx from "ironmark/esbuild";
 await Bun.build({ entrypoints: ["src/main.jsx"], plugins: [ironmarkMdx()] });
 ```
 
-To import `.mdx` at runtime, register it with `Bun.plugin()` in a preload script:
+To import `.md` and `.mdx` at runtime, register it with `Bun.plugin()` in a preload script:
 
 ```js
 // preload.js

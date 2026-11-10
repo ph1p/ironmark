@@ -12,7 +12,7 @@ export default {
 };
 ```
 
-Put `ironmarkMdx()` before the framework plugin. It runs with `enforce: "pre"`, compiles `.mdx` to JSX and then transforms the JSX with the project's own Vite: Oxc in Vite 8, esbuild before.
+Put `ironmarkMdx()` before the framework plugin. It runs with `enforce: "pre"`, compiles `.md` and `.mdx` to JSX and then transforms the JSX with the project's own Vite: Oxc in Vite 8, esbuild before. Imports with `?raw`, `?url`, `?inline` or `?worker` are left to Vite.
 
 ## Preact
 

@@ -5,7 +5,7 @@ const byOptions = new WeakMap();
 const byQuery = new Map();
 
 /**
- * webpack (5) and Rspack loader: compile `.mdx` files to modules that still contain JSX.
+ * webpack (5) and Rspack loader: compile `.md` and `.mdx` files to modules that still contain JSX.
  * Chain a JSX transform after it (`builtin:swc-loader`, `swc-loader`, `babel-loader`,
  * `esbuild-loader`); the output's pragmas select the automatic runtime.
  *

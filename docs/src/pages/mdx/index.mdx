@@ -2,7 +2,7 @@
 
 ironmark compiles [MDX](https://mdxjs.com/), which is Markdown with JSX tags, expressions in braces and `import`/`export`, to JSX. It is off by default (`enableMdx` / `enable_mdx`) and needs no extra dependencies.
 
-- To import `.mdx` files in an app, add one of the [build tool plugins](/plugins).
+- To import `.md` or `.mdx` files in an app, add one of the [build tool plugins](/plugins).
 - `mdxToJsx` itself returns a JavaScript module that still contains JSX, for your own JSX transform (esbuild, Babel, SWC, Oxc, TypeScript).
 
 :::danger[MDX is code]
@@ -36,6 +36,29 @@ let module = out.to_module(); // ESM + `export default function MDXContent(props
 :::
 
 `render_jsx` / `mdxToJsx` turn on `enable_mdx` themselves. Every other option (tables, task lists, highlight, …) applies as usual.
+
+## Plain Markdown to JSX
+
+To turn a plain `.md` file into a component, compile it without MDX syntax: braces and `import` lines stay text, raw HTML is rewritten as JSX (`class` becomes `className`, void tags self-close) and HTML comments are dropped.
+
+:::code-group
+
+```ts [JavaScript]
+mdxToJsx("# Price {per month}", { markdown: true }).jsx;
+// "<>\n<h1>Price &#123;per month&#125;</h1>\n</>"
+
+ironmark.parse(source).jsx({ markdown: true, components: true });
+```
+
+```rust [Rust]
+use ironmark::{render_markdown_jsx, JsxOptions, ParseOptions};
+
+let out = render_markdown_jsx("# Price {per month}", &ParseOptions::default(), &JsxOptions::default()).unwrap();
+```
+
+:::
+
+Raw HTML must still nest: an unclosed `<div>` is a compile error, as in MDX.
 
 ## Output
 

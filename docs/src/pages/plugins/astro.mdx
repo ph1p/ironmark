@@ -25,6 +25,8 @@ import Note from "../components/Note.jsx";
 
 The integration picks `jsxImportSource` from `@astrojs/react` or `@astrojs/preact`. Pass `jsxImportSource` yourself to override it.
 
+Astro handles `.md` files itself, so the integration only claims `.mdx` by default. To import `.md` files as components with exported `html` and `headings`, widen `include` to a folder Astro does not render as pages, for example `include: /\/content\/.*\.mdx?$/`.
+
 :::warning
 Use it **instead of** `@astrojs/mdx`, not next to it. It compiles to framework components, so `.mdx` pages and MDX content collections are not supported. The integration warns when both are installed.
 :::

@@ -204,6 +204,40 @@ pub fn render_jsx_with(
     options: &ParseOptions,
     jsx: &JsxOptions,
 ) -> Result<MdxOutput, MdxError> {
+    compile(markdown, options, jsx, true)
+}
+
+/// Compile plain Markdown (no MDX syntax) to JSX with [`JsxOptions`].
+///
+/// Like [`render_jsx_with`], but [`ParseOptions::enable_mdx`] is forced off:
+/// braces stay literal text, `import`/`export` lines are paragraphs, and there
+/// is no ESM. Raw HTML is rewritten as JSX (`class` → `className`, void tags
+/// self-closed) and HTML comments are dropped, so the HTML must still nest.
+///
+/// # Examples
+///
+/// ```
+/// use ironmark::{render_markdown_jsx, JsxOptions, ParseOptions};
+///
+/// let out = render_markdown_jsx("# Hi {x}\n\n<div class=\"a\">b</div>\n", &ParseOptions::default(), &JsxOptions::default()).unwrap();
+/// assert!(out.esm.is_empty());
+/// assert!(out.jsx.contains("<h1>Hi &#123;x&#125;</h1>"));
+/// assert!(out.jsx.contains("<div className=\"a\">b</div>"));
+/// ```
+pub fn render_markdown_jsx(
+    markdown: &str,
+    options: &ParseOptions,
+    jsx: &JsxOptions,
+) -> Result<MdxOutput, MdxError> {
+    compile(markdown, options, jsx, false)
+}
+
+fn compile(
+    markdown: &str,
+    options: &ParseOptions,
+    jsx: &JsxOptions,
+    mdx: bool,
+) -> Result<MdxOutput, MdxError> {
     // NUL is the sentinel byte; keep real NULs out of the rendered HTML.
     let markdown: Cow<'_, str> = if markdown.contains(SENTINEL) {
         Cow::Owned(markdown.replace(SENTINEL, "\u{FFFD}"))
@@ -211,7 +245,7 @@ pub fn render_jsx_with(
         Cow::Borrowed(markdown)
     };
     let opts = ParseOptions {
-        enable_mdx: true,
+        enable_mdx: mdx,
         ..*options
     };
     let html = crate::block::render_html_impl(&markdown, &opts, true);
@@ -247,6 +281,14 @@ fn tokenize(html: &str) -> Result<Vec<Tok<'_>>, MdxError> {
                     .ok_or_else(|| MdxError::new("internal: unterminated sentinel"))?;
                 toks.push(Tok::Mdx(marker, &html[body..end]));
                 i = end + 1;
+            }
+            b'<' if b[i + 1..].starts_with(b"!--") => {
+                // Raw HTML comment (plain Markdown only): JSX has no comments, drop it.
+                i = html[i + 4..].find("-->").map_or(b.len(), |e| i + 4 + e + 3);
+            }
+            b'<' if matches!(b.get(i + 1), Some(b'!' | b'?')) => {
+                // `<!DOCTYPE …>`, `<![CDATA[…]]>`, `<?…?>`: no JSX equivalent, drop it.
+                i = memchr::memchr(b'>', &b[i..]).map_or(b.len(), |o| i + o + 1);
             }
             b'<' => {
                 // Renderer output: attribute values never contain a raw `>`.
@@ -554,11 +596,21 @@ fn push_jsx_attrs(out: &mut String, h: &str, prefix: &str, name: &str, self_clos
             .unwrap_or(rest.len());
         let attr = &rest[..name_end];
         rest = &rest[name_end..];
+        // Renderer output always double-quotes; raw HTML in plain Markdown may not.
         let mut value = None;
-        if let Some(r) = rest.strip_prefix("=\"") {
-            let close = r.find('"').unwrap_or(r.len());
+        if let Some(r) = rest.strip_prefix('=') {
+            let r = r.trim_start();
+            let (q, r) = match r.as_bytes().first() {
+                Some(&q @ (b'"' | b'\'')) => (Some(q as char), &r[1..]),
+                _ => (None, r),
+            };
+            let close = match q {
+                Some(q) => r.find(q),
+                None => r.find(|c: char| c.is_ascii_whitespace()),
+            }
+            .unwrap_or(r.len());
             value = Some(&r[..close]);
-            rest = r.get(close + 1..).unwrap_or("");
+            rest = r.get(close + usize::from(q.is_some())..).unwrap_or("");
         }
         rest = rest.trim_start();
         let jsx_name = match attr {
@@ -573,7 +625,11 @@ fn push_jsx_attrs(out: &mut String, h: &str, prefix: &str, name: &str, self_clos
             ("style", Some(v)) => push_style_object(out, v),
             (_, Some(v)) => {
                 out.push_str("=\"");
-                out.push_str(v);
+                if v.contains('"') {
+                    out.push_str(&v.replace('"', "&quot;"));
+                } else {
+                    out.push_str(v);
+                }
                 out.push('"');
             }
         }
@@ -712,6 +768,28 @@ mod tests {
             [
                 "import", "X", "Y", "as", "Z", "from", "export", "const", "V"
             ]
+        );
+    }
+
+    #[test]
+    fn plain_markdown() {
+        let md = |src: &str| {
+            render_markdown_jsx(src, &ParseOptions::default(), &JsxOptions::default()).unwrap()
+        };
+        let out = md("import X from 'y'\n\nHi {x} <X />");
+        assert!(out.esm.is_empty());
+        assert!(out.references.is_empty());
+        assert_eq!(
+            out.jsx,
+            "<>\n<p>import X from 'y'</p>\n<p>Hi &#123;x&#125; <X /></p>\n</>"
+        );
+        assert_eq!(
+            md("<!-- note -->\n\n<div class='a' id=b title=\"c\">\n\nx<br>\n\n</div>").jsx,
+            "<>\n\n<div className=\"a\" id=\"b\" title=\"c\">\n<p>x<br /></p>\n</div>\n</>"
+        );
+        assert!(
+            render_markdown_jsx("<p>open", &ParseOptions::default(), &JsxOptions::default())
+                .is_err()
         );
     }
 

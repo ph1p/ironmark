@@ -8,7 +8,7 @@ export default {
   module: {
     rules: [
       {
-        test: /\.mdx$/,
+        test: /\.mdx?$/,
         use: [
           { loader: "babel-loader", options: { presets: ["@babel/preset-react"] } },
           { loader: "ironmark/webpack", options: { providerImportSource: "@mdx-js/react" } },
@@ -31,7 +31,7 @@ export default {
   module: {
     rules: [
       {
-        test: /\.mdx$/,
+        test: /\.mdx?$/,
         use: [
           {
             loader: "builtin:swc-loader",
@@ -46,5 +46,5 @@ export default {
 ```
 
 :::tip
-The output starts with `@jsxRuntime automatic` and `@jsxImportSource` pragmas, so the JSX loader needs no runtime settings for `.mdx` files.
+The output starts with `@jsxRuntime automatic` and `@jsxImportSource` pragmas, so the JSX loader needs no runtime settings for `.md` and `.mdx` files.
 :::

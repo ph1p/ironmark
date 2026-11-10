@@ -28,7 +28,9 @@ export default function ironmarkAstro(options = {}) {
             );
           }
         }
-        updateConfig({ vite: { plugins: [ironmarkMdx({ ...options, jsxImportSource })] } });
+        // Astro renders `.md` pages itself, so only `.mdx` is claimed unless `include` says otherwise.
+        const plugin = ironmarkMdx({ include: /\.mdx$/, ...options, jsxImportSource });
+        updateConfig({ vite: { plugins: [plugin] } });
       },
     },
   };

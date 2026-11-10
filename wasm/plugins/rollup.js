@@ -1,7 +1,7 @@
 import { createMdxCompiler } from "./core.js";
 
 /**
- * Rollup (4.24 or newer) and Rolldown plugin: import `.mdx` files as components.
+ * Rollup (4.24 or newer) and Rolldown plugin: import `.md` and `.mdx` files as components.
  *
  * Rolldown transforms the JSX itself. Under Rollup the plugin turns on Rollup's own JSX
  * transform (`jsx: { mode: "automatic" }`) unless the config already sets `jsx`.
