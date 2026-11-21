@@ -22,8 +22,8 @@ export function parseArgs(args) {
 }
 
 export function checkBindgenVersion(version) {
-  if (version !== "wasm-bindgen 0.2.129") {
-    throw new Error(`Expected wasm-bindgen 0.2.129 (matching Cargo.lock), found ${version}`);
+  if (version !== "wasm-bindgen 0.2.130") {
+    throw new Error(`Expected wasm-bindgen 0.2.130 (matching Cargo.lock), found ${version}`);
   }
 }
 

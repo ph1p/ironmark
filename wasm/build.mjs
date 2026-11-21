@@ -46,6 +46,7 @@ const wasmModule = new WebAssembly.Module(wasmBytes);
 const wasmInstance = new WebAssembly.Instance(wasmModule, { "./ironmark_bg.js": wasmGlue });
 
 wasmGlue.__wbg_set_wasm(wasmInstance.exports);
+wasmInstance.exports.__wbindgen_start?.();
 
 export async function init() {}
 

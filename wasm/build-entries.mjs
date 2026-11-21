@@ -91,6 +91,7 @@ ${shared([])}
 const wasmModule = new WebAssembly.Module(readFileSync(new URL("${asset}", import.meta.url)));
 const wasmInstance = new WebAssembly.Instance(wasmModule, { "${glueImport}": wasmGlue });
 wasmGlue.__wbg_set_wasm(wasmInstance.exports);
+wasmInstance.exports.__wbindgen_start?.();
 
 export async function init() {}
 
@@ -115,8 +116,8 @@ ${body}`;
 
 function build() {
   const bindgen = run("wasm-bindgen", ["--version"], true);
-  if (bindgen !== "wasm-bindgen 0.2.129") {
-    throw new Error(`Expected wasm-bindgen 0.2.129 (matching Cargo.lock), found ${bindgen}`);
+  if (bindgen !== "wasm-bindgen 0.2.130") {
+    throw new Error(`Expected wasm-bindgen 0.2.130 (matching Cargo.lock), found ${bindgen}`);
   }
   const target = resolve(root, process.env.CARGO_TARGET_DIR || "target");
   for (const entry of ENTRIES) {

@@ -13,7 +13,7 @@ runs:
     # Must match the wasm-bindgen version in wasm/Cargo.toml and `setup:wasm` in package.json
     - name: Install wasm-bindgen-cli
       shell: bash
-      run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+      run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
 
     - name: Install binaryen
       shell: bash

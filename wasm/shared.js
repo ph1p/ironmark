@@ -33,6 +33,7 @@ export async function instantiateWasm(glue, importName, input, defaultUrl) {
         : await WebAssembly.instantiate(await fetch(url).then((r) => r.arrayBuffer()), imports);
   const instance = result instanceof WebAssembly.Instance ? result : result.instance;
   glue.__wbg_set_wasm(instance.exports);
+  instance.exports.__wbindgen_start?.();
 }
 
 // ─── Preset resolution ───────────────────────────────────────────────────────

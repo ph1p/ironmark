@@ -76,7 +76,7 @@ serde = { version = "1", features = ["derive"], optional = true }
 members = ["wasm"]
 
 [dev-dependencies]
-comrak = { version = "0.57", default-features = false }
+comrak = { version = "1", default-features = false }
 criterion = { version = "0.8" }
 markdown = "1"
 markdown-it = "0.6"
