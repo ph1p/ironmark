@@ -6,7 +6,6 @@ description = "Fast Markdown to HTML parser written in Rust with WebAssembly bin
 license = "MIT"
 authors = ["ph1p"]
 repository = "https://github.com/ph1p/ironmark"
-homepage = "https://github.com/ph1p/ironmark"
 documentation = "https://docs.rs/ironmark"
 keywords = ["markdown", "parser", "html", "commonmark", "wasm"]
 categories = ["parsing", "text-processing", "wasm"]

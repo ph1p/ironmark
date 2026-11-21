@@ -460,9 +460,9 @@ impl<'a> InlineScanner<'a> {
         title: Option<LinkTitle>,
     ) {
         if !is_image {
-            for j in 0..bi {
-                if !self.brackets[j].is_image {
-                    self.brackets[j].active = false;
+            for b in &mut self.brackets[..bi] {
+                if !b.is_image {
+                    b.active = false;
                 }
             }
         }
@@ -586,9 +586,7 @@ impl<'a> InlineScanner<'a> {
             }
 
             // Mark delimiters between opener and closer for removal (avoid O(n) drain).
-            for di in (opener_di + 1)..closer_di {
-                self.delims[di] = usize::MAX;
-            }
+            self.delims[opener_di + 1..closer_di].fill(usize::MAX);
 
             let new_ocount = ocount - use_count;
             if new_ocount == 0 {

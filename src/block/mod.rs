@@ -862,11 +862,11 @@ impl<'a> BlockParser<'a> {
             // A blockquote exists somewhere; check if one sits between the list
             // item and the tip (if so, the blank belongs to the blockquote, not
             // the list item).
-            let len = self.open.len();
-            for i in (idx + 1)..len {
-                if matches!(self.open[i].block_type, OpenBlockType::BlockQuote) {
-                    return;
-                }
+            if self.open[idx + 1..]
+                .iter()
+                .any(|b| matches!(b.block_type, OpenBlockType::BlockQuote))
+            {
+                return;
             }
             self.open[idx].had_blank_in_item = true;
         }

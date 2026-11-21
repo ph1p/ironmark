@@ -101,12 +101,8 @@ pub(super) fn em_openers_index(marker: u8, count: u16) -> usize {
 
 #[inline(always)]
 pub(super) fn render_em_delim(out: &mut String, d: &EmDelim) {
-    for j in 0..d.close_em_len as usize {
-        out.push_str(if d.close_em[j] == 2 {
-            "</strong>"
-        } else {
-            "</em>"
-        });
+    for &tag in &d.close_em[..d.close_em_len as usize] {
+        out.push_str(if tag == 2 { "</strong>" } else { "</em>" });
     }
     if d.cur_start < d.cur_end {
         let marker = d.marker as char;
