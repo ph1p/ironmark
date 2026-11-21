@@ -12,6 +12,8 @@ The npm package ships plugins that turn `.md` and `.mdx` imports into components
 | `ironmark/webpack` | webpack 5 and Rspack (a loader)                         | [webpack](/plugins/webpack) |
 | `ironmark/astro`   | Astro, with `@astrojs/react` or `@astrojs/preact`       | [Astro](/plugins/astro)     |
 
+Each entry's default export is the plugin; import it as `ironmark`, for example `import ironmark from "ironmark/vite"`.
+
 ## Usage
 
 Every plugin gives the same modules. An `.mdx` file exports a component, plus `frontmatter` when you pass a parser:
@@ -59,7 +61,7 @@ Front matter is always stripped from the content. To read it, pass your YAML or 
 ```js
 import { parse } from "yaml";
 
-ironmarkMdx({ frontmatter: (raw) => parse(raw) });
+ironmark({ frontmatter: (raw) => parse(raw) });
 ```
 
 The value is serialized with `JSON.stringify`, so dates become strings.

@@ -4,13 +4,13 @@
 
 ```js
 import * as esbuild from "esbuild";
-import ironmarkMdx from "ironmark/esbuild";
+import ironmark from "ironmark/esbuild";
 
 await esbuild.build({
   entryPoints: ["src/main.jsx"],
   bundle: true,
   jsx: "automatic",
-  plugins: [ironmarkMdx()],
+  plugins: [ironmark()],
 });
 ```
 
@@ -21,29 +21,29 @@ The plugin returns the compiled module with the `jsx` loader, so esbuild finishe
 The same plugin works in `Bun.build()`:
 
 ```js
-import ironmarkMdx from "ironmark/esbuild";
+import ironmark from "ironmark/esbuild";
 
-await Bun.build({ entrypoints: ["src/main.jsx"], plugins: [ironmarkMdx()] });
+await Bun.build({ entrypoints: ["src/main.jsx"], plugins: [ironmark()] });
 ```
 
 To import `.md` and `.mdx` at runtime, register it with `Bun.plugin()` in a preload script:
 
 ```js
 // preload.js
-import ironmarkMdx from "ironmark/esbuild";
+import ironmark from "ironmark/esbuild";
 
-Bun.plugin(ironmarkMdx());
+Bun.plugin(ironmark());
 ```
 
 ## tsup
 
 ```js
 // tsup.config.js
-import ironmarkMdx from "ironmark/esbuild";
+import ironmark from "ironmark/esbuild";
 
 export default {
   entry: ["src/index.tsx"],
-  esbuildPlugins: [ironmarkMdx()],
+  esbuildPlugins: [ironmark()],
 };
 ```
 

@@ -1,4 +1,4 @@
-import ironmarkMdx from "./vite.js";
+import vitePlugin from "./vite.js";
 
 /** UI integrations whose components `.mdx` files can compile to, by JSX import source. */
 const RENDERERS = { "@astrojs/react": "react", "@astrojs/preact": "preact" };
@@ -7,10 +7,10 @@ const RENDERERS = { "@astrojs/react": "react", "@astrojs/preact": "preact" };
  * Astro integration: import `.mdx` files from `.astro` files as React (or Preact)
  * components. Needs `@astrojs/react` or `@astrojs/preact`; replaces `@astrojs/mdx`.
  *
- * @param {import("./index.js").MdxPluginOptions} [options]
+ * @param {import("./index.js").PluginOptions} [options]
  * @returns {import("astro").AstroIntegration}
  */
-export default function ironmarkAstro(options = {}) {
+export default function ironmark(options = {}) {
   return {
     name: "ironmark",
     hooks: {
@@ -29,7 +29,7 @@ export default function ironmarkAstro(options = {}) {
           }
         }
         // Astro renders `.md` pages itself, so only `.mdx` is claimed unless `include` says otherwise.
-        const plugin = ironmarkMdx({ include: /\.mdx$/, ...options, jsxImportSource });
+        const plugin = vitePlugin({ include: /\.mdx$/, ...options, jsxImportSource });
         updateConfig({ vite: { plugins: [plugin] } });
       },
     },

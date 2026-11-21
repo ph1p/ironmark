@@ -10,9 +10,9 @@ const ASSET_QUERY = /(?:^|&)(?:raw|url|inline|worker|sharedworker)(?:&|=|$)/;
  * Normalize plugin options once and return a compiler for `.md` and `.mdx` sources.
  * `.mdx` files compile as MDX; every other matched file compiles as plain Markdown.
  *
- * @param {import("./index.js").MdxPluginOptions} [options]
+ * @param {import("./index.js").PluginOptions} [options]
  */
-export function createMdxCompiler(options = {}) {
+export function createCompiler(options = {}) {
   const {
     include = /\.mdx?$/,
     jsxImportSource = "react",

@@ -5,23 +5,23 @@
 ```js
 // vite.config.js
 import react from "@vitejs/plugin-react";
-import ironmarkMdx from "ironmark/vite";
+import ironmark from "ironmark/vite";
 
 export default {
-  plugins: [ironmarkMdx(), react()],
+  plugins: [ironmark(), react()],
 };
 ```
 
-Put `ironmarkMdx()` before the framework plugin. It runs with `enforce: "pre"`, compiles `.md` and `.mdx` to JSX and then transforms the JSX with the project's own Vite: Oxc in Vite 8, esbuild before. Imports with `?raw`, `?url`, `?inline` or `?worker` are left to Vite.
+Put `ironmark()` before the framework plugin. It runs with `enforce: "pre"`, compiles `.md` and `.mdx` to JSX and then transforms the JSX with the project's own Vite: Oxc in Vite 8, esbuild before. Imports with `?raw`, `?url`, `?inline` or `?worker` are left to Vite.
 
 ## Preact
 
 ```js
 import preact from "@preact/preset-vite";
-import ironmarkMdx from "ironmark/vite";
+import ironmark from "ironmark/vite";
 
 export default {
-  plugins: [ironmarkMdx({ jsxImportSource: "preact" }), preact()],
+  plugins: [ironmark({ jsxImportSource: "preact" }), preact()],
 };
 ```
 
@@ -30,12 +30,12 @@ export default {
 In `.storybook/main.ts`, add the plugin through `viteFinal`. Use `providerImportSource` so `MDXProvider` components from `@mdx-js/react` apply:
 
 ```ts
-import ironmarkMdx from "ironmark/vite";
+import ironmark from "ironmark/vite";
 
 export default {
   async viteFinal(config) {
     config.plugins = [
-      ironmarkMdx({ providerImportSource: "@mdx-js/react" }),
+      ironmark({ providerImportSource: "@mdx-js/react" }),
       ...(config.plugins ?? []),
     ];
     return config;

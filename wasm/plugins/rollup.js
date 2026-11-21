@@ -1,4 +1,4 @@
-import { createMdxCompiler } from "./core.js";
+import { createCompiler } from "./core.js";
 
 /**
  * Rollup (4.24 or newer) and Rolldown plugin: import `.md` and `.mdx` files as components.
@@ -6,12 +6,12 @@ import { createMdxCompiler } from "./core.js";
  * Rolldown transforms the JSX itself. Under Rollup the plugin turns on Rollup's own JSX
  * transform (`jsx: { mode: "automatic" }`) unless the config already sets `jsx`.
  *
- * @param {import("./index.js").MdxPluginOptions} [options]
+ * @param {import("./index.js").PluginOptions} [options]
  */
-export default function ironmarkMdx(options) {
-  const mdx = createMdxCompiler(options);
+export default function ironmark(options) {
+  const mdx = createCompiler(options);
   return {
-    name: "ironmark:mdx",
+    name: "ironmark",
     options(input) {
       if (this.meta.rolldownVersion || input.jsx !== undefined) return null;
       const importSource = mdx.jsxImportSource;

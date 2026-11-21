@@ -1,18 +1,18 @@
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createMdxCompiler } from "./core.js";
+import { createCompiler } from "./core.js";
 
 /**
  * esbuild plugin: import `.md` and `.mdx` files as components. The same object works as a
  * `Bun.build()` / `Bun.plugin()` plugin, and in tools built on esbuild (tsup).
  *
- * @param {import("./index.js").MdxPluginOptions} [options]
+ * @param {import("./index.js").PluginOptions} [options]
  * @returns {import("esbuild").Plugin}
  */
-export default function ironmarkMdx(options) {
-  const mdx = createMdxCompiler(options);
+export default function ironmark(options) {
+  const mdx = createCompiler(options);
   return {
-    name: "ironmark:mdx",
+    name: "ironmark",
     setup(build) {
       build.onLoad({ filter: mdx.include }, async ({ path }) => {
         const source = await readFile(path, "utf8");

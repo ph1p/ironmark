@@ -159,11 +159,11 @@ doc.stats().words = 1;
 
 // Build-tool plugins share one option type. Plugins typed against their bundler
 // (vite, esbuild, astro) are left out: those packages are not installed here.
-import type { MdxPluginOptions } from "./plugins/index.js";
+import type { PluginOptions } from "./plugins/index.js";
 import rollupMdx from "./plugins/rollup.js";
 import webpackMdx from "./plugins/webpack.js";
 
-const pluginOptions: MdxPluginOptions = {
+const pluginOptions: PluginOptions = {
   include: /\.mdx?$/,
   jsxImportSource: "preact",
   providerImportSource: "@mdx-js/react",
@@ -178,5 +178,5 @@ const loaded: string = webpackMdx.call(
 );
 void loaded;
 // @ts-expect-error frontmatter receives the raw text, not a parsed object.
-const badOptions: MdxPluginOptions = { frontmatter: (raw: number) => raw };
+const badOptions: PluginOptions = { frontmatter: (raw: number) => raw };
 void badOptions;

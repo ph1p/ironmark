@@ -1,9 +1,9 @@
-import type { MdxPluginOptions } from "./index.js";
+import type { MdxPluginOptions, PluginOptions } from "./index.js";
 
-export type { MdxPluginOptions };
+export type { MdxPluginOptions, PluginOptions };
 
 /** webpack and Rspack loader: compile `.md` and `.mdx` files to JSX modules. */
-export default function ironmarkMdxLoader(
-  this: { getOptions(): MdxPluginOptions; query: unknown; resourcePath: string },
+export default function ironmarkLoader(
+  this: { getOptions(): PluginOptions; query: unknown; resourcePath: string },
   source: string,
 ): string;

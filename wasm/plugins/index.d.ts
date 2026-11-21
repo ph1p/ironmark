@@ -1,7 +1,7 @@
 // Options shared by the build-tool plugins (`ironmark/vite`, `/esbuild`, `/rollup`, `/webpack`, `/astro`).
 import type { JsxOptions } from "../index.js";
 
-export interface MdxPluginOptions extends Omit<JsxOptions, "markdown"> {
+export interface PluginOptions extends Omit<JsxOptions, "markdown"> {
   /**
    * Files to compile. `.mdx` files compile as MDX, every other match as plain Markdown.
    * Default: `/\.mdx?$/` (`/\.mdx$/` in `ironmark/astro`, which leaves `.md` to Astro).
@@ -29,3 +29,6 @@ export interface MdxPluginOptions extends Omit<JsxOptions, "markdown"> {
    */
   frontmatter?: (raw: string, file: string) => unknown;
 }
+
+/** @deprecated Use `PluginOptions`. */
+export type MdxPluginOptions = PluginOptions;

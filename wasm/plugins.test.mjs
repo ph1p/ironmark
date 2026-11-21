@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import astro from "./plugins/astro.js";
-import { createMdxCompiler } from "./plugins/core.js";
+import { createCompiler } from "./plugins/core.js";
 import esbuild from "./plugins/esbuild.js";
 import rollup from "./plugins/rollup.js";
 import vite from "./plugins/vite.js";
@@ -25,7 +25,7 @@ const pluginContext = (meta = {}) => ({
 });
 
 test("core: compiles MDX with pragmas, components and stripped front matter", () => {
-  const code = createMdxCompiler().compile(SOURCE, "doc.mdx");
+  const code = createCompiler().compile(SOURCE, "doc.mdx");
   assert.ok(code.startsWith("/** @jsxRuntime automatic */\n/** @jsxImportSource react */\n"));
   assert.match(code, /import X from '\.\/x\.js'/);
   assert.match(code, /props\.components/);
@@ -35,7 +35,7 @@ test("core: compiles MDX with pragmas, components and stripped front matter", ()
 
 test("core: frontmatter option exports the parsed value", () => {
   const seen = [];
-  const mdx = createMdxCompiler({
+  const mdx = createCompiler({
     frontmatter: (raw, file) => (seen.push(file), parseFrontmatter(raw)),
   });
   assert.match(mdx.compile(SOURCE, "doc.mdx"), /export const frontmatter = \{"title":"Hi"\};/);
@@ -44,16 +44,16 @@ test("core: frontmatter option exports the parsed value", () => {
 });
 
 test("core: options pass through to the JSX renderer", () => {
-  const preact = createMdxCompiler({ jsxImportSource: "preact", components: false });
+  const preact = createCompiler({ jsxImportSource: "preact", components: false });
   const code = preact.compile(SOURCE, "doc.mdx");
   assert.match(code, /@jsxImportSource preact/);
   assert.doesNotMatch(code, /_components/);
-  const provider = createMdxCompiler({ providerImportSource: "@mdx-js/react" });
+  const provider = createCompiler({ providerImportSource: "@mdx-js/react" });
   assert.match(provider.compile(SOURCE, "doc.mdx"), /@mdx-js\/react/);
 });
 
 test("core: test() matches include, ignores queries and virtual ids", () => {
-  const mdx = createMdxCompiler();
+  const mdx = createCompiler();
   assert.ok(mdx.test("/a/doc.mdx"));
   assert.ok(mdx.test("/a/doc.mdx?import"));
   assert.ok(mdx.test("/a/doc.md"));
@@ -61,15 +61,15 @@ test("core: test() matches include, ignores queries and virtual ids", () => {
   assert.ok(!mdx.test("/a/doc.mdx?v=1&url"));
   assert.ok(!mdx.test("/a/doc.markdown"));
   assert.ok(!mdx.test("\0virtual.mdx"));
-  assert.ok(!createMdxCompiler({ include: /\.mdx$/ }).test("/a/doc.md"));
-  const sticky = createMdxCompiler({ include: /\.mdx?$/g });
+  assert.ok(!createCompiler({ include: /\.mdx$/ }).test("/a/doc.md"));
+  const sticky = createCompiler({ include: /\.mdx?$/g });
   assert.ok(sticky.test("a.md") && sticky.test("a.md"), "global regex lastIndex is reset");
 });
 
 test("core: .md compiles as plain Markdown and exports html, headings, frontmatter", () => {
   const md =
     "---\ntitle: Hi\n---\n\nimport X from 'y'\n\n# Hello {name}\n\n<!-- note -->\n<div class='a'>raw</div>\n";
-  const code = createMdxCompiler().compile(md, "/a/guide.md");
+  const code = createCompiler().compile(md, "/a/guide.md");
   assert.match(code, /@jsxImportSource react/);
   assert.match(code, /<_components\.p>import X from 'y'<\/_components\.p>/);
   assert.match(code, /<_components\.h1>Hello &#123;name&#125;<\/_components\.h1>/);
@@ -82,17 +82,14 @@ test("core: .md compiles as plain Markdown and exports html, headings, frontmatt
     code,
     /export const headings = \[\{"level":1,"text":"Hello \{name\}","id":"hello-name"\}\];/,
   );
-  assert.match(createMdxCompiler().compile("# Hi\n", "a.md"), /export const frontmatter = null;/);
-  const parsed = createMdxCompiler({ frontmatter: parseFrontmatter }).compile(md, "a.md");
+  assert.match(createCompiler().compile("# Hi\n", "a.md"), /export const frontmatter = null;/);
+  const parsed = createCompiler({ frontmatter: parseFrontmatter }).compile(md, "a.md");
   assert.match(parsed, /export const frontmatter = \{"title":"Hi"\};/);
-  assert.doesNotMatch(
-    createMdxCompiler().compile(SOURCE, "doc.mdx"),
-    /export const (html|headings)/,
-  );
+  assert.doesNotMatch(createCompiler().compile(SOURCE, "doc.mdx"), /export const (html|headings)/);
 });
 
 test("core: errors name the file", () => {
-  assert.throws(() => createMdxCompiler().compile(BROKEN, "bad.mdx"), /^Error: bad\.mdx: .*<A>/);
+  assert.throws(() => createCompiler().compile(BROKEN, "bad.mdx"), /^Error: bad\.mdx: .*<A>/);
 });
 
 test("esbuild: onLoad returns JSX contents, or an error with its location", async () => {
@@ -203,7 +200,7 @@ test("astro: picks the JSX import source from the UI integration", async () => {
   assert.deepEqual(react.warnings, []);
   assert.deepEqual(
     react.plugins.map((plugin) => plugin.name),
-    ["ironmark:mdx"],
+    ["ironmark"],
   );
   const [plugin] = react.plugins;
   assert.equal(

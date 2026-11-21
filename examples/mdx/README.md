@@ -21,7 +21,7 @@ pnpm install
 pnpm dev     # builds the ironmark WASM package first, then starts Vite
 ```
 
-[`vite.config.mjs`](vite.config.mjs) adds `ironmark/vite`, which compiles each `.mdx` import
+[`vite.config.mjs`](vite.config.mjs) adds `ironmark/vite`, which compiles each `.md` and `.mdx` import
 with `components: true` and then runs Vite's own JSX transform. [`src/main.jsx`](src/main.jsx)
 renders the guide and passes `components`:
 
@@ -30,4 +30,4 @@ renders the guide and passes `components`:
 - `wrapper` wraps the whole document.
 
 To use an `MDXProvider` instead of `props.components`, add `@mdx-js/react` and call
-`ironmarkMdx({ providerImportSource: "@mdx-js/react" })`.
+`ironmark({ providerImportSource: "@mdx-js/react" })`.

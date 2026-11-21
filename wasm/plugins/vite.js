@@ -1,21 +1,21 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createMdxCompiler } from "./core.js";
+import { createCompiler } from "./core.js";
 
 /**
  * Vite plugin: import `.md` and `.mdx` files as components. Also works in Astro, SvelteKit, Nuxt,
  * Storybook, Vitest and anything else built on Vite (5 or newer).
  *
- * @param {import("./index.js").MdxPluginOptions} [options]
+ * @param {import("./index.js").PluginOptions} [options]
  * @returns {import("vite").Plugin}
  */
-export default function ironmarkMdx(options) {
-  const mdx = createMdxCompiler(options);
+export default function ironmark(options) {
+  const mdx = createCompiler(options);
   let root = process.cwd();
   let transformJsx;
   return {
-    name: "ironmark:mdx",
+    name: "ironmark",
     enforce: "pre",
     configResolved(config) {
       root = config.root;
