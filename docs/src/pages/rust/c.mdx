@@ -1,6 +1,6 @@
 # C and C++
 
-The crate compiles to a static library (`libironmark.a`) that exposes two C functions. A header is provided at `include/ironmark.h`.
+The crate compiles to a static library (`libironmark.a`) that exposes a small C API. A header is provided at `include/ironmark.h`.
 
 :::steps
 
@@ -40,12 +40,54 @@ int main(void) {
 
 :::
 
+## Options
+
+`ironmark_render_html_with_options` takes the input as a pointer plus a byte length, so the buffer does not need a terminating NUL. Options are a struct with a flag bitmask and two limits:
+
+```c
+ironmark_options opts = ironmark_options_default();
+opts.flags |= IRONMARK_OPT_DISABLE_RAW_HTML;   /* untrusted input */
+opts.flags &= ~IRONMARK_OPT_HARD_BREAKS;
+opts.max_input_size = 1000000;                 /* bytes; 0 = unlimited */
+
+char *html = ironmark_render_html_with_options(buf, buf_len, &opts);
+```
+
+Always start from `ironmark_options_default()` and then set or clear bits, so options added in later versions keep their defaults. Pass `NULL` for the defaults.
+
+| Flag                                  | Default | Effect                                  |
+| ------------------------------------- | ------- | --------------------------------------- |
+| `IRONMARK_OPT_HARD_BREAKS`            | on      | Newline in a paragraph becomes `<br />` |
+| `IRONMARK_OPT_HIGHLIGHT`              | on      | `==text==` to `<mark>`                  |
+| `IRONMARK_OPT_STRIKETHROUGH`          | on      | `~~text~~` to `<del>`                   |
+| `IRONMARK_OPT_UNDERLINE`              | on      | `++text++` to `<u>`                     |
+| `IRONMARK_OPT_TABLES`                 | on      | Pipe tables                             |
+| `IRONMARK_OPT_AUTOLINK`               | on      | Bare URLs and emails                    |
+| `IRONMARK_OPT_TASK_LISTS`             | on      | `- [ ]` and `- [x]`                     |
+| `IRONMARK_OPT_INDENTED_CODE_BLOCKS`   | on      | 4-space indented code                   |
+| `IRONMARK_OPT_DISABLE_RAW_HTML`       | off     | Escape all raw HTML                     |
+| `IRONMARK_OPT_HEADING_IDS`            | off     | `id=` on headings                       |
+| `IRONMARK_OPT_HEADING_ANCHORS`        | off     | Anchor link in headings                 |
+| `IRONMARK_OPT_NO_HTML_BLOCKS`         | off     | Escape HTML blocks only                 |
+| `IRONMARK_OPT_NO_HTML_SPANS`          | off     | Escape inline HTML only                 |
+| `IRONMARK_OPT_TAG_FILTER`             | off     | GFM tag filter                          |
+| `IRONMARK_OPT_COLLAPSE_WHITESPACE`    | off     | Collapse spaces and tabs in text        |
+| `IRONMARK_OPT_PERMISSIVE_ATX_HEADERS` | off     | `#Heading` without a space              |
+| `IRONMARK_OPT_WIKI_LINKS`             | off     | `[[wiki link]]`                         |
+| `IRONMARK_OPT_LATEX_MATH`             | off     | `$math$` and `$$math$$`                 |
+| `IRONMARK_OPT_MDX`                    | off     | MDX syntax, trusted authors only        |
+| `IRONMARK_OPT_FRONTMATTER`            | off     | Skip leading front matter               |
+
+`max_nesting_depth` (default 128) caps blockquote and list nesting.
+
+The function returns `NULL` when the input is `NULL`, is not valid UTF-8, or `flags` has a bit outside `IRONMARK_OPT_ALL`. Unknown bits are rejected so that a flag from a newer header is never silently ignored by an older library.
+
 ## Memory contract
 
 :::warning
-`ironmark_render_html` returns a heap-allocated string. You **must** free it with `ironmark_free`. Passing any other pointer to `ironmark_free` is undefined behaviour.
+Both render functions return a heap-allocated string. You **must** free it with `ironmark_free`. Passing any other pointer to `ironmark_free` is undefined behaviour.
 :::
 
-Both functions are null-safe: `ironmark_render_html(NULL)` returns `NULL`, and `ironmark_free(NULL)` is a no-op.
+All functions are null-safe: a `NULL` input returns `NULL`, and `ironmark_free(NULL)` is a no-op.
 
-Parsing always uses the default `ParseOptions` (all extensions enabled, `disable_raw_html` off). Options are not yet configurable through the C API.
+`ironmark_render_html` uses `ironmark_options_default()`, which passes raw HTML through. For untrusted input, use `ironmark_render_html_with_options` with `IRONMARK_OPT_DISABLE_RAW_HTML`.
