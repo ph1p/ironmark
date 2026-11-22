@@ -1,0 +1,53 @@
+[package]
+name = "ironmark-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ironmark = { path = "..", features = ["html", "ansi", "html-parser"] }
+
+# Standalone: keep out of the root workspace (it needs nightly + sanitizers).
+[workspace]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "render_html"
+path = "fuzz_targets/render_html.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "url_sanitize"
+path = "fuzz_targets/url_sanitize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ast_roundtrip"
+path = "fuzz_targets/ast_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "html_to_markdown"
+path = "fuzz_targets/html_to_markdown.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "render_ansi"
+path = "fuzz_targets/render_ansi.rs"
+test = false
+doc = false
+bench = false

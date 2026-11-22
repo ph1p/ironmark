@@ -13,6 +13,7 @@ exclude = [
   "playground/*",
   "benchmark/*",
   "tests/*",
+  "fuzz/*",
   "wasm/*",
   "package.json",
   "pnpm-lock.yaml",

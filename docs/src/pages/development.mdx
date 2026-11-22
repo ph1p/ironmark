@@ -29,6 +29,27 @@ cargo test --offline -- commonmark   # only the 652 CommonMark spec examples
 cargo test --offline -- <name>       # one test by name
 ```
 
+## Fuzzing
+
+Fuzz targets live in `fuzz/` and use [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz), which needs a nightly toolchain.
+
+```bash
+cargo install cargo-fuzz
+node fuzz/seed.mjs                       # seed corpora from the CommonMark spec
+cargo +nightly fuzz run -O render_html -- \
+  -max_total_time=60 -max_len=4096 -dict=fuzz/markdown.dict
+```
+
+| Target             | Checks                                                        |
+| ------------------ | ------------------------------------------------------------- |
+| `render_html`      | No panics; with raw HTML disabled, no raw tags or unsafe URLs |
+| `url_sanitize`     | Every link form strips `javascript:`, `vbscript:` and `data:` |
+| `ast_roundtrip`    | `parse_markdown` then `render_markdown` does not panic        |
+| `html_to_markdown` | HTML to Markdown, then Markdown to HTML, does not panic       |
+| `render_ansi`      | Terminal renderer does not panic at any width                 |
+
+The first input bytes pick the parse options, so every target also explores option combinations. Set `IRONMARK_FUZZ_ROUNDTRIP=1` to make `ast_roundtrip` also assert that `render_markdown` is idempotent. Crash inputs are written to `fuzz/artifacts/<target>/`; replay one with `cargo +nightly fuzz run <target> <file>`. CI runs each target for 30 seconds.
+
 ## Architecture
 
 Parsing runs in two phases: block parsing, then inline parsing, then rendering.

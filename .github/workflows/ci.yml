@@ -23,6 +23,36 @@ jobs:
           for f in "" html ansi html-parser serde; do
             RUSTFLAGS="-D warnings" cargo check --lib --no-default-features --features "$f"
           done
+      - name: C API smoke test
+        run: |
+          cargo build
+          cc -std=c99 -Wall -Wextra -Werror -o smoke tests/c/smoke.c \
+            target/debug/libironmark.a -lpthread -ldl -lm
+          ./smoke
+
+  fuzz:
+    name: Fuzz (smoke)
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - uses: taiki-e/install-action@cargo-fuzz
+      - name: Seed corpora from the CommonMark spec
+        run: node fuzz/seed.mjs
+      - name: Run each target for 30 s
+        run: |
+          for t in render_html url_sanitize ast_roundtrip html_to_markdown render_ansi; do
+            cargo fuzz run -O "$t" -- -max_total_time=30 -max_len=4096 -timeout=5 -dict=fuzz/markdown.dict
+          done
+      - name: Upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
 
   lint:
     name: Lint & Format

@@ -20,6 +20,8 @@ pnpm bench:quick                     # fast dev loop (~10s): BENCH_QUICK=1, iron
 BENCH_QUICK=1 cargo bench            # quick mode, all parsers (noisy — never commit these numbers)
 cargo fmt                     # format Rust code
 cargo clippy                  # lint (deny undocumented_unsafe_blocks)
+node fuzz/seed.mjs && cargo +nightly fuzz run -O <target> -- -max_total_time=60 -dict=fuzz/markdown.dict
+                              # fuzz (targets: render_html url_sanitize ast_roundtrip html_to_markdown render_ansi)
 
 # WASM build
 pnpm setup:wasm               # install wasm32 target + wasm-bindgen-cli
@@ -82,6 +84,7 @@ Two-phase pipeline: **block parsing → inline parsing → HTML rendering**.
 - `entities/mod.rs` — HTML5 entity resolution
 - `entities/data.rs` — entity lookup tables
 - `lib.rs` — `ParseOptions` struct, public API re-exports, utility functions
+- `ffi.rs` — C API (`ironmark_render_html[_with_options]`, `ironmark_options`, `IRONMARK_OPT_*` flag bits); `include/ironmark.h` is hand-written and a unit test checks the flag bits match; `tests/c/smoke.c` compiles the header in CI
 
 ### WASM layer (`wasm/`)
 
