@@ -612,12 +612,10 @@ impl<'a> InlineScanner<'a> {
 
         let colon_pos = self.pos;
         let scheme_start = if colon_pos >= 5
-            && self.input[colon_pos - 5..colon_pos].eq_ignore_ascii_case("https")
+            && bytes[colon_pos - 5..colon_pos].eq_ignore_ascii_case(b"https")
         {
             colon_pos - 5
-        } else if colon_pos >= 4
-            && self.input[colon_pos - 4..colon_pos].eq_ignore_ascii_case("http")
-        {
+        } else if colon_pos >= 4 && bytes[colon_pos - 4..colon_pos].eq_ignore_ascii_case(b"http") {
             colon_pos - 4
         } else {
             return false;

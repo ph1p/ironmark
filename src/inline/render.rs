@@ -56,8 +56,12 @@ impl<'a> InlineScanner<'a> {
                     out.push_str("<a href=\"");
                     if *is_email {
                         out.push_str("mailto:");
+                        crate::html::encode_url_escaped_into(out, content);
+                    } else if !is_dangerous_url(content) {
+                        // `<data:text/html,…>` is a valid URI autolink; strip it
+                        // like any other link destination.
+                        crate::html::encode_url_escaped_into(out, content);
                     }
-                    crate::html::encode_url_escaped_into(out, content);
                     out.push_str("\">");
                     escape_html_into(out, content);
                     out.push_str("</a>");
@@ -190,7 +194,10 @@ impl<'a> InlineScanner<'a> {
                             }
                         }
                     }
-                    crate::html::encode_url_escaped_into(out, &slug);
+                    // Check the slug, not the text: it is what lands in href.
+                    if !is_dangerous_url(&slug) {
+                        crate::html::encode_url_escaped_into(out, &slug);
+                    }
                     out.push_str("\">");
                     escape_html_into(out, text);
                     out.push_str("</a>");

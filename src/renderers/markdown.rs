@@ -67,12 +67,23 @@ fn render_block(block: &Block, out: &mut String, depth: usize, in_list_item: boo
             for _ in 0..fence_len {
                 out.push('`');
             }
-            if !info.is_empty() {
-                out.push_str(info.as_str());
+            // The AST holds the decoded info string; re-escape what the
+            // parser decodes (`\\x`, `&…;`), or each round trip strips a
+            // level. A backtick would end a backtick fence's info string.
+            for c in info.chars() {
+                match c {
+                    '\\' | '&' => {
+                        out.push('\\');
+                        out.push(c);
+                    }
+                    '`' => out.push_str("&#96;"),
+                    _ => out.push(c),
+                }
             }
             out.push('\n');
             out.push_str(literal);
-            if !literal.ends_with('\n') {
+            // An empty body needs no line: a newline here would become one.
+            if !literal.is_empty() && !literal.ends_with('\n') {
                 out.push('\n');
             }
             for _ in 0..fence_len {

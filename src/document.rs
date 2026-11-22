@@ -2,7 +2,7 @@
 
 use crate::ParseOptions;
 use crate::ast::Block;
-use crate::block::{BlockParser, split_input};
+use crate::block::{BlockParser, replace_nul, split_input};
 use crate::inline::LinkRefMap;
 
 /// Markdown parsed once, so several outputs can be rendered without parsing
@@ -38,7 +38,8 @@ impl ParsedDocument {
     /// Parse `markdown` into the same tree [`parse_markdown`](crate::parse_markdown) returns.
     pub fn parse(markdown: &str, options: &ParseOptions) -> Self {
         let (frontmatter, body) = split_input(markdown, options, usize::MAX);
-        let mut parser = BlockParser::new(body, options);
+        let body = replace_nul(body);
+        let mut parser = BlockParser::new(&body, options);
         let block = parser.parse();
         Self {
             block,

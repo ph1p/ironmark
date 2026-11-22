@@ -1614,3 +1614,77 @@ fn bare_url_excludes_trailing_entity() {
         "<p><a href=\"https://x.com/a\">https://x.com/a</a>;</p>\n",
     );
 }
+
+#[test]
+fn nul_is_replaced_with_replacement_character() {
+    // CommonMark 0.31.2 §2.3: U+0000 must be replaced with U+FFFD.
+    assert_html("a\0b", "<p>a\u{FFFD}b</p>\n");
+    assert_html("`a\0b`", "<p><code>a\u{FFFD}b</code></p>\n");
+    assert_html("```\na\0b\n```", "<pre><code>a\u{FFFD}b\n</code></pre>\n");
+    assert_html("[x](a\0b)", "<p><a href=\"a%EF%BF%BDb\">x</a></p>\n");
+    let ast = ironmark::parse_markdown("a\0b", &ParseOptions::default());
+    assert!(!format!("{ast:?}").contains("\\0"), "{ast:?}");
+}
+
+#[test]
+fn bare_url_after_multibyte_char_does_not_panic() {
+    // Found by fuzzing: the scheme check sliced the str mid-character.
+    for input in ["€tps://foo.bar", "日ttps://x.y", "éttp://a.b"] {
+        let html = render_html(input, &ParseOptions::default());
+        assert!(html.contains("tp"), "{input}: {html}");
+    }
+}
+
+#[test]
+fn dangerous_uri_autolinks_are_stripped() {
+    // Found by fuzzing: `<…>` autolinks skipped the dangerous-URL check.
+    for input in [
+        "<data:text/html,x>",
+        "<javascript:alert(1)>",
+        "<VBScript:x>",
+    ] {
+        let html = render_html(input, &ParseOptions::default());
+        assert!(html.contains("<a href=\"\">"), "{input}: {html}");
+    }
+    let html = render_html("<data:image/png,x>", &ParseOptions::default());
+    assert!(html.contains("href=\"data:image/png,x\""), "{html}");
+}
+
+#[test]
+fn dangerous_wiki_links_are_stripped() {
+    // Found by fuzzing: wiki link slugs skipped the dangerous-URL check.
+    let opts = ParseOptions {
+        enable_wiki_links: true,
+        ..Default::default()
+    };
+    for input in [
+        "[[JaVaScRiPt:foo]]",
+        "[[vbscript:x]]",
+        "[[data:text/html,x]]",
+    ] {
+        let html = render_html(input, &opts);
+        assert!(html.contains("<a href=\"\">"), "{input}: {html}");
+    }
+    assert!(render_html("[[Home Page]]", &opts).contains("href=\"home_page\""));
+}
+
+#[test]
+fn code_info_string_round_trips() {
+    // Found by fuzzing: the decoded info string was emitted raw, so each
+    // parse/render cycle decoded another level of escapes.
+    let opts = ParseOptions::default();
+    for input in [
+        "```ra\\\\\\\\\\\\\\|\\\\ttr=\"\n```\n",
+        "```a&amp;amp;b\nx\n```\n",
+        "```a&#96;b\nx\n```\n",
+    ] {
+        let once = ironmark::render_markdown(&ironmark::parse_markdown(input, &opts));
+        let twice = ironmark::render_markdown(&ironmark::parse_markdown(&once, &opts));
+        assert_eq!(once, twice, "input: {input:?}");
+        assert_eq!(
+            ironmark::parse_markdown(input, &opts),
+            ironmark::parse_markdown(&once, &opts),
+            "input: {input:?}"
+        );
+    }
+}

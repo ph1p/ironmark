@@ -61,11 +61,8 @@ pub enum UnknownInlineHandling {
 /// }
 /// ```
 pub fn parse_html_to_ast(html: &str, options: &HtmlParseOptions) -> Block {
-    let html = if options.max_input_size > 0 && html.len() > options.max_input_size {
-        &html[..options.max_input_size]
-    } else {
-        html
-    };
+    // Backs off to a char boundary: slicing mid-character would panic.
+    let html = crate::block::truncate_to_limit(html, options.max_input_size);
 
     let parser = HtmlParser::new(html, options);
     parser.parse()

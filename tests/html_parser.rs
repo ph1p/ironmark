@@ -258,6 +258,17 @@ fn max_input_size_truncates_input_before_parsing() {
 }
 
 #[test]
+fn max_input_size_backs_off_to_char_boundary() {
+    // Byte 6 falls inside the second "é" (bytes 5..7); slicing there used to panic.
+    let opts = HtmlParseOptions {
+        max_input_size: 6,
+        ..default_opts()
+    };
+    let ast = parse_html_to_ast("<p>\u{e9}\u{e9}</p>", &opts);
+    assert_eq!(paragraph_raw(&document_children(&ast)[0]), "\u{e9}");
+}
+
+#[test]
 fn max_nesting_depth_limits_block_nesting() {
     let unlimited = parse_html_to_ast(
         "<blockquote><blockquote><p>Deep</p></blockquote></blockquote>",

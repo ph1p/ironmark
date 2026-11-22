@@ -14,10 +14,8 @@
 //! - MDX pieces are emitted verbatim, and every open tag — HTML or JSX — is
 //!   checked against its closing tag.
 
-use std::borrow::Cow;
 use std::fmt;
 
-use super::SENTINEL;
 use crate::ParseOptions;
 use crate::entities::decode_entities;
 
@@ -238,17 +236,13 @@ fn compile(
     jsx: &JsxOptions,
     mdx: bool,
 ) -> Result<MdxOutput, MdxError> {
-    // NUL is the sentinel byte; keep real NULs out of the rendered HTML.
-    let markdown: Cow<'_, str> = if markdown.contains(SENTINEL) {
-        Cow::Owned(markdown.replace(SENTINEL, "\u{FFFD}"))
-    } else {
-        Cow::Borrowed(markdown)
-    };
+    // NUL is the sentinel byte; `render_html_impl` replaces real NULs with
+    // U+FFFD (CommonMark §2.3), so none reach the converter.
     let opts = ParseOptions {
         enable_mdx: mdx,
         ..*options
     };
-    let html = crate::block::render_html_impl(&markdown, &opts, true);
+    let html = crate::block::render_html_impl(markdown, &opts, true);
     convert(&html, jsx)
 }
 

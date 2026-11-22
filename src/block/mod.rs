@@ -22,7 +22,7 @@ use crate::render::render_block;
 
 /// Truncate `s` to at most `limit` bytes, backing off to the nearest UTF-8 char
 /// boundary. A `limit` of 0 means unlimited and returns `s` unchanged.
-fn truncate_to_limit(s: &str, limit: usize) -> &str {
+pub(crate) fn truncate_to_limit(s: &str, limit: usize) -> &str {
     if limit == 0 || s.len() <= limit {
         return s;
     }
@@ -31,6 +31,16 @@ fn truncate_to_limit(s: &str, limit: usize) -> &str {
         end -= 1;
     }
     &s[..end]
+}
+
+/// CommonMark §2.3: U+0000 must be replaced with U+FFFD, for security.
+/// Borrows when there is no NUL, which is almost always.
+pub(crate) fn replace_nul(s: &str) -> Cow<'_, str> {
+    if memchr::memchr(0, s.as_bytes()).is_none() {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(s.replace('\0', "\u{FFFD}"))
+    }
 }
 
 /// The part of `markdown` every entry point parses: truncated to
@@ -87,7 +97,9 @@ pub(crate) fn render_html_impl(
     // input is hard-capped at u32::MAX bytes to keep those casts from wrapping —
     // a wrapped range would slice the source out of bounds and panic. This is below
     // any user `max_input_size` and applies even when that limit is 0 (unlimited).
-    let markdown = prepare_input(markdown, options, u32::MAX as usize);
+    // NUL replacement grows the input (1 -> 3 bytes), so cap again after it.
+    let body = replace_nul(prepare_input(markdown, options, u32::MAX as usize));
+    let markdown = truncate_to_limit(&body, u32::MAX as usize);
     let mut parser = BlockParser::new(markdown, options);
     parser.render_mode = true;
     parser.src_ranges = Vec::with_capacity(estimate_block_count(markdown.len()));
